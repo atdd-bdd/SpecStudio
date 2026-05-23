@@ -19,15 +19,16 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("SpecStudio");
     resize(1280, 800);
 
-    m_controller = new AppController(this, this);
-
-    // Central widget first so docks attach around it
+    // Docks and central widget must exist before AppController touches them
     m_editorTabs = new EditorTabWidget(this);
     setCentralWidget(m_editorTabs);
 
     setupDocks();
-    setupMenuBar();
     setupStatusBar();
+
+    m_controller = new AppController(this, this);
+
+    setupMenuBar();
     restoreWindowState();
 }
 
