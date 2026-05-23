@@ -1,0 +1,143 @@
+#include "MainWindow.h"
+#include "AppController.h"
+#include "../ui/SolutionExplorer.h"
+#include "../ui/EditorTabWidget.h"
+#include "../ui/OutputPanel.h"
+#include "../ui/StatusBarManager.h"
+#include "../editors/BaseEditor.h"
+
+#include <QAction>
+#include <QCloseEvent>
+#include <QMenu>
+#include <QMenuBar>
+#include <QSettings>
+#include <QStatusBar>
+
+MainWindow::MainWindow(QWidget* parent)
+    : QMainWindow(parent)
+{
+    setWindowTitle("SpecStudio");
+    resize(1280, 800);
+
+    m_controller = new AppController(this, this);
+
+    // Central widget first so docks attach around it
+    m_editorTabs = new EditorTabWidget(this);
+    setCentralWidget(m_editorTabs);
+
+    setupDocks();
+    setupMenuBar();
+    setupStatusBar();
+    restoreWindowState();
+}
+
+MainWindow::~MainWindow() = default;
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    saveWindowState();
+    event->accept();
+}
+
+void MainWindow::setupMenuBar()
+{
+    // ---- File ----
+    auto* fileMenu = menuBar()->addMenu(tr("&File"));
+
+    auto* actNewSolution  = fileMenu->addAction(tr("New Solution..."));
+    auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
+    auto* actOpenSolution = fileMenu->addAction(tr("Open Solution/Project..."));
+    fileMenu->addSeparator();
+    auto* actSave         = fileMenu->addAction(tr("Save"),     QKeySequence::Save);
+    auto* actSaveAll      = fileMenu->addAction(tr("Save All"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    fileMenu->addSeparator();
+    auto* actPrint        = fileMenu->addAction(tr("Print..."), QKeySequence::Print);
+    fileMenu->addSeparator();
+    auto* actSettings     = fileMenu->addAction(tr("Settings..."));
+
+    connect(actNewSolution,  &QAction::triggered, m_controller, &AppController::onNewSolution);
+    connect(actNewProject,   &QAction::triggered, m_controller, &AppController::onNewProject);
+    connect(actOpenSolution, &QAction::triggered, m_controller, &AppController::onOpenSolution);
+    connect(actSave,         &QAction::triggered, m_controller, &AppController::onSave);
+    connect(actSaveAll,      &QAction::triggered, m_controller, &AppController::onSaveAll);
+    connect(actPrint,        &QAction::triggered, m_controller, &AppController::onPrint);
+    connect(actSettings,     &QAction::triggered, m_controller, &AppController::onSettings);
+
+    // ---- Edit ----
+    auto* editMenu = menuBar()->addMenu(tr("&Edit"));
+
+    auto* actCut   = editMenu->addAction(tr("Cut"),   QKeySequence::Cut);
+    auto* actCopy  = editMenu->addAction(tr("Copy"),  QKeySequence::Copy);
+    auto* actPaste = editMenu->addAction(tr("Paste"), QKeySequence::Paste);
+
+    connect(actCut,   &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->cut(); });
+    connect(actCopy,  &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->copy(); });
+    connect(actPaste, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->paste(); });
+
+    // ---- View ----
+    auto* viewMenu = menuBar()->addMenu(tr("&View"));
+
+    auto* actShowSolution = viewMenu->addAction(tr("Solution Explorer"));
+    auto* actShowFiles    = viewMenu->addAction(tr("Files"));
+    auto* actShowOutput   = viewMenu->addAction(tr("Output"));
+
+    connect(actShowSolution, &QAction::triggered, m_solutionExplorer, &QDockWidget::show);
+    connect(actShowFiles,    &QAction::triggered, m_editorTabs,        &QWidget::show);
+    connect(actShowOutput,   &QAction::triggered, m_outputPanel,       &QDockWidget::show);
+
+    // ---- Git ----
+    auto* gitMenu = menuBar()->addMenu(tr("&Git"));
+
+    auto* actCommitPush = gitMenu->addAction(tr("Commit and Push..."));
+    auto* actFetch      = gitMenu->addAction(tr("Fetch"));
+
+    connect(actCommitPush, &QAction::triggered, m_controller, &AppController::onCommitAndPush);
+    connect(actFetch,      &QAction::triggered, m_controller, &AppController::onFetch);
+
+    // ---- Build ----
+    auto* buildMenu = menuBar()->addMenu(tr("&Build"));
+
+    auto* actBuildFile    = buildMenu->addAction(tr("Current File"),    QKeySequence(Qt::Key_F6));
+    auto* actBuildProject = buildMenu->addAction(tr("Entire Project"),  QKeySequence(Qt::SHIFT | Qt::Key_F6));
+
+    connect(actBuildFile,    &QAction::triggered, m_controller, &AppController::onBuildCurrentFile);
+    connect(actBuildProject, &QAction::triggered, m_controller, &AppController::onBuildProject);
+
+    // ---- Analyze ----
+    auto* analyzeMenu = menuBar()->addMenu(tr("&Analyze"));
+
+    auto* actAnalyze = analyzeMenu->addAction(tr("Check Syntax"), QKeySequence(Qt::Key_F7));
+    connect(actAnalyze, &QAction::triggered, m_controller, &AppController::onAnalyze);
+}
+
+void MainWindow::setupDocks()
+{
+    setDockOptions(QMainWindow::AllowNestedDocks | QMainWindow::AllowTabbedDocks);
+
+    m_solutionExplorer = new SolutionExplorer(this);
+    addDockWidget(Qt::LeftDockWidgetArea, m_solutionExplorer);
+
+    m_outputPanel = new OutputPanel(this);
+    addDockWidget(Qt::BottomDockWidgetArea, m_outputPanel);
+}
+
+void MainWindow::setupStatusBar()
+{
+    m_statusBarMgr = new StatusBarManager(statusBar(), this);
+}
+
+void MainWindow::saveWindowState()
+{
+    QSettings settings;
+    settings.setValue("Window/geometry", saveGeometry());
+    settings.setValue("Window/state",    saveState());
+}
+
+void MainWindow::restoreWindowState()
+{
+    QSettings settings;
+    if (settings.contains("Window/geometry"))
+        restoreGeometry(settings.value("Window/geometry").toByteArray());
+    if (settings.contains("Window/state"))
+        restoreState(settings.value("Window/state").toByteArray());
+}

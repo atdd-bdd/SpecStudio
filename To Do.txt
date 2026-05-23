@@ -1,0 +1,82 @@
+
+SpecStudio is an IDE that allows teams to collaborate on specifications 
+
+It should appear similar to Visual Studio and other IDEs.  
+
+It should use Qt, so that it works on all platforms 
+
+A solution is a just a container for related projects. When creating a new project, it can 
+	go into existing solution or a new one.  A solution has a root folder. 
+
+A Project represents the specifications for a project. It has a root folder, contained
+	in the solution folder.   Each project has its own git.   
+  
+The project folder may have sub-folders.  The files in each folder may be:
+	Feature Files (.feature)
+	Feature Extended Files (.featurex)
+	Excel Files (.csv, .xls, .xlsx) 
+	Markdown Files (.md) 
+	Text (.txt) 
+	Other - none of the above 
+
+The initial version will have native editors for .feature, .featurex, and .txt files 
+
+Settings (1)
+	Set the editors for files, based on the extenions.   
+
+File    Edit   View   Git   Build   Analyze    
+
+File has: 
+	Open Project-Solution /	New Solution / New Project / Print / Settings 
+	Save / Save All 
+		When Save, do a local commit 
+Edit 
+	Cut / Copy / Paste 
+
+View 
+	Solution 
+	Files (a tabbed window) - each tab is an open file  
+	Output (a tabbed window) - tabs will include syntax errors and other things 
+
+Git 
+	Commit and Push - ask for change reason
+	Fetch - 
+
+Settings (2) 
+	Git url 
+	Branch - usually a development branch 
+	User name 
+	User password 
+
+Build 
+	Current File / Entire Project    - calls a translator to glue code or native test
+	
+Analyze 
+	Checks syntax of featurex files 
+
+
+For featurex.  
+	Data statements persist across entire project 
+		Data statements in current folder are implicitly added 
+		Should they be implicitly imported from the other folders? 
+		Unique across entire project.    
+		Option - import implicitly / explicit import 
+	Scenario names
+		Should they be unique in the entire project? 
+			If using featurex, not necessarily so.
+		Option Setting - unique across entire project.   
+			Report error if matching scenario name   
+	Step names 
+		Unique across entire project? 
+			Option settings - unique across entire project. 
+		Include in suggestions
+			If unique across entire project, then yes 
+			If not unique, then suggest (based on option) 
+				1. If in same file 
+				2. If in same folder 
+				3. Anywhere in the project 
+		If import "xxx" , then put in suggestions 
+		  
+			
+	
+ 
