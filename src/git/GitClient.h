@@ -10,6 +10,7 @@ class GitClient : public QObject
 public:
     explicit GitClient(const QString& repoPath, QObject* parent = nullptr);
 
+    bool        hasUncommittedChanges();
     bool        commitAll(const QString& message);
     bool        commitAndPush(const QString& message,
                               const QString& remote,

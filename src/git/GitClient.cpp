@@ -30,6 +30,16 @@ QString GitClient::runGit(const QStringList& args, bool* ok)
     return out;
 }
 
+bool GitClient::hasUncommittedChanges()
+{
+    // Stage everything first so we see the true diff
+    runGit({"add", "-A"});
+    // --cached compares index to HEAD; exit 1 means there are staged changes
+    bool ok = false;
+    runGit({"diff", "--cached", "--quiet"}, &ok);
+    return !ok;  // exit 0 = nothing staged, exit 1 = changes present
+}
+
 bool GitClient::commitAll(const QString& message)
 {
     bool ok = false;
@@ -43,7 +53,13 @@ bool GitClient::commitAndPush(const QString& message,
                                const QString& remote,
                                const QString& branch)
 {
-    if (!commitAll(message)) return false;
+    // Only commit if there is something new to commit (auto-save may have
+    // already committed the working-tree changes).
+    if (hasUncommittedChanges()) {
+        if (!commitAll(message)) return false;
+    } else {
+        emit outputReady(tr("Nothing new to commit — pushing existing commits.\n"));
+    }
 
     bool ok = false;
     runGit({"push", remote, branch}, &ok);
