@@ -17,6 +17,7 @@ public:
 
 signals:
     void fileDoubleClicked(const QString& absolutePath);
+    void newFileRequested(const QString& projectRootPath);
 
 private:
     QTreeView* m_tree = nullptr;

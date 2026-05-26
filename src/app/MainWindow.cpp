@@ -47,6 +47,7 @@ void MainWindow::setupMenuBar()
 
     auto* actNewSolution  = fileMenu->addAction(tr("New Solution..."));
     auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
+    auto* actNewFile      = fileMenu->addAction(tr("New File..."),     QKeySequence::New);
     auto* actOpenSolution = fileMenu->addAction(tr("Open Solution/Project..."));
     fileMenu->addSeparator();
     auto* actSave         = fileMenu->addAction(tr("Save"),     QKeySequence::Save);
@@ -58,6 +59,7 @@ void MainWindow::setupMenuBar()
 
     connect(actNewSolution,  &QAction::triggered, m_controller, &AppController::onNewSolution);
     connect(actNewProject,   &QAction::triggered, m_controller, &AppController::onNewProject);
+    connect(actNewFile,      &QAction::triggered, m_controller, [this]{ m_controller->onNewFile(); });
     connect(actOpenSolution, &QAction::triggered, m_controller, &AppController::onOpenSolution);
     connect(actSave,         &QAction::triggered, m_controller, &AppController::onSave);
     connect(actSaveAll,      &QAction::triggered, m_controller, &AppController::onSaveAll);

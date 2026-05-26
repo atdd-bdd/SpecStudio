@@ -123,9 +123,19 @@ QVariant SolutionTreeModel::data(const QModelIndex& index, int role) const
         }
 
     case Qt::UserRole:
-        // Return absolute path for files (used by double-click handler)
+        // Absolute file path — used by double-click to open the file
         if (node->type == NodeType::File)
             return node->file->absolutePath();
+        return {};
+
+    case Qt::UserRole + 1:
+        // Project root path — used by context menu to scope "New File" to a project
+        if (node->type == NodeType::Project)
+            return node->project->rootPath();
+        if (node->type == NodeType::File)
+            return node->file->absolutePath().left(
+                node->file->absolutePath().length() -
+                node->file->relativePath().length() - 1);
         return {};
 
     default:

@@ -23,6 +23,7 @@ public:
 public slots:
     void onNewSolution();
     void onNewProject();
+    void onNewFile(const QString& projectRootHint = {});
     void onOpenSolution();
     void onSave();
     void onSaveAll();

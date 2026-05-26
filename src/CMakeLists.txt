@@ -63,6 +63,8 @@ set(SOURCES
     ui/dialogs/GitPushDialog.cpp
     ui/dialogs/SettingsDialog.h
     ui/dialogs/SettingsDialog.cpp
+    ui/dialogs/NewFileDialog.h
+    ui/dialogs/NewFileDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp

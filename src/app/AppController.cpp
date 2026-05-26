@@ -10,6 +10,7 @@
 #include "../ui/OutputPanel.h"
 #include "../ui/dialogs/NewSolutionDialog.h"
 #include "../ui/dialogs/NewProjectDialog.h"
+#include "../ui/dialogs/NewFileDialog.h"
 #include "../ui/dialogs/GitPushDialog.h"
 #include "../ui/dialogs/SettingsDialog.h"
 #include "AppSettings.h"
@@ -43,6 +44,8 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
 
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileDoubleClicked,
             this, &AppController::onOpenFile);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::newFileRequested,
+            this, &AppController::onNewFile);
 
     connect(mainWindow->outputPanel(), &OutputPanel::diagnosticActivated,
             this, [this](const QString& filePath, int line) {
@@ -161,6 +164,49 @@ void AppController::onNewProject()
 
     m_treeModel->refresh();
     m_mainWindow->solutionExplorer()->treeView()->expandAll();
+}
+
+void AppController::onNewFile(const QString& projectRootHint)
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Project"),
+            tr("Open or create a project first."));
+        return;
+    }
+
+    // Pick the project: use hint if provided, else use the first project
+    Project* proj = nullptr;
+    if (!projectRootHint.isEmpty()) {
+        for (auto* p : m_solution->projects())
+            if (p->rootPath() == projectRootHint) { proj = p; break; }
+    }
+    if (!proj) proj = m_solution->projects().first();
+
+    NewFileDialog dlg(m_mainWindow);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    QString fileName = dlg.fileName();
+    QString filePath = proj->rootPath() + QDir::separator() + fileName;
+
+    if (QFile::exists(filePath)) {
+        QMessageBox::warning(m_mainWindow, tr("File Exists"),
+            tr("'%1' already exists in this project.").arg(fileName));
+        return;
+    }
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::WriteOnly)) {
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+            tr("Cannot create '%1': %2").arg(filePath, f.errorString()));
+        return;
+    }
+    f.close();
+
+    proj->scanFiles();
+    m_treeModel->refresh();
+    m_mainWindow->solutionExplorer()->treeView()->expandAll();
+
+    onOpenFile(filePath);
 }
 
 void AppController::onOpenSolution()
