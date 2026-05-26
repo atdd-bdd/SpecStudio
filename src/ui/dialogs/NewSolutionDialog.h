@@ -16,7 +16,8 @@ public:
     QString rootFolder()   const;
 
 private:
-    QLineEdit*   m_nameEdit   = nullptr;
-    QLineEdit*   m_folderEdit = nullptr;
-    QPushButton* m_browseBtn  = nullptr;
+    QLineEdit*   m_nameEdit     = nullptr;
+    QLineEdit*   m_folderEdit   = nullptr;
+    QPushButton* m_browseBtn    = nullptr;
+    bool         m_folderEdited = false;
 };

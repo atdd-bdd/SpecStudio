@@ -1,23 +1,43 @@
 #include "NewSolutionDialog.h"
 
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
+#include <QStandardPaths>
 #include <QVBoxLayout>
 
 NewSolutionDialog::NewSolutionDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("New Solution"));
-    setMinimumWidth(400);
+    setMinimumWidth(460);
 
     m_nameEdit   = new QLineEdit(this);
     m_folderEdit = new QLineEdit(this);
     m_browseBtn  = new QPushButton(tr("Browse..."), this);
+
+    const QString docsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+
+    // Auto-fill folder from name unless the user has manually edited it
+    connect(m_nameEdit, &QLineEdit::textChanged, this, [this, docsPath](const QString& name) {
+        if (!m_folderEdited) {
+            QString safe = name.trimmed();
+            safe.replace(QRegularExpression(R"([\\/:*?"<>|])"), "_");
+            m_folderEdit->setText(safe.isEmpty() ? QString()
+                                                 : docsPath + QDir::separator() + safe);
+        }
+    });
+
+    // Once the user types directly in the folder box, stop auto-filling
+    connect(m_folderEdit, &QLineEdit::textEdited, this, [this] {
+        m_folderEdited = true;
+    });
 
     auto* folderRow = new QHBoxLayout();
     folderRow->addWidget(m_folderEdit);
@@ -34,15 +54,17 @@ NewSolutionDialog::NewSolutionDialog(QWidget* parent)
     layout->addWidget(buttons);
 
     connect(m_browseBtn, &QPushButton::clicked, this, [this] {
-        QString dir = QFileDialog::getExistingDirectory(this, tr("Select Root Folder"));
-        if (!dir.isEmpty())
-            m_folderEdit->setText(dir);
+        QString dir = QFileDialog::getExistingDirectory(this, tr("Select Parent Folder"));
+        if (!dir.isEmpty()) {
+            QString name = m_nameEdit->text().trimmed();
+            m_folderEdit->setText(name.isEmpty() ? dir : dir + QDir::separator() + name);
+            m_folderEdited = true;
+        }
     });
 
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
-    // Enable OK only when both fields are filled
     auto updateOk = [this, buttons] {
         buttons->button(QDialogButtonBox::Ok)->setEnabled(
             !m_nameEdit->text().trimmed().isEmpty() &&

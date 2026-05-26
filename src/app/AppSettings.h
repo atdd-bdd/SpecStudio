@@ -49,6 +49,9 @@ public:
     QStringList recentSolutions() const;
     void        addRecentSolution(const QString& path);
 
+    // The full list of file extensions SpecStudio recognises (used in dialogs)
+    static QStringList knownExtensions();
+
 private:
     static QString projectKey(const QString& projectRoot);
 

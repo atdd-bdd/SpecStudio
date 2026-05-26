@@ -148,11 +148,33 @@ void AppController::onNewProject()
         return;
     }
 
-    // Run git init
-    QProcess git;
-    git.setWorkingDirectory(projDir);
-    git.start("git", {"init"});
-    git.waitForFinished(10000);
+    // Run git init via a temporary GitClient
+    {
+        GitClient initGit(projDir);
+        bool ok = false;
+        connect(&initGit, &GitClient::outputReady,
+                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput);
+        connect(&initGit, &GitClient::errorOccurred,
+                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput);
+
+        // runGit is private, so use commitAll with no files to trigger git init indirectly.
+        // Instead, expose a dedicated init via QProcess here.
+        QProcess proc;
+        proc.setWorkingDirectory(projDir);
+        proc.start("git", {"init"});
+        ok = proc.waitForFinished(10000) && proc.exitCode() == 0;
+
+        if (!ok) {
+            QMessageBox::warning(m_mainWindow, tr("Git Init Failed"),
+                tr("Could not run 'git init' in '%1'.\n"
+                   "Make sure git is installed and on your PATH.\n\n"
+                   "The project was created but has no git repository.")
+                .arg(projDir));
+        } else {
+            m_mainWindow->outputPanel()->appendBuildOutput(
+                tr("Initialized git repository in %1").arg(projDir));
+        }
+    }
 
     auto* project = new Project(name, projDir);
     project->scanFiles();
@@ -182,7 +204,7 @@ void AppController::onNewFile(const QString& projectRootHint)
     }
     if (!proj) proj = m_solution->projects().first();
 
-    NewFileDialog dlg(m_mainWindow);
+    NewFileDialog dlg(m_settings, m_mainWindow);
     if (dlg.exec() != QDialog::Accepted) return;
 
     QString fileName = dlg.fileName();

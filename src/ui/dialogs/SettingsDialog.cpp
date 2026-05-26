@@ -54,7 +54,7 @@ void SettingsDialog::buildEditorTab(QTabWidget* tabs)
     m_editorTable->setSelectionBehavior(QAbstractItemView::SelectRows);
 
     // Populate known extensions
-    const QStringList knownExts = {".feature", ".featurex", ".txt", ".md", ".csv", ".xls", ".xlsx"};
+    const QStringList knownExts = AppSettings::knownExtensions();
     for (const QString& ext : knownExts) {
         int row = m_editorTable->rowCount();
         m_editorTable->insertRow(row);
