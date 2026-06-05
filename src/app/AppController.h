@@ -35,6 +35,7 @@ public slots:
     void onBuildProject();
     void onAnalyze();
     void onOpenFile(const QString& absolutePath);
+    void openRecentSolution(const QString& sspecPath);
 
 signals:
     void solutionLoaded(Solution* solution);

@@ -32,9 +32,12 @@ private:
     void saveWindowState();
     void restoreWindowState();
 
+    void populateRecentMenu();
+
     void stubAction(const QString& name);
 
     AppController*    m_controller       = nullptr;
+    QMenu*            m_recentMenu       = nullptr;
     SolutionExplorer* m_solutionExplorer = nullptr;
     EditorTabWidget*  m_editorTabs       = nullptr;
     OutputPanel*      m_outputPanel      = nullptr;

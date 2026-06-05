@@ -80,8 +80,10 @@ void AppController::setSolution(Solution* solution)
 
     if (solution) {
         m_mainWindow->statusBarMgr()->setSolutionName(solution->name());
-        // Expand the solution node in the tree
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
+        // Record in recent solutions list
+        QString sspecPath = solution->rootPath() + QDir::separator() + solution->name() + ".sspec";
+        m_settings->addRecentSolution(sspecPath);
     } else {
         m_mainWindow->statusBarMgr()->clearAll();
     }
@@ -432,4 +434,9 @@ void AppController::onOpenFile(const QString& absolutePath)
 {
     if (absolutePath.isEmpty()) return;
     m_mainWindow->editorTabs()->openFile(absolutePath);
+}
+
+void AppController::openRecentSolution(const QString& sspecPath)
+{
+    loadSolution(sspecPath);
 }

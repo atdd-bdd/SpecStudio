@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "AppController.h"
+#include "AppSettings.h"
 #include "../ui/SolutionExplorer.h"
 #include "../ui/EditorTabWidget.h"
 #include "../ui/OutputPanel.h"
@@ -8,6 +9,7 @@
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QFileInfo>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
@@ -49,6 +51,9 @@ void MainWindow::setupMenuBar()
     auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
     auto* actNewFile      = fileMenu->addAction(tr("New File..."),     QKeySequence::New);
     auto* actOpenSolution = fileMenu->addAction(tr("Open Solution/Project..."));
+    fileMenu->addSeparator();
+    m_recentMenu = fileMenu->addMenu(tr("Recent Solutions"));
+    connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::populateRecentMenu);
     fileMenu->addSeparator();
     auto* actSave         = fileMenu->addAction(tr("Save"),     QKeySequence::Save);
     auto* actSaveAll      = fileMenu->addAction(tr("Save All"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
@@ -143,4 +148,26 @@ void MainWindow::restoreWindowState()
         restoreGeometry(settings.value("Window/geometry").toByteArray());
     if (settings.contains("Window/state"))
         restoreState(settings.value("Window/state").toByteArray());
+}
+
+void MainWindow::populateRecentMenu()
+{
+    m_recentMenu->clear();
+
+    AppSettings tmp;
+    const QStringList recents = tmp.recentSolutions();
+
+    if (recents.isEmpty()) {
+        auto* none = m_recentMenu->addAction(tr("(no recent solutions)"));
+        none->setEnabled(false);
+        return;
+    }
+
+    for (const QString& path : recents) {
+        const QString label = QFileInfo(path).fileName() + "  [" + QFileInfo(path).absolutePath() + "]";
+        auto* act = m_recentMenu->addAction(label);
+        connect(act, &QAction::triggered, this, [this, path] {
+            m_controller->openRecentSolution(path);
+        });
+    }
 }
