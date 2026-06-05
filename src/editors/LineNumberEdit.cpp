@@ -214,6 +214,11 @@ void LineNumberEdit::insertCompletion(const QString& completion)
 
 void LineNumberEdit::keyPressEvent(QKeyEvent* event)
 {
+    if (event->key() == Qt::Key_F12) {
+        emit goToDefinitionRequested();
+        return;
+    }
+
     if (m_completer && m_completer->popup()->isVisible()) {
         switch (event->key()) {
         case Qt::Key_Enter:

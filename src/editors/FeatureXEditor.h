@@ -8,4 +8,7 @@ class FeatureXEditor : public PlainTextEditor
 
 public:
     explicit FeatureXEditor(const QString& filePath, QWidget* parent = nullptr);
+
+private slots:
+    void goToDefinition();
 };

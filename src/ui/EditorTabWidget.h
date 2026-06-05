@@ -22,6 +22,7 @@ public:
 
 signals:
     void currentFileChanged(const QString& absolutePath);
+    void fileOpenRequested(const QString& absolutePath);
 
 private slots:
     void onTabCloseRequested(int index);

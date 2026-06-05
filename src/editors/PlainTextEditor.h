@@ -29,6 +29,7 @@ public:
 protected:
     void setHighlighter(QSyntaxHighlighter* highlighter);
     void setCompletionWords(const QStringList& words);
+    LineNumberEdit* lineNumberEdit() const { return m_edit; }
 
 private:
     LineNumberEdit*     m_edit        = nullptr;

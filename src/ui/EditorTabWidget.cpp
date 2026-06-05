@@ -31,6 +31,9 @@ void EditorTabWidget::openFile(const QString& absolutePath, Project* /*project*/
     int idx = addTab(editor, title);
     setCurrentIndex(idx);
 
+    connect(editor, &BaseEditor::fileOpenRequested,
+            this,   &EditorTabWidget::fileOpenRequested);
+
     connect(editor, &BaseEditor::modificationChanged, this, [this, editor](bool dirty) {
         int i = indexOf(editor);
         if (i < 0) return;

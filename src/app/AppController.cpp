@@ -48,6 +48,8 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, &AppController::onOpenFile);
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::newFileRequested,
             this, &AppController::onNewFile);
+    connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
+            this, &AppController::onOpenFile);
 
     connect(mainWindow->outputPanel(), &OutputPanel::diagnosticActivated,
             this, [this](const QString& filePath, int line) {

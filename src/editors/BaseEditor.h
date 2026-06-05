@@ -22,6 +22,7 @@ public:
 
 signals:
     void modificationChanged(bool dirty);
+    void fileOpenRequested(const QString& absolutePath);
 
 protected:
     void setFilePath(const QString& path) { m_filePath = path; }

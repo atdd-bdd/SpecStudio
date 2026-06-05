@@ -21,6 +21,9 @@ public:
     // Document step-lines are added dynamically when the popup opens.
     void setBaseCompletionWords(const QStringList& words);
 
+signals:
+    void goToDefinitionRequested();
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
