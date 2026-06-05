@@ -3,6 +3,7 @@
 #include <QMainWindow>
 
 class AppController;
+class FindReplaceDialog;
 class SolutionExplorer;
 class EditorTabWidget;
 class OutputPanel;
@@ -36,8 +37,9 @@ private:
 
     void stubAction(const QString& name);
 
-    AppController*    m_controller       = nullptr;
-    QMenu*            m_recentMenu       = nullptr;
+    AppController*    m_controller          = nullptr;
+    QMenu*            m_recentMenu          = nullptr;
+    FindReplaceDialog* m_findReplaceDlg     = nullptr;
     SolutionExplorer* m_solutionExplorer = nullptr;
     EditorTabWidget*  m_editorTabs       = nullptr;
     OutputPanel*      m_outputPanel      = nullptr;

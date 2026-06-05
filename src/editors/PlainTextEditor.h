@@ -19,6 +19,11 @@ public:
     void copy()  override;
     void paste() override;
 
+    bool findNext(const QString& text, bool caseSensitive, bool wrapAround);
+    bool findPrev(const QString& text, bool caseSensitive, bool wrapAround);
+    bool replaceCurrent(const QString& replacement);
+    int  replaceAll(const QString& findText, const QString& replacement, bool caseSensitive);
+
     QPlainTextEdit* textEdit() const { return m_edit; }
 
 protected:

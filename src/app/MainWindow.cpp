@@ -5,6 +5,7 @@
 #include "../ui/EditorTabWidget.h"
 #include "../ui/OutputPanel.h"
 #include "../ui/StatusBarManager.h"
+#include "../ui/dialogs/FindReplaceDialog.h"
 #include "../editors/BaseEditor.h"
 
 #include <QAction>
@@ -77,10 +78,21 @@ void MainWindow::setupMenuBar()
     auto* actCut   = editMenu->addAction(tr("Cut"),   QKeySequence::Cut);
     auto* actCopy  = editMenu->addAction(tr("Copy"),  QKeySequence::Copy);
     auto* actPaste = editMenu->addAction(tr("Paste"), QKeySequence::Paste);
+    editMenu->addSeparator();
+    auto* actFind    = editMenu->addAction(tr("Find..."),    QKeySequence::Find);
+    auto* actReplace = editMenu->addAction(tr("Replace..."), QKeySequence(Qt::CTRL | Qt::Key_H));
 
     connect(actCut,   &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->cut(); });
     connect(actCopy,  &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->copy(); });
     connect(actPaste, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->paste(); });
+    connect(actFind,    &QAction::triggered, this, [this] {
+        if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
+        m_findReplaceDlg->showFind();
+    });
+    connect(actReplace, &QAction::triggered, this, [this] {
+        if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
+        m_findReplaceDlg->showReplace();
+    });
 
     // ---- View ----
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
