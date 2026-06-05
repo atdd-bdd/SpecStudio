@@ -19,6 +19,7 @@ public:
 
     bool saveCurrentFile();
     bool saveAllFiles();
+    void closeFile(const QString& absolutePath);
 
 signals:
     void currentFileChanged(const QString& absolutePath);

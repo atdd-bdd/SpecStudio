@@ -53,6 +53,10 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, &AppController::onOpenFile);
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::newFileRequested,
             this, &AppController::onNewFile);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileRenameRequested,
+            this, &AppController::onRenameFile);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileDeleteRequested,
+            this, &AppController::onDeleteFile);
     connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
             this, &AppController::onOpenFile);
 
@@ -487,6 +491,72 @@ void AppController::onAnalyze()
 
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
+}
+
+void AppController::onRenameFile(const QString& absolutePath)
+{
+    QFileInfo fi(absolutePath);
+    bool ok;
+    const QString newName = QInputDialog::getText(
+        m_mainWindow, tr("Rename File"),
+        tr("New name:"), QLineEdit::Normal, fi.fileName(), &ok);
+    if (!ok || newName.isEmpty() || newName == fi.fileName()) return;
+
+    const QString newPath = fi.absolutePath() + "/" + newName;
+    if (QFile::exists(newPath)) {
+        QMessageBox::warning(m_mainWindow, tr("Rename Failed"),
+            tr("A file named '%1' already exists.").arg(newName));
+        return;
+    }
+
+    m_mainWindow->editorTabs()->closeFile(absolutePath);
+
+    if (!QFile::rename(absolutePath, newPath)) {
+        QMessageBox::critical(m_mainWindow, tr("Rename Failed"),
+            tr("Could not rename '%1'.").arg(fi.fileName()));
+        return;
+    }
+
+    if (m_solution) {
+        for (auto* proj : m_solution->projects()) {
+            proj->scanFiles();
+            connect(proj->git(), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            proj->git()->commitAll(tr("Rename %1 to %2").arg(fi.fileName(), newName));
+        }
+        m_treeModel->refresh();
+        m_mainWindow->solutionExplorer()->treeView()->expandAll();
+    }
+}
+
+void AppController::onDeleteFile(const QString& absolutePath)
+{
+    const QString name = QFileInfo(absolutePath).fileName();
+    auto btn = QMessageBox::question(m_mainWindow, tr("Delete File"),
+        tr("Permanently delete '%1'?").arg(name),
+        QMessageBox::Yes | QMessageBox::No);
+    if (btn != QMessageBox::Yes) return;
+
+    m_mainWindow->editorTabs()->closeFile(absolutePath);
+
+    if (!QFile::remove(absolutePath)) {
+        QMessageBox::critical(m_mainWindow, tr("Delete Failed"),
+            tr("Could not delete '%1'.").arg(name));
+        return;
+    }
+
+    if (m_solution) {
+        for (auto* proj : m_solution->projects()) {
+            proj->scanFiles();
+            connect(proj->git(), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            proj->git()->commitAll(tr("Delete %1").arg(name));
+        }
+        m_treeModel->refresh();
+        m_mainWindow->solutionExplorer()->treeView()->expandAll();
+    }
 }
 
 void AppController::onFindAllUsages()

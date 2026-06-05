@@ -18,6 +18,8 @@ public:
 signals:
     void fileDoubleClicked(const QString& absolutePath);
     void newFileRequested(const QString& projectRootPath);
+    void fileRenameRequested(const QString& absolutePath);
+    void fileDeleteRequested(const QString& absolutePath);
 
 private:
     QTreeView* m_tree = nullptr;

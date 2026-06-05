@@ -70,6 +70,13 @@ bool EditorTabWidget::saveAllFiles()
     return ok;
 }
 
+void EditorTabWidget::closeFile(const QString& absolutePath)
+{
+    auto* ed = m_openFiles.value(absolutePath, nullptr);
+    if (!ed) return;
+    closeTab(indexOf(ed));
+}
+
 bool EditorTabWidget::closeTab(int index)
 {
     auto* ed = qobject_cast<BaseEditor*>(widget(index));

@@ -37,6 +37,8 @@ public slots:
     void onAnalyze();
     void onFindAllUsages();
     void onRenameStep();
+    void onRenameFile(const QString& absolutePath);
+    void onDeleteFile(const QString& absolutePath);
     void onOpenFile(const QString& absolutePath);
     void openRecentSolution(const QString& sspecPath);
 

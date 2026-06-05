@@ -26,14 +26,28 @@ SolutionExplorer::SolutionExplorer(QWidget* parent)
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_tree, &QTreeView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = m_tree->indexAt(pos);
-        // UserRole+1 carries the project root path (set for project and file nodes)
+        QString filePath    = index.data(Qt::UserRole).toString();
         QString projectRoot = index.data(Qt::UserRole + 1).toString();
+        const bool isFile   = !filePath.isEmpty();
 
         QMenu menu(this);
         auto* actNewFile = menu.addAction(tr("New File..."));
         connect(actNewFile, &QAction::triggered, this, [this, projectRoot] {
             emit newFileRequested(projectRoot);
         });
+
+        if (isFile) {
+            menu.addSeparator();
+            auto* actRename = menu.addAction(tr("Rename..."));
+            auto* actDelete = menu.addAction(tr("Delete"));
+            connect(actRename, &QAction::triggered, this, [this, filePath] {
+                emit fileRenameRequested(filePath);
+            });
+            connect(actDelete, &QAction::triggered, this, [this, filePath] {
+                emit fileDeleteRequested(filePath);
+            });
+        }
+
         menu.exec(m_tree->viewport()->mapToGlobal(pos));
     });
 
