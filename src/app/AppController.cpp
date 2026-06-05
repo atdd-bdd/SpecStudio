@@ -366,6 +366,44 @@ void AppController::onFetch()
     }
 }
 
+void AppController::onDiffCurrentFile()
+{
+    auto* ed = m_mainWindow->editorTabs()->currentEditor();
+    if (!ed || !m_solution) {
+        QMessageBox::information(m_mainWindow, tr("No File"), tr("Open a file first."));
+        return;
+    }
+
+    const QString filePath = ed->filePath();
+    Project* ownerProject  = nullptr;
+    QString  relPath;
+
+    for (auto* proj : m_solution->projects()) {
+        const QString root = proj->rootPath();
+        if (filePath.startsWith(root)) {
+            ownerProject = proj;
+            relPath = QDir(root).relativeFilePath(filePath);
+            break;
+        }
+    }
+
+    if (!ownerProject) {
+        QMessageBox::information(m_mainWindow, tr("Not in Project"),
+            tr("The current file is not part of any project."));
+        return;
+    }
+
+    const QString diffText = ownerProject->git()->diff(relPath);
+    const QString title    = QFileInfo(filePath).fileName();
+
+    if (diffText.trimmed().isEmpty()) {
+        m_mainWindow->outputPanel()->showDiff(
+            tr("(no changes vs HEAD)"), title);
+    } else {
+        m_mainWindow->outputPanel()->showDiff(diffText, title);
+    }
+}
+
 void AppController::onPull()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {

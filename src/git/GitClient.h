@@ -17,6 +17,7 @@ public:
                               const QString& branch);
     bool        fetch(const QString& remote = "origin");
     bool        pull(const QString& remote = "origin", const QString& branch = {});
+    QString     diff(const QString& relativeFilePath = {});
     QStringList conflictedFiles();
     bool        resolveOurs(const QString& relativeFilePath);
     bool        resolveTheirs(const QString& relativeFilePath);

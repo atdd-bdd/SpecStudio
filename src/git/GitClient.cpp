@@ -138,3 +138,11 @@ QStringList GitClient::status()
     QString out = runGit({"status", "--porcelain"});
     return out.split('\n', Qt::SkipEmptyParts);
 }
+
+QString GitClient::diff(const QString& relativeFilePath)
+{
+    QStringList args = {"diff", "HEAD"};
+    if (!relativeFilePath.isEmpty())
+        args.append(relativeFilePath);
+    return runGit(args);
+}

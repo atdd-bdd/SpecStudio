@@ -32,6 +32,7 @@ public slots:
     void onCommitAndPush();
     void onFetch();
     void onPull();
+    void onDiffCurrentFile();
     void onBuildCurrentFile();
     void onBuildProject();
     void onAnalyze();

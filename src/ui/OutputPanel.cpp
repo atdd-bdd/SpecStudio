@@ -3,6 +3,8 @@
 #include <QFileInfo>
 #include <QListWidget>
 #include <QTabWidget>
+#include <QTextCharFormat>
+#include <QTextCursor>
 #include <QTextEdit>
 
 OutputPanel::OutputPanel(QWidget* parent)
@@ -35,9 +37,14 @@ OutputPanel::OutputPanel(QWidget* parent)
                                              m_findResults[idx].line);
             });
 
+    m_diffView = new QTextEdit(m_tabs);
+    m_diffView->setReadOnly(true);
+    m_diffView->setFontFamily("Courier New");
+
     m_tabs->addTab(m_buildOut,     tr("Build"));
     m_tabs->addTab(m_analysisList, tr("Analysis"));
     m_tabs->addTab(m_findList,     tr("Find Results"));
+    m_tabs->addTab(m_diffView,     tr("Diff"));
 
     setWidget(m_tabs);
 }
@@ -95,4 +102,38 @@ void OutputPanel::showFindResultsTab()
 {
     show();
     m_tabs->setCurrentWidget(m_findList);
+}
+
+void OutputPanel::showDiff(const QString& diffText, const QString& title)
+{
+    m_diffView->clear();
+    m_tabs->setTabText(m_tabs->indexOf(m_diffView),
+                       title.isEmpty() ? tr("Diff") : tr("Diff – %1").arg(title));
+
+    QTextCursor c(m_diffView->document());
+    QTextCharFormat fmt;
+    fmt.setFontFamily("Courier New");
+
+    for (const QString& line : diffText.split('\n')) {
+        if (line.startsWith("+++") || line.startsWith("---"))
+            fmt.setForeground(QColor(100, 100, 100));
+        else if (line.startsWith('+'))
+            fmt.setForeground(QColor(0, 140, 0));
+        else if (line.startsWith('-'))
+            fmt.setForeground(QColor(200, 0, 0));
+        else if (line.startsWith("@@"))
+            fmt.setForeground(QColor(0, 80, 180));
+        else
+            fmt.setForeground(Qt::black);
+
+        c.insertText(line + '\n', fmt);
+    }
+
+    showDiffTab();
+}
+
+void OutputPanel::showDiffTab()
+{
+    show();
+    m_tabs->setCurrentWidget(m_diffView);
 }

@@ -17,11 +17,13 @@ public:
     void appendBuildOutput(const QString& text);
     void setDiagnostics(const QList<Diagnostic>& diagnostics);
     void setFindResults(const QList<Diagnostic>& results, const QString& term);
+    void showDiff(const QString& diffText, const QString& title);
     void clearBuildOutput();
 
     void showBuildTab();
     void showAnalysisTab();
     void showFindResultsTab();
+    void showDiffTab();
 
 signals:
     void diagnosticActivated(const QString& filePath, int line);
@@ -31,6 +33,7 @@ private:
     QTextEdit*   m_buildOut     = nullptr;
     QListWidget* m_analysisList = nullptr;
     QListWidget* m_findList     = nullptr;
+    QTextEdit*   m_diffView     = nullptr;
 
     QList<Diagnostic> m_diagnostics;
     QList<Diagnostic> m_findResults;
