@@ -24,6 +24,7 @@ public:
     void selectAll()     override;
     void goToLine(int n)  override;
     void formatTable()    override;
+    void setErrorMarks(const QList<QPair<int,int>>& marks) override;
 
     bool findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);

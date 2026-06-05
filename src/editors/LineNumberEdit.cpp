@@ -270,7 +270,35 @@ void LineNumberEdit::keyPressEvent(QKeyEvent* event)
 
 void LineNumberEdit::applyExtraSelections()
 {
-    setExtraSelections(m_currentLineSelections + m_bracketSelections);
+    setExtraSelections(m_currentLineSelections + m_bracketSelections + m_errorSelections);
+}
+
+void LineNumberEdit::clearErrorMarks()
+{
+    m_errorSelections.clear();
+    applyExtraSelections();
+}
+
+void LineNumberEdit::setErrorMarks(const QList<QPair<int,int>>& lineColPairs)
+{
+    m_errorSelections.clear();
+    for (const auto& [line, col] : lineColPairs) {
+        const QTextBlock block = document()->findBlockByLineNumber(line - 1);
+        if (!block.isValid()) continue;
+        const int pos = block.position() + qMax(0, col - 1);
+        QTextCursor c(document());
+        c.setPosition(pos);
+        c.movePosition(QTextCursor::EndOfWord, QTextCursor::KeepAnchor);
+        if (!c.hasSelection())
+            c.movePosition(QTextCursor::EndOfLine, QTextCursor::KeepAnchor);
+
+        QTextEdit::ExtraSelection sel;
+        sel.format.setUnderlineColor(Qt::red);
+        sel.format.setUnderlineStyle(QTextCharFormat::WaveUnderline);
+        sel.cursor = c;
+        m_errorSelections.append(sel);
+    }
+    applyExtraSelections();
 }
 
 void LineNumberEdit::highlightCurrentLine()

@@ -47,6 +47,8 @@ void PlainTextEditor::load(const QString& path)
 
     setFilePath(path);
 
+    m_edit->clearErrorMarks();
+
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_edit->setPlainText(QString());
@@ -258,6 +260,11 @@ void PlainTextEditor::formatTable()
     c.setPosition(first.position());
     c.setPosition(last.position() + last.length() - 1, QTextCursor::KeepAnchor);
     c.insertText(formatted.join('\n'));
+}
+
+void PlainTextEditor::setErrorMarks(const QList<QPair<int,int>>& marks)
+{
+    m_edit->setErrorMarks(marks);
 }
 
 void PlainTextEditor::setHighlighter(QSyntaxHighlighter* highlighter)

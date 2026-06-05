@@ -31,6 +31,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
+#include <QMap>
 #include <QMessageBox>
 #include <QPrintDialog>
 #include <QPrinter>
@@ -491,6 +492,17 @@ void AppController::onAnalyze()
 
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
+
+    // Push error squiggles to any open editors
+    QMap<QString, QList<QPair<int,int>>> marksByFile;
+    for (const auto& d : all)
+        marksByFile[d.filePath].append({d.line, d.column});
+
+    auto* tabs = m_mainWindow->editorTabs();
+    for (auto it = marksByFile.cbegin(); it != marksByFile.cend(); ++it) {
+        if (auto* ed = tabs->editorForPath(it.key()))
+            ed->setErrorMarks(it.value());
+    }
 }
 
 void AppController::onRenameFile(const QString& absolutePath)

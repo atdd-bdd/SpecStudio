@@ -22,6 +22,9 @@ public:
     // Document step-lines are added dynamically when the popup opens.
     void setBaseCompletionWords(const QStringList& words);
 
+    void setErrorMarks(const QList<QPair<int,int>>& lineColPairs);
+    void clearErrorMarks();
+
 signals:
     void goToDefinitionRequested();
 
@@ -51,4 +54,5 @@ private:
 
     QList<QTextEdit::ExtraSelection> m_currentLineSelections;
     QList<QTextEdit::ExtraSelection> m_bracketSelections;
+    QList<QTextEdit::ExtraSelection> m_errorSelections;
 };

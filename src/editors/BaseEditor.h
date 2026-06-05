@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QList>
+#include <QPair>
 #include <QWidget>
 
 class BaseEditor : public QWidget
@@ -24,6 +26,7 @@ public:
     virtual void selectAll()     {}
     virtual void goToLine(int)   {}
     virtual void formatTable()   {}
+    virtual void setErrorMarks(const QList<QPair<int,int>>&) {}
 
 signals:
     void modificationChanged(bool dirty);
