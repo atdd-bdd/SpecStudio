@@ -19,7 +19,11 @@ protected:
 private slots:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect& rect, int dy);
+    void highlightMatchingBrackets();
 
 private:
+    static int findMatchingBracket(QTextDocument* doc, int pos,
+                                   QChar open, QChar close, bool forward);
+
     QWidget* m_lineNumberArea;
 };
