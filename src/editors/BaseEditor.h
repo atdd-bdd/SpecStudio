@@ -23,6 +23,7 @@ public:
     virtual void redo()          {}
     virtual void selectAll()     {}
     virtual void goToLine(int)   {}
+    virtual void formatTable()   {}
 
 signals:
     void modificationChanged(bool dirty);

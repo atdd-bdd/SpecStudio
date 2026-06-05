@@ -22,7 +22,8 @@ public:
     void undo()          override;
     void redo()          override;
     void selectAll()     override;
-    void goToLine(int n) override;
+    void goToLine(int n)  override;
+    void formatTable()    override;
 
     bool findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);

@@ -197,6 +197,69 @@ int PlainTextEditor::replaceAll(const QString& findText, const QString& replacem
     return hits.size();
 }
 
+void PlainTextEditor::formatTable()
+{
+    QTextCursor c = m_edit->textCursor();
+    QTextBlock cur = c.block();
+
+    auto isTableRow = [](const QTextBlock& b) {
+        return b.isValid() && b.text().trimmed().startsWith('|');
+    };
+    if (!isTableRow(cur)) return;
+
+    // Expand to the full contiguous table block
+    QTextBlock first = cur, last = cur;
+    while (isTableRow(first.previous())) first = first.previous();
+    while (isTableRow(last.next()))      last  = last.next();
+
+    // Parse each row into trimmed cells
+    auto parseRow = [](const QString& line) -> QStringList {
+        QString t = line.trimmed();
+        if (t.startsWith('|')) t = t.mid(1);
+        if (t.endsWith('|'))   t.chop(1);
+        QStringList cells = t.split('|');
+        for (auto& cell : cells) cell = cell.trimmed();
+        return cells;
+    };
+
+    QList<QStringList> rows;
+    for (QTextBlock b = first; ; b = b.next()) {
+        rows << parseRow(b.text());
+        if (b == last) break;
+    }
+
+    // Compute per-column max width
+    int cols = 0;
+    for (const auto& row : rows) cols = qMax(cols, row.size());
+    QVector<int> widths(cols, 0);
+    for (const auto& row : rows)
+        for (int i = 0; i < row.size(); ++i)
+            widths[i] = qMax(widths[i], row[i].length());
+
+    // Preserve leading indent of the first row
+    QString indent;
+    for (QChar ch : first.text()) {
+        if (!ch.isSpace()) break;
+        indent += ch;
+    }
+
+    // Build formatted lines
+    QStringList formatted;
+    for (const auto& row : rows) {
+        QString line = indent + "|";
+        for (int i = 0; i < cols; ++i) {
+            const QString cell = (i < row.size()) ? row[i] : QString();
+            line += " " + cell.leftJustified(widths[i]) + " |";
+        }
+        formatted << line;
+    }
+
+    // Replace the table range in one undo step
+    c.setPosition(first.position());
+    c.setPosition(last.position() + last.length() - 1, QTextCursor::KeepAnchor);
+    c.insertText(formatted.join('\n'));
+}
+
 void PlainTextEditor::setHighlighter(QSyntaxHighlighter* highlighter)
 {
     delete m_highlighter;

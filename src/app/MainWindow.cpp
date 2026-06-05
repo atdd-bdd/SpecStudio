@@ -116,6 +116,9 @@ void MainWindow::setupMenuBar()
     });
     connect(actFindUsages, &QAction::triggered, m_controller, &AppController::onFindAllUsages);
     connect(actRename,     &QAction::triggered, m_controller, &AppController::onRenameStep);
+    editMenu->addSeparator();
+    auto* actFormatTable = editMenu->addAction(tr("Format Table"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F));
+    connect(actFormatTable, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->formatTable(); });
 
     // ---- View ----
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
