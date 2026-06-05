@@ -1,0 +1,10 @@
+{
+    "name": "TestSolution",
+    "projects": [
+        {
+            "name": "TestProject",
+            "relativePath": "TestProject"
+        }
+    ],
+    "version": 1
+}
