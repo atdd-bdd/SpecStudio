@@ -69,6 +69,8 @@ set(SOURCES
     ui/dialogs/NewFileDialog.cpp
     ui/dialogs/FindReplaceDialog.h
     ui/dialogs/FindReplaceDialog.cpp
+    ui/dialogs/ConflictResolutionDialog.h
+    ui/dialogs/ConflictResolutionDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp

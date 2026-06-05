@@ -116,9 +116,11 @@ void MainWindow::setupMenuBar()
 
     auto* actCommitPush = gitMenu->addAction(tr("Commit and Push..."));
     auto* actFetch      = gitMenu->addAction(tr("Fetch"));
+    auto* actPull       = gitMenu->addAction(tr("Pull"));
 
     connect(actCommitPush, &QAction::triggered, m_controller, &AppController::onCommitAndPush);
     connect(actFetch,      &QAction::triggered, m_controller, &AppController::onFetch);
+    connect(actPull,       &QAction::triggered, m_controller, &AppController::onPull);
 
     // ---- Build ----
     auto* buildMenu = menuBar()->addMenu(tr("&Build"));

@@ -16,6 +16,12 @@ public:
                               const QString& remote,
                               const QString& branch);
     bool        fetch(const QString& remote = "origin");
+    bool        pull(const QString& remote = "origin", const QString& branch = {});
+    QStringList conflictedFiles();
+    bool        resolveOurs(const QString& relativeFilePath);
+    bool        resolveTheirs(const QString& relativeFilePath);
+    bool        abortMerge();
+    bool        finishMerge(const QString& message);
     QString     currentBranch();
     QStringList status();
 

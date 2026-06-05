@@ -73,6 +73,60 @@ bool GitClient::fetch(const QString& remote)
     return ok;
 }
 
+bool GitClient::pull(const QString& remote, const QString& branch)
+{
+    bool ok = false;
+    QStringList args = {"pull", remote};
+    if (!branch.isEmpty()) args << branch;
+    runGit(args, &ok);
+    return ok;
+}
+
+QStringList GitClient::conflictedFiles()
+{
+    // UU prefix in --porcelain means unmerged (both sides modified)
+    const QString out = runGit({"status", "--porcelain"});
+    QStringList result;
+    for (const QString& line : out.split('\n', Qt::SkipEmptyParts)) {
+        if (line.startsWith("UU ") || line.startsWith("AA ") ||
+            line.startsWith("DD ") || line.startsWith("AU ") ||
+            line.startsWith("UA ")) {
+            result << line.mid(3).trimmed();
+        }
+    }
+    return result;
+}
+
+bool GitClient::resolveOurs(const QString& relativeFilePath)
+{
+    bool ok = false;
+    runGit({"checkout", "--ours",   "--", relativeFilePath}, &ok); if (!ok) return false;
+    runGit({"add", "--",            relativeFilePath},        &ok);
+    return ok;
+}
+
+bool GitClient::resolveTheirs(const QString& relativeFilePath)
+{
+    bool ok = false;
+    runGit({"checkout", "--theirs", "--", relativeFilePath}, &ok); if (!ok) return false;
+    runGit({"add", "--",            relativeFilePath},        &ok);
+    return ok;
+}
+
+bool GitClient::abortMerge()
+{
+    bool ok = false;
+    runGit({"merge", "--abort"}, &ok);
+    return ok;
+}
+
+bool GitClient::finishMerge(const QString& message)
+{
+    bool ok = false;
+    runGit({"commit", "--no-edit", "-m", message.isEmpty() ? "Merge" : message}, &ok);
+    return ok;
+}
+
 QString GitClient::currentBranch()
 {
     QString out = runGit({"rev-parse", "--abbrev-ref", "HEAD"});

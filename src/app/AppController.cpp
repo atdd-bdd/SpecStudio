@@ -11,6 +11,7 @@
 #include "../ui/dialogs/NewSolutionDialog.h"
 #include "../ui/dialogs/NewProjectDialog.h"
 #include "../ui/dialogs/NewFileDialog.h"
+#include "../ui/dialogs/ConflictResolutionDialog.h"
 #include "../ui/dialogs/GitPushDialog.h"
 #include "../ui/dialogs/SettingsDialog.h"
 #include "AppSettings.h"
@@ -357,6 +358,48 @@ void AppController::onFetch()
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
         proj->git()->fetch();
+    }
+}
+
+void AppController::onPull()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Project"),
+            tr("Open a project before pulling."));
+        return;
+    }
+
+    m_mainWindow->outputPanel()->showBuildTab();
+    m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Pull ---"));
+
+    for (auto* proj : m_solution->projects()) {
+        connect(proj->git(), &GitClient::outputReady,
+                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                Qt::UniqueConnection);
+        connect(proj->git(), &GitClient::errorOccurred,
+                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                Qt::UniqueConnection);
+
+        const QString branch = m_settings->gitBranch(proj->rootPath());
+        bool ok = proj->git()->pull("origin", branch);
+
+        if (!ok) {
+            const QStringList conflicts = proj->git()->conflictedFiles();
+            if (!conflicts.isEmpty()) {
+                auto* dlg = new ConflictResolutionDialog(
+                    proj->name(), proj->git(), proj->rootPath(), conflicts, m_mainWindow);
+                connect(dlg, &ConflictResolutionDialog::openFileRequested,
+                        this, &AppController::onOpenFile);
+                dlg->exec();
+                dlg->deleteLater();
+                // Reload any modified files
+                proj->scanFiles();
+                m_treeModel->refresh();
+            } else {
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    tr("[%1] Pull failed — check output.").arg(proj->name()));
+            }
+        }
     }
 }
 
