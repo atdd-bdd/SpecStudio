@@ -33,5 +33,6 @@ private:
     QLineEdit*       m_replaceEdit;
     QCheckBox*       m_caseSensitive;
     QCheckBox*       m_wrapAround;
+    QCheckBox*       m_useRegex;
     QLabel*          m_statusLabel;
 };

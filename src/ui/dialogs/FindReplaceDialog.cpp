@@ -22,6 +22,7 @@ FindReplaceDialog::FindReplaceDialog(EditorTabWidget* tabs, QWidget* parent)
     m_caseSensitive = new QCheckBox(tr("Case sensitive"), this);
     m_wrapAround    = new QCheckBox(tr("Wrap around"), this);
     m_wrapAround->setChecked(true);
+    m_useRegex      = new QCheckBox(tr("Regular expression"), this);
     m_statusLabel   = new QLabel(this);
 
     auto* findNextBtn   = new QPushButton(tr("Find Next"), this);
@@ -39,6 +40,7 @@ FindReplaceDialog::FindReplaceDialog(EditorTabWidget* tabs, QWidget* parent)
     auto* optRow = new QHBoxLayout;
     optRow->addWidget(m_caseSensitive);
     optRow->addWidget(m_wrapAround);
+    optRow->addWidget(m_useRegex);
     optRow->addStretch();
 
     auto* leftCol = new QVBoxLayout;
@@ -103,7 +105,7 @@ void FindReplaceDialog::onFindNext()
     if (!ed) { setStatus(tr("No editor open"), true); return; }
     const QString text = m_findEdit->text();
     if (text.isEmpty()) { setStatus({}); return; }
-    bool found = ed->findNext(text, m_caseSensitive->isChecked(), m_wrapAround->isChecked());
+    bool found = ed->findNext(text, m_caseSensitive->isChecked(), m_wrapAround->isChecked(), m_useRegex->isChecked());
     setStatus(found ? QString() : tr("Not found"), !found);
 }
 
@@ -113,7 +115,7 @@ void FindReplaceDialog::onFindPrev()
     if (!ed) { setStatus(tr("No editor open"), true); return; }
     const QString text = m_findEdit->text();
     if (text.isEmpty()) { setStatus({}); return; }
-    bool found = ed->findPrev(text, m_caseSensitive->isChecked(), m_wrapAround->isChecked());
+    bool found = ed->findPrev(text, m_caseSensitive->isChecked(), m_wrapAround->isChecked(), m_useRegex->isChecked());
     setStatus(found ? QString() : tr("Not found"), !found);
 }
 
@@ -139,7 +141,7 @@ void FindReplaceDialog::onReplaceAll()
     const QString findText    = m_findEdit->text();
     const QString replaceText = m_replaceEdit->text();
     if (findText.isEmpty()) return;
-    int count = ed->replaceAll(findText, replaceText, m_caseSensitive->isChecked());
+    int count = ed->replaceAll(findText, replaceText, m_caseSensitive->isChecked(), m_useRegex->isChecked());
     if (count > 0)
         setStatus(tr("Replaced %1 occurrence(s)").arg(count), false);
     else

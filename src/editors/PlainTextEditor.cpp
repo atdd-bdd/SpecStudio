@@ -3,6 +3,7 @@
 
 #include <QFile>
 #include <QMessageBox>
+#include <QRegularExpression>
 #include <QSyntaxHighlighter>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -80,30 +81,49 @@ void PlainTextEditor::goToLine(int n)
     m_edit->ensureCursorVisible();
 }
 
-bool PlainTextEditor::findNext(const QString& text, bool caseSensitive, bool wrapAround)
+bool PlainTextEditor::findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex)
 {
-    QTextDocument::FindFlags flags;
-    if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
-    bool found = m_edit->find(text, flags);
+    auto doFind = [&](QTextDocument::FindFlags flags) -> bool {
+        if (useRegex) {
+            QRegularExpression re(text, caseSensitive
+                ? QRegularExpression::NoPatternOption
+                : QRegularExpression::CaseInsensitiveOption);
+            return re.isValid() && m_edit->find(re, flags);
+        }
+        if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
+        return m_edit->find(text, flags);
+    };
+
+    bool found = doFind({});
     if (!found && wrapAround) {
         QTextCursor c = m_edit->textCursor();
         c.movePosition(QTextCursor::Start);
         m_edit->setTextCursor(c);
-        found = m_edit->find(text, flags);
+        found = doFind({});
     }
     return found;
 }
 
-bool PlainTextEditor::findPrev(const QString& text, bool caseSensitive, bool wrapAround)
+bool PlainTextEditor::findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex)
 {
-    QTextDocument::FindFlags flags = QTextDocument::FindBackward;
-    if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
-    bool found = m_edit->find(text, flags);
+    auto doFind = [&](QTextDocument::FindFlags flags) -> bool {
+        flags |= QTextDocument::FindBackward;
+        if (useRegex) {
+            QRegularExpression re(text, caseSensitive
+                ? QRegularExpression::NoPatternOption
+                : QRegularExpression::CaseInsensitiveOption);
+            return re.isValid() && m_edit->find(re, flags);
+        }
+        if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
+        return m_edit->find(text, flags);
+    };
+
+    bool found = doFind({});
     if (!found && wrapAround) {
         QTextCursor c = m_edit->textCursor();
         c.movePosition(QTextCursor::End);
         m_edit->setTextCursor(c);
-        found = m_edit->find(text, flags);
+        found = doFind({});
     }
     return found;
 }
@@ -116,22 +136,33 @@ bool PlainTextEditor::replaceCurrent(const QString& replacement)
     return true;
 }
 
-int PlainTextEditor::replaceAll(const QString& findText, const QString& replacement, bool caseSensitive)
+int PlainTextEditor::replaceAll(const QString& findText, const QString& replacement, bool caseSensitive, bool useRegex)
 {
-    QTextDocument::FindFlags flags;
-    if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
-
-    // Collect all hits first so positions stay valid during replacement.
     QList<QTextCursor> hits;
     QTextCursor c(m_edit->document());
-    while (true) {
-        c = m_edit->document()->find(findText, c, flags);
-        if (c.isNull()) break;
-        hits.append(c);
+
+    if (useRegex) {
+        QRegularExpression re(findText, caseSensitive
+            ? QRegularExpression::NoPatternOption
+            : QRegularExpression::CaseInsensitiveOption);
+        if (!re.isValid()) return 0;
+        while (true) {
+            c = m_edit->document()->find(re, c);
+            if (c.isNull()) break;
+            hits.append(c);
+        }
+    } else {
+        QTextDocument::FindFlags flags;
+        if (caseSensitive) flags |= QTextDocument::FindCaseSensitively;
+        while (true) {
+            c = m_edit->document()->find(findText, c, flags);
+            if (c.isNull()) break;
+            hits.append(c);
+        }
     }
+
     if (hits.isEmpty()) return 0;
 
-    // Replace in reverse order inside one undo block.
     QTextCursor undo = hits.first();
     undo.beginEditBlock();
     for (int i = hits.size() - 1; i >= 0; --i)

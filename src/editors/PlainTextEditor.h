@@ -23,10 +23,10 @@ public:
     void selectAll()     override;
     void goToLine(int n) override;
 
-    bool findNext(const QString& text, bool caseSensitive, bool wrapAround);
-    bool findPrev(const QString& text, bool caseSensitive, bool wrapAround);
+    bool findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
+    bool findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool replaceCurrent(const QString& replacement);
-    int  replaceAll(const QString& findText, const QString& replacement, bool caseSensitive);
+    int  replaceAll(const QString& findText, const QString& replacement, bool caseSensitive, bool useRegex = false);
 
     QPlainTextEdit* textEdit() const { return m_edit; }
 
