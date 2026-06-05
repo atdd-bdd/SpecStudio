@@ -166,11 +166,32 @@ void LineNumberEdit::setBaseCompletionWords(const QStringList& words)
     }
 }
 
+void LineNumberEdit::setTagCompletionWords(const QStringList& tags)
+{
+    m_tagWords = tags;
+    if (!m_completer) {
+        m_completer = new QCompleter(this);
+        m_completer->setWidget(this);
+        m_completer->setCompletionMode(QCompleter::PopupCompletion);
+        m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+        m_completer->setModel(new QStringListModel(this));
+        connect(m_completer, qOverload<const QString&>(&QCompleter::activated),
+                this, &LineNumberEdit::insertCompletion);
+    }
+}
+
 QString LineNumberEdit::currentLinePrefix() const
 {
     QTextCursor tc = textCursor();
     const int col  = tc.positionInBlock();
     const QString blockText = tc.block().text();
+
+    // Tag context: if there's a @ before the cursor with no space after it, complete the tag
+    int atPos = blockText.lastIndexOf('@', col - 1);
+    if (atPos >= 0 && !blockText.mid(atPos, col - atPos).contains(' '))
+        return blockText.mid(atPos, col - atPos);
+
+    // Step context: from first non-space to cursor
     int start = 0;
     while (start < col && blockText[start].isSpace()) ++start;
     return blockText.mid(start, col - start);
@@ -183,8 +204,8 @@ void LineNumberEdit::updateCompleterWords()
     };
 
     QSet<QString> seen;
-    QStringList all = m_baseWords;
-    for (const QString& w : m_baseWords)
+    QStringList all = m_baseWords + m_tagWords;
+    for (const QString& w : all)
         seen.insert(w.toLower());
 
     QTextBlock b = document()->begin();

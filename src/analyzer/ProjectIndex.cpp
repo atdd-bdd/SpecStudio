@@ -13,6 +13,7 @@ void ProjectIndex::rebuild(Project* project)
     m_dataNames.clear();
     m_scenarioNames.clear();
     m_stepNames.clear();
+    m_tags.clear();
 
     for (auto* file : project->files()) {
         if (file->type() == FileType::FeatureX || file->type() == FileType::Feature)
@@ -32,6 +33,7 @@ void ProjectIndex::parseFile(const QString& absolutePath)
                                      QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reData(R"(^\s*Data\s+(\w+)\b)",
                                      QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reTag(R"(@(\w+))");
 
     while (!in.atEnd()) {
         QString line = in.readLine();
@@ -49,7 +51,11 @@ void ProjectIndex::parseFile(const QString& absolutePath)
         m = reData.match(line);
         if (m.hasMatch()) {
             m_dataNames.insert(m.captured(1).trimmed(), absolutePath);
+            continue;
         }
+        auto it = reTag.globalMatch(line);
+        while (it.hasNext())
+            m_tags.insert("@" + it.next().captured(1));
     }
 }
 

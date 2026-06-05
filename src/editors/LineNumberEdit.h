@@ -21,6 +21,7 @@ public:
     // Call once to enable autocomplete with a base keyword list.
     // Document step-lines are added dynamically when the popup opens.
     void setBaseCompletionWords(const QStringList& words);
+    void setTagCompletionWords(const QStringList& tags);
 
     void setErrorMarks(const QList<QPair<int,int>>& lineColPairs);
     void clearErrorMarks();
@@ -51,6 +52,7 @@ private:
     QWidget*    m_lineNumberArea;
     QCompleter* m_completer  = nullptr;
     QStringList m_baseWords;
+    QStringList m_tagWords;
 
     QList<QTextEdit::ExtraSelection> m_currentLineSelections;
     QList<QTextEdit::ExtraSelection> m_bracketSelections;

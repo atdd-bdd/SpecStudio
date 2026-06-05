@@ -484,24 +484,34 @@ void AppController::onAnalyze()
     }
 
     QList<Diagnostic> all;
+    QStringList allTags;
     for (auto* proj : m_solution->projects()) {
         m_index->rebuild(proj);
         auto diags = m_analyzer->analyzeProject(proj);
         all.append(diags);
+        for (const QString& t : m_index->tags())
+            if (!allTags.contains(t))
+                allTags.append(t);
     }
 
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
 
+    auto* tabs = m_mainWindow->editorTabs();
+
     // Push error squiggles to any open editors
     QMap<QString, QList<QPair<int,int>>> marksByFile;
     for (const auto& d : all)
         marksByFile[d.filePath].append({d.line, d.column});
-
-    auto* tabs = m_mainWindow->editorTabs();
     for (auto it = marksByFile.cbegin(); it != marksByFile.cend(); ++it) {
         if (auto* ed = tabs->editorForPath(it.key()))
             ed->setErrorMarks(it.value());
+    }
+
+    // Push collected tags to all open editors so @ autocomplete works
+    for (int i = 0; i < tabs->count(); ++i) {
+        if (auto* ed = qobject_cast<BaseEditor*>(tabs->widget(i)))
+            ed->setTagCompletionWords(allTags);
     }
 }
 

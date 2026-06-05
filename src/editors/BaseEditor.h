@@ -27,6 +27,7 @@ public:
     virtual void goToLine(int)   {}
     virtual void formatTable()   {}
     virtual void setErrorMarks(const QList<QPair<int,int>>&) {}
+    virtual void setTagCompletionWords(const QStringList&)  {}
 
 signals:
     void modificationChanged(bool dirty);

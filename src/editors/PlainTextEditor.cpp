@@ -267,6 +267,11 @@ void PlainTextEditor::setErrorMarks(const QList<QPair<int,int>>& marks)
     m_edit->setErrorMarks(marks);
 }
 
+void PlainTextEditor::setTagCompletionWords(const QStringList& tags)
+{
+    m_edit->setTagCompletionWords(tags);
+}
+
 void PlainTextEditor::setHighlighter(QSyntaxHighlighter* highlighter)
 {
     delete m_highlighter;

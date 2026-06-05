@@ -25,6 +25,7 @@ public:
     void goToLine(int n)  override;
     void formatTable()    override;
     void setErrorMarks(const QList<QPair<int,int>>& marks) override;
+    void setTagCompletionWords(const QStringList& tags)    override;
 
     bool findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMultiMap>
+#include <QSet>
 #include <QStringList>
 #include "../app/AppSettings.h"
 
@@ -20,6 +21,7 @@ public:
     const QMultiMap<QString, QString>& dataNames()     const { return m_dataNames; }
     const QMultiMap<QString, QString>& scenarioNames() const { return m_scenarioNames; }
     const QMultiMap<QString, QString>& stepNames()     const { return m_stepNames; }
+    QStringList tags() const { return QStringList(m_tags.cbegin(), m_tags.cend()); }
 
 private:
     void parseFile(const QString& absolutePath);
@@ -27,4 +29,5 @@ private:
     QMultiMap<QString, QString> m_dataNames;      // name → filePath
     QMultiMap<QString, QString> m_scenarioNames;  // name → filePath
     QMultiMap<QString, QString> m_stepNames;      // text → filePath
+    QSet<QString>               m_tags;           // "@tagname"
 };
