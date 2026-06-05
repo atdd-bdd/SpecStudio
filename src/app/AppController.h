@@ -34,6 +34,8 @@ public slots:
     void onBuildCurrentFile();
     void onBuildProject();
     void onAnalyze();
+    void onFindAllUsages();
+    void onRenameStep();
     void onOpenFile(const QString& absolutePath);
     void openRecentSolution(const QString& sspecPath);
 

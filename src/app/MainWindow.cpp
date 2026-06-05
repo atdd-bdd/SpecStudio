@@ -85,6 +85,10 @@ void MainWindow::setupMenuBar()
     connect(actCut,   &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->cut(); });
     connect(actCopy,  &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->copy(); });
     connect(actPaste, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->paste(); });
+    editMenu->addSeparator();
+    auto* actFindUsages = editMenu->addAction(tr("Find All Usages..."), QKeySequence(Qt::SHIFT | Qt::Key_F12));
+    auto* actRename     = editMenu->addAction(tr("Rename Step..."),     QKeySequence(Qt::Key_F2));
+
     connect(actFind,    &QAction::triggered, this, [this] {
         if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
         m_findReplaceDlg->showFind();
@@ -93,6 +97,8 @@ void MainWindow::setupMenuBar()
         if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
         m_findReplaceDlg->showReplace();
     });
+    connect(actFindUsages, &QAction::triggered, m_controller, &AppController::onFindAllUsages);
+    connect(actRename,     &QAction::triggered, m_controller, &AppController::onRenameStep);
 
     // ---- View ----
     auto* viewMenu = menuBar()->addMenu(tr("&View"));

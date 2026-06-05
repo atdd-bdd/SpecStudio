@@ -26,8 +26,18 @@ OutputPanel::OutputPanel(QWidget* parent)
                                              m_diagnostics[idx].line);
             });
 
+    m_findList = new QListWidget(m_tabs);
+    connect(m_findList, &QListWidget::itemActivated, this,
+            [this](QListWidgetItem* item) {
+                int idx = m_findList->row(item);
+                if (idx >= 0 && idx < m_findResults.size())
+                    emit diagnosticActivated(m_findResults[idx].filePath,
+                                             m_findResults[idx].line);
+            });
+
     m_tabs->addTab(m_buildOut,     tr("Build"));
     m_tabs->addTab(m_analysisList, tr("Analysis"));
+    m_tabs->addTab(m_findList,     tr("Find Results"));
 
     setWidget(m_tabs);
 }
@@ -56,6 +66,21 @@ void OutputPanel::clearBuildOutput()
     m_buildOut->clear();
 }
 
+void OutputPanel::setFindResults(const QList<Diagnostic>& results, const QString& term)
+{
+    m_findResults = results;
+    m_findList->clear();
+    m_tabs->setTabText(m_tabs->indexOf(m_findList),
+                       tr("Find Results – \"%1\" (%2)").arg(term).arg(results.size()));
+    for (const auto& d : results) {
+        const QString label = QStringLiteral("%1 (%2):  %3")
+            .arg(QFileInfo(d.filePath).fileName())
+            .arg(d.line)
+            .arg(d.message);
+        m_findList->addItem(label);
+    }
+}
+
 void OutputPanel::showBuildTab()
 {
     m_tabs->setCurrentWidget(m_buildOut);
@@ -64,4 +89,10 @@ void OutputPanel::showBuildTab()
 void OutputPanel::showAnalysisTab()
 {
     m_tabs->setCurrentWidget(m_analysisList);
+}
+
+void OutputPanel::showFindResultsTab()
+{
+    show();
+    m_tabs->setCurrentWidget(m_findList);
 }

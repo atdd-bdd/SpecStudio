@@ -16,6 +16,7 @@
 #include "AppSettings.h"
 #include "../analyzer/ProjectIndex.h"
 #include "../analyzer/FeatureXAnalyzer.h"
+#include "../model/ProjectFile.h"
 #include "../build/BuildController.h"
 #include "../build/BuildOutputParser.h"
 #include "../git/GitClient.h"
@@ -26,11 +27,14 @@
 #include <QTextCursor>
 
 #include <QDir>
+#include <QFile>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QMessageBox>
 #include <QPrintDialog>
 #include <QPrinter>
 #include <QProcess>
+#include <QTextStream>
 #include <QTreeView>
 
 AppController::AppController(MainWindow* mainWindow, QObject* parent)
@@ -440,6 +444,117 @@ void AppController::onAnalyze()
 
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
+}
+
+void AppController::onFindAllUsages()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Project"),
+            tr("Open a project first."));
+        return;
+    }
+
+    // Default to selected text in current editor
+    QString defaultTerm;
+    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->editorTabs()->currentEditor()))
+        defaultTerm = ed->textEdit()->textCursor().selectedText();
+
+    bool ok;
+    const QString term = QInputDialog::getText(
+        m_mainWindow, tr("Find All Usages"),
+        tr("Search for:"), QLineEdit::Normal, defaultTerm, &ok);
+    if (!ok || term.isEmpty()) return;
+
+    QList<Diagnostic> results;
+    for (auto* proj : m_solution->projects()) {
+        for (auto* file : proj->files()) {
+            QFile f(file->absolutePath());
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            QTextStream in(&f);
+            int lineNum = 1;
+            while (!in.atEnd()) {
+                const QString line = in.readLine();
+                if (line.contains(term, Qt::CaseInsensitive)) {
+                    Diagnostic d;
+                    d.filePath = file->absolutePath();
+                    d.line     = lineNum;
+                    d.message  = line.trimmed();
+                    d.severity = Diagnostic::Severity::Info;
+                    results.append(d);
+                }
+                ++lineNum;
+            }
+        }
+    }
+
+    m_mainWindow->outputPanel()->setFindResults(results, term);
+    m_mainWindow->outputPanel()->showFindResultsTab();
+}
+
+void AppController::onRenameStep()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Project"),
+            tr("Open a project first."));
+        return;
+    }
+
+    QString defaultOld;
+    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->editorTabs()->currentEditor()))
+        defaultOld = ed->textEdit()->textCursor().selectedText();
+
+    bool ok;
+    const QString oldText = QInputDialog::getText(
+        m_mainWindow, tr("Rename Step"),
+        tr("Find text:"), QLineEdit::Normal, defaultOld, &ok);
+    if (!ok || oldText.isEmpty()) return;
+
+    const QString newText = QInputDialog::getText(
+        m_mainWindow, tr("Rename Step"),
+        tr("Replace with:"), QLineEdit::Normal, oldText, &ok);
+    if (!ok) return;
+
+    int filesChanged = 0;
+    int totalReplaced = 0;
+
+    for (auto* proj : m_solution->projects()) {
+        bool projModified = false;
+        for (auto* file : proj->files()) {
+            QFile f(file->absolutePath());
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            QTextStream in(&f);
+            QString content = in.readAll();
+            f.close();
+
+            const int count = content.count(oldText, Qt::CaseSensitive);
+            if (count == 0) continue;
+
+            content.replace(oldText, newText, Qt::CaseSensitive);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) continue;
+            QTextStream out(&f);
+            out << content;
+            f.close();
+
+            totalReplaced += count;
+            ++filesChanged;
+            projModified = true;
+
+            // Reload the file if it's open in an editor
+            if (auto* ed = m_mainWindow->editorTabs()->editorForPath(file->absolutePath()))
+                ed->load(file->absolutePath());
+        }
+
+        if (projModified) {
+            connect(proj->git(), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            proj->git()->commitAll(tr("Rename: %1 → %2").arg(oldText, newText));
+        }
+    }
+
+    QMessageBox::information(m_mainWindow, tr("Rename Complete"),
+        tr("Replaced %1 occurrence(s) in %2 file(s).")
+            .arg(totalReplaced).arg(filesChanged));
 }
 
 void AppController::onOpenFile(const QString& absolutePath)
