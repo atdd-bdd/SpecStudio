@@ -2,6 +2,7 @@
 
 #include <QPlainTextEdit>
 #include <QStringList>
+#include <QTextEdit>
 
 class QCompleter;
 
@@ -31,6 +32,7 @@ protected:
 private slots:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect& rect, int dy);
+    void highlightCurrentLine();
     void highlightMatchingBrackets();
     void insertCompletion(const QString& completion);
 
@@ -41,7 +43,12 @@ private:
     QString currentLinePrefix() const;
     void    updateCompleterWords();
 
+    void applyExtraSelections();
+
     QWidget*    m_lineNumberArea;
     QCompleter* m_completer  = nullptr;
     QStringList m_baseWords;
+
+    QList<QTextEdit::ExtraSelection> m_currentLineSelections;
+    QList<QTextEdit::ExtraSelection> m_bracketSelections;
 };

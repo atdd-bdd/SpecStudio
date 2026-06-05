@@ -50,6 +50,8 @@ LineNumberEdit::LineNumberEdit(QWidget* parent)
     connect(this, &QPlainTextEdit::updateRequest,
             this, &LineNumberEdit::updateLineNumberArea);
     connect(this, &QPlainTextEdit::cursorPositionChanged,
+            this, &LineNumberEdit::highlightCurrentLine);
+    connect(this, &QPlainTextEdit::cursorPositionChanged,
             this, &LineNumberEdit::highlightMatchingBrackets);
 
     updateLineNumberAreaWidth();
@@ -262,9 +264,33 @@ void LineNumberEdit::keyPressEvent(QKeyEvent* event)
 // Bracket / quote matching
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Current line highlight + shared ExtraSelection merge
+// ---------------------------------------------------------------------------
+
+void LineNumberEdit::applyExtraSelections()
+{
+    setExtraSelections(m_currentLineSelections + m_bracketSelections);
+}
+
+void LineNumberEdit::highlightCurrentLine()
+{
+    m_currentLineSelections.clear();
+    if (!isReadOnly()) {
+        QTextEdit::ExtraSelection sel;
+        sel.format.setBackground(QColor(255, 255, 210));
+        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+        sel.cursor = textCursor();
+        sel.cursor.clearSelection();
+        m_currentLineSelections.append(sel);
+    }
+    applyExtraSelections();
+}
+
 void LineNumberEdit::highlightMatchingBrackets()
 {
-    QList<QTextEdit::ExtraSelection> extras;
+    m_bracketSelections.clear();
+    QList<QTextEdit::ExtraSelection>& extras = m_bracketSelections;
 
     static const QString opens  = "([{";
     static const QString closes = ")]}";
@@ -294,5 +320,5 @@ void LineNumberEdit::highlightMatchingBrackets()
     if (!tryPos(pos - 1))
         tryPos(pos);
 
-    setExtraSelections(extras);
+    applyExtraSelections();
 }
