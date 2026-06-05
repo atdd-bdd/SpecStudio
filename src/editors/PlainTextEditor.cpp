@@ -71,6 +71,15 @@ void PlainTextEditor::undo()      { m_edit->undo(); }
 void PlainTextEditor::redo()      { m_edit->redo(); }
 void PlainTextEditor::selectAll() { m_edit->selectAll(); }
 
+void PlainTextEditor::goToLine(int n)
+{
+    const QTextBlock block = m_edit->document()->findBlockByLineNumber(qMax(0, n - 1));
+    if (!block.isValid()) return;
+    QTextCursor c(block);
+    m_edit->setTextCursor(c);
+    m_edit->ensureCursorVisible();
+}
+
 bool PlainTextEditor::findNext(const QString& text, bool caseSensitive, bool wrapAround)
 {
     QTextDocument::FindFlags flags;

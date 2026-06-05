@@ -11,6 +11,7 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QFileInfo>
+#include <QInputDialog>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
@@ -83,8 +84,9 @@ void MainWindow::setupMenuBar()
     auto* actPaste     = editMenu->addAction(tr("Paste"),      QKeySequence::Paste);
     auto* actSelectAll = editMenu->addAction(tr("Select All"), QKeySequence::SelectAll);
     editMenu->addSeparator();
-    auto* actFind    = editMenu->addAction(tr("Find..."),    QKeySequence::Find);
-    auto* actReplace = editMenu->addAction(tr("Replace..."), QKeySequence(Qt::CTRL | Qt::Key_H));
+    auto* actGoToLine = editMenu->addAction(tr("Go to Line..."), QKeySequence(Qt::CTRL | Qt::Key_G));
+    auto* actFind     = editMenu->addAction(tr("Find..."),       QKeySequence::Find);
+    auto* actReplace  = editMenu->addAction(tr("Replace..."),    QKeySequence(Qt::CTRL | Qt::Key_H));
 
     connect(actUndo,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->undo(); });
     connect(actRedo,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->redo(); });
@@ -96,6 +98,14 @@ void MainWindow::setupMenuBar()
     auto* actFindUsages = editMenu->addAction(tr("Find All Usages..."), QKeySequence(Qt::SHIFT | Qt::Key_F12));
     auto* actRename     = editMenu->addAction(tr("Rename Step..."),     QKeySequence(Qt::Key_F2));
 
+    connect(actGoToLine, &QAction::triggered, this, [this] {
+        auto* ed = m_editorTabs->currentEditor();
+        if (!ed) return;
+        bool ok;
+        int line = QInputDialog::getInt(this, tr("Go to Line"), tr("Line number:"),
+                                        1, 1, 999999, 1, &ok);
+        if (ok) ed->goToLine(line);
+    });
     connect(actFind,    &QAction::triggered, this, [this] {
         if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
         m_findReplaceDlg->showFind();
