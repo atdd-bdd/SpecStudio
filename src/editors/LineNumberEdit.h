@@ -1,8 +1,12 @@
 #pragma once
 
 #include <QPlainTextEdit>
+#include <QStringList>
 
-// QPlainTextEdit with a painted line-number gutter on the left margin.
+class QCompleter;
+
+// QPlainTextEdit with a painted line-number gutter, bracket matching,
+// and optional keyword/step autocomplete.
 class LineNumberEdit : public QPlainTextEdit
 {
     Q_OBJECT
@@ -13,17 +17,28 @@ public:
     int  lineNumberAreaWidth() const;
     void lineNumberAreaPaintEvent(QPaintEvent* event);
 
+    // Call once to enable autocomplete with a base keyword list.
+    // Document step-lines are added dynamically when the popup opens.
+    void setBaseCompletionWords(const QStringList& words);
+
 protected:
     void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
     void updateLineNumberAreaWidth();
     void updateLineNumberArea(const QRect& rect, int dy);
     void highlightMatchingBrackets();
+    void insertCompletion(const QString& completion);
 
 private:
     static int findMatchingBracket(QTextDocument* doc, int pos,
                                    QChar open, QChar close, bool forward);
 
-    QWidget* m_lineNumberArea;
+    QString currentLinePrefix() const;
+    void    updateCompleterWords();
+
+    QWidget*    m_lineNumberArea;
+    QCompleter* m_completer  = nullptr;
+    QStringList m_baseWords;
 };

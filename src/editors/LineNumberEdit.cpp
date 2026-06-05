@@ -1,7 +1,13 @@
 #include "LineNumberEdit.h"
 
+#include <QAbstractItemView>
+#include <QCompleter>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QScrollBar>
+#include <QSet>
+#include <QStringListModel>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -139,6 +145,117 @@ int LineNumberEdit::findMatchingBracket(QTextDocument* doc, int pos,
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Autocomplete
+// ---------------------------------------------------------------------------
+
+void LineNumberEdit::setBaseCompletionWords(const QStringList& words)
+{
+    m_baseWords = words;
+    if (!m_completer) {
+        m_completer = new QCompleter(this);
+        m_completer->setWidget(this);
+        m_completer->setCompletionMode(QCompleter::PopupCompletion);
+        m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+        m_completer->setModel(new QStringListModel(this));
+        connect(m_completer, qOverload<const QString&>(&QCompleter::activated),
+                this, &LineNumberEdit::insertCompletion);
+    }
+}
+
+QString LineNumberEdit::currentLinePrefix() const
+{
+    QTextCursor tc = textCursor();
+    const int col  = tc.positionInBlock();
+    const QString blockText = tc.block().text();
+    int start = 0;
+    while (start < col && blockText[start].isSpace()) ++start;
+    return blockText.mid(start, col - start);
+}
+
+void LineNumberEdit::updateCompleterWords()
+{
+    static const QStringList stepPrefixes = {
+        "given ", "when ", "then ", "and ", "but "
+    };
+
+    QSet<QString> seen;
+    QStringList all = m_baseWords;
+    for (const QString& w : m_baseWords)
+        seen.insert(w.toLower());
+
+    QTextBlock b = document()->begin();
+    while (b.isValid()) {
+        const QString line  = b.text().trimmed();
+        const QString lower = line.toLower();
+        if (!line.isEmpty() && !seen.contains(lower)) {
+            for (const QString& p : stepPrefixes) {
+                if (lower.startsWith(p)) {
+                    seen.insert(lower);
+                    all.append(line);
+                    break;
+                }
+            }
+        }
+        b = b.next();
+    }
+
+    qobject_cast<QStringListModel*>(m_completer->model())->setStringList(all);
+}
+
+void LineNumberEdit::insertCompletion(const QString& completion)
+{
+    QTextCursor tc = textCursor();
+    const QString prefix = currentLinePrefix();
+    tc.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor, prefix.length());
+    tc.insertText(completion);
+}
+
+void LineNumberEdit::keyPressEvent(QKeyEvent* event)
+{
+    if (m_completer && m_completer->popup()->isVisible()) {
+        switch (event->key()) {
+        case Qt::Key_Enter:
+        case Qt::Key_Return:
+        case Qt::Key_Escape:
+        case Qt::Key_Tab:
+        case Qt::Key_Backtab:
+            event->ignore();
+            return;
+        default:
+            break;
+        }
+    }
+
+    QPlainTextEdit::keyPressEvent(event);
+
+    if (!m_completer) return;
+    if (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier)) return;
+
+    const QString prefix = currentLinePrefix();
+    if (prefix.length() < 2) {
+        m_completer->popup()->hide();
+        return;
+    }
+
+    updateCompleterWords();
+    m_completer->setCompletionPrefix(prefix);
+
+    if (m_completer->completionCount() == 0) {
+        m_completer->popup()->hide();
+        return;
+    }
+
+    QRect cr = cursorRect();
+    cr.setWidth(m_completer->popup()->sizeHintForColumn(0)
+                + m_completer->popup()->verticalScrollBar()->sizeHint().width());
+    m_completer->complete(cr);
+}
+
+// ---------------------------------------------------------------------------
+// Bracket / quote matching
+// ---------------------------------------------------------------------------
 
 void LineNumberEdit::highlightMatchingBrackets()
 {

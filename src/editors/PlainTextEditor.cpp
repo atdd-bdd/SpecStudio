@@ -135,3 +135,8 @@ void PlainTextEditor::setHighlighter(QSyntaxHighlighter* highlighter)
     if (m_highlighter)
         m_highlighter->setDocument(m_edit->document());
 }
+
+void PlainTextEditor::setCompletionWords(const QStringList& words)
+{
+    m_edit->setBaseCompletionWords(words);
+}
