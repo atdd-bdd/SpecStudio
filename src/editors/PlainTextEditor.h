@@ -3,6 +3,7 @@
 #include "BaseEditor.h"
 #include "LineNumberEdit.h"
 
+class QFileSystemWatcher;
 class QSyntaxHighlighter;
 
 class PlainTextEditor : public BaseEditor
@@ -35,7 +36,11 @@ protected:
     void setCompletionWords(const QStringList& words);
     LineNumberEdit* lineNumberEdit() const { return m_edit; }
 
+private slots:
+    void onFileChangedOnDisk(const QString& path);
+
 private:
     LineNumberEdit*     m_edit        = nullptr;
     QSyntaxHighlighter* m_highlighter = nullptr;
+    QFileSystemWatcher* m_watcher     = nullptr;
 };

@@ -2,6 +2,8 @@
 #include "LineNumberEdit.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QSyntaxHighlighter>
@@ -28,11 +30,21 @@ PlainTextEditor::PlainTextEditor(const QString& filePath, QWidget* parent)
     connect(m_edit, &QPlainTextEdit::modificationChanged,
             this,   [this](bool modified) { setDirty(modified); });
 
+    m_watcher = new QFileSystemWatcher(this);
+    connect(m_watcher, &QFileSystemWatcher::fileChanged,
+            this, &PlainTextEditor::onFileChangedOnDisk);
+
     load(filePath);
 }
 
 void PlainTextEditor::load(const QString& path)
 {
+    // Update watcher to track the new path
+    if (!m_watcher->files().isEmpty())
+        m_watcher->removePaths(m_watcher->files());
+    if (QFile::exists(path))
+        m_watcher->addPath(path);
+
     setFilePath(path);
 
     QFile file(path);
@@ -46,6 +58,20 @@ void PlainTextEditor::load(const QString& path)
     m_edit->setPlainText(in.readAll());
     m_edit->document()->setModified(false);
     setDirty(false);
+}
+
+void PlainTextEditor::onFileChangedOnDisk(const QString& path)
+{
+    // Re-add the path — some editors replace the file on save (Qt removes it from watcher)
+    if (QFile::exists(path) && !m_watcher->files().contains(path))
+        m_watcher->addPath(path);
+
+    auto btn = QMessageBox::question(this, tr("File Changed"),
+        tr("'%1' was modified outside the editor. Reload?")
+            .arg(QFileInfo(path).fileName()),
+        QMessageBox::Yes | QMessageBox::No);
+    if (btn == QMessageBox::Yes)
+        load(path);
 }
 
 bool PlainTextEditor::save()
