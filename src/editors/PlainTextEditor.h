@@ -15,9 +15,12 @@ public:
     void load(const QString& path) override;
     bool save() override;
 
-    void cut()   override;
-    void copy()  override;
-    void paste() override;
+    void cut()       override;
+    void copy()      override;
+    void paste()     override;
+    void undo()      override;
+    void redo()      override;
+    void selectAll() override;
 
     bool findNext(const QString& text, bool caseSensitive, bool wrapAround);
     bool findPrev(const QString& text, bool caseSensitive, bool wrapAround);

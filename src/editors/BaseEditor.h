@@ -16,9 +16,12 @@ public:
     QString filePath() const { return m_filePath; }
     bool    isDirty()  const { return m_dirty; }
 
-    virtual void cut()   {}
-    virtual void copy()  {}
-    virtual void paste() {}
+    virtual void cut()       {}
+    virtual void copy()      {}
+    virtual void paste()     {}
+    virtual void undo()      {}
+    virtual void redo()      {}
+    virtual void selectAll() {}
 
 signals:
     void modificationChanged(bool dirty);

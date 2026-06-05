@@ -64,9 +64,12 @@ bool PlainTextEditor::save()
     return true;
 }
 
-void PlainTextEditor::cut()   { m_edit->cut(); }
-void PlainTextEditor::copy()  { m_edit->copy(); }
-void PlainTextEditor::paste() { m_edit->paste(); }
+void PlainTextEditor::cut()       { m_edit->cut(); }
+void PlainTextEditor::copy()      { m_edit->copy(); }
+void PlainTextEditor::paste()     { m_edit->paste(); }
+void PlainTextEditor::undo()      { m_edit->undo(); }
+void PlainTextEditor::redo()      { m_edit->redo(); }
+void PlainTextEditor::selectAll() { m_edit->selectAll(); }
 
 bool PlainTextEditor::findNext(const QString& text, bool caseSensitive, bool wrapAround)
 {

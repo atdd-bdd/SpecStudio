@@ -75,16 +75,23 @@ void MainWindow::setupMenuBar()
     // ---- Edit ----
     auto* editMenu = menuBar()->addMenu(tr("&Edit"));
 
-    auto* actCut   = editMenu->addAction(tr("Cut"),   QKeySequence::Cut);
-    auto* actCopy  = editMenu->addAction(tr("Copy"),  QKeySequence::Copy);
-    auto* actPaste = editMenu->addAction(tr("Paste"), QKeySequence::Paste);
+    auto* actUndo      = editMenu->addAction(tr("Undo"),       QKeySequence::Undo);
+    auto* actRedo      = editMenu->addAction(tr("Redo"),       QKeySequence::Redo);
+    editMenu->addSeparator();
+    auto* actCut       = editMenu->addAction(tr("Cut"),        QKeySequence::Cut);
+    auto* actCopy      = editMenu->addAction(tr("Copy"),       QKeySequence::Copy);
+    auto* actPaste     = editMenu->addAction(tr("Paste"),      QKeySequence::Paste);
+    auto* actSelectAll = editMenu->addAction(tr("Select All"), QKeySequence::SelectAll);
     editMenu->addSeparator();
     auto* actFind    = editMenu->addAction(tr("Find..."),    QKeySequence::Find);
     auto* actReplace = editMenu->addAction(tr("Replace..."), QKeySequence(Qt::CTRL | Qt::Key_H));
 
-    connect(actCut,   &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->cut(); });
-    connect(actCopy,  &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->copy(); });
-    connect(actPaste, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->paste(); });
+    connect(actUndo,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->undo(); });
+    connect(actRedo,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->redo(); });
+    connect(actCut,       &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->cut(); });
+    connect(actCopy,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->copy(); });
+    connect(actPaste,     &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->paste(); });
+    connect(actSelectAll, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->selectAll(); });
     editMenu->addSeparator();
     auto* actFindUsages = editMenu->addAction(tr("Find All Usages..."), QKeySequence(Qt::SHIFT | Qt::Key_F12));
     auto* actRename     = editMenu->addAction(tr("Rename Step..."),     QKeySequence(Qt::Key_F2));
