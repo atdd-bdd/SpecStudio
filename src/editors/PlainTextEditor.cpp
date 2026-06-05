@@ -1,8 +1,8 @@
 #include "PlainTextEditor.h"
+#include "LineNumberEdit.h"
 
 #include <QFile>
 #include <QMessageBox>
-#include <QPlainTextEdit>
 #include <QSyntaxHighlighter>
 #include <QTextCursor>
 #include <QTextDocument>
@@ -12,7 +12,7 @@
 PlainTextEditor::PlainTextEditor(const QString& filePath, QWidget* parent)
     : BaseEditor(filePath, parent)
 {
-    m_edit = new QPlainTextEdit(this);
+    m_edit = new LineNumberEdit(this);
     m_edit->setLineWrapMode(QPlainTextEdit::NoWrap);
 
     QFont font("Courier New", 10);

@@ -36,6 +36,8 @@ set(SOURCES
     ui/dialogs/NewProjectDialog.h
     ui/dialogs/NewProjectDialog.cpp
 
+    editors/LineNumberEdit.h
+    editors/LineNumberEdit.cpp
     editors/PlainTextEditor.h
     editors/PlainTextEditor.cpp
 

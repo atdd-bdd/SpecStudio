@@ -1,8 +1,8 @@
 #pragma once
 
 #include "BaseEditor.h"
+#include "LineNumberEdit.h"
 
-class QPlainTextEdit;
 class QSyntaxHighlighter;
 
 class PlainTextEditor : public BaseEditor
@@ -30,6 +30,6 @@ protected:
     void setHighlighter(QSyntaxHighlighter* highlighter);
 
 private:
-    QPlainTextEdit*    m_edit        = nullptr;
+    LineNumberEdit*     m_edit        = nullptr;
     QSyntaxHighlighter* m_highlighter = nullptr;
 };
