@@ -28,6 +28,8 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QProcess>
 #include <QTreeView>
 
@@ -280,8 +282,16 @@ void AppController::onSaveAll()
 
 void AppController::onPrint()
 {
-    QMessageBox::information(m_mainWindow, tr("Not Implemented"),
-        tr("Print is not yet implemented."));
+    auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->editorTabs()->currentEditor());
+    if (!ed) {
+        QMessageBox::information(m_mainWindow, tr("No File"), tr("Open a file to print."));
+        return;
+    }
+    QPrinter printer(QPrinter::HighResolution);
+    QPrintDialog dialog(&printer, m_mainWindow);
+    dialog.setWindowTitle(tr("Print"));
+    if (dialog.exec() == QDialog::Accepted)
+        ed->textEdit()->print(&printer);
 }
 
 void AppController::onSettings()
