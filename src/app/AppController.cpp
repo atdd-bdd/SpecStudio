@@ -294,7 +294,7 @@ void AppController::onSaveAll()
 
 void AppController::onPrint()
 {
-    auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->editorTabs()->currentEditor());
+    auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor());
     if (!ed) {
         QMessageBox::information(m_mainWindow, tr("No File"), tr("Open a file to print."));
         return;
@@ -368,7 +368,7 @@ void AppController::onFetch()
 
 void AppController::onDiffCurrentFile()
 {
-    auto* ed = m_mainWindow->editorTabs()->currentEditor();
+    auto* ed = m_mainWindow->currentEditor();
     if (!ed || !m_solution) {
         QMessageBox::information(m_mainWindow, tr("No File"), tr("Open a file first."));
         return;
@@ -448,7 +448,7 @@ void AppController::onPull()
 
 void AppController::onBuildCurrentFile()
 {
-    auto* ed = m_mainWindow->editorTabs()->currentEditor();
+    auto* ed = m_mainWindow->currentEditor();
     if (!ed) {
         QMessageBox::information(m_mainWindow, tr("No File"),
             tr("Open a file to build."));
@@ -535,22 +535,18 @@ void AppController::onAnalyze()
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
 
-    auto* tabs = m_mainWindow->editorTabs();
-
-    // Push error squiggles to any open editors
+    // Push error squiggles to any open editors (both panes)
     QMap<QString, QList<QPair<int,int>>> marksByFile;
     for (const auto& d : all)
         marksByFile[d.filePath].append({d.line, d.column});
     for (auto it = marksByFile.cbegin(); it != marksByFile.cend(); ++it) {
-        if (auto* ed = tabs->editorForPath(it.key()))
+        if (auto* ed = m_mainWindow->editorForPath(it.key()))
             ed->setErrorMarks(it.value());
     }
 
     // Push collected tags to all open editors so @ autocomplete works
-    for (int i = 0; i < tabs->count(); ++i) {
-        if (auto* ed = qobject_cast<BaseEditor*>(tabs->widget(i)))
-            ed->setTagCompletionWords(allTags);
-    }
+    for (auto* ed : m_mainWindow->allOpenEditors())
+        ed->setTagCompletionWords(allTags);
 }
 
 void AppController::onRenameFile(const QString& absolutePath)
@@ -629,7 +625,7 @@ void AppController::onFindAllUsages()
 
     // Default to selected text in current editor
     QString defaultTerm;
-    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->editorTabs()->currentEditor()))
+    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor()))
         defaultTerm = ed->textEdit()->textCursor().selectedText();
 
     bool ok;
@@ -673,7 +669,7 @@ void AppController::onRenameStep()
     }
 
     QString defaultOld;
-    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->editorTabs()->currentEditor()))
+    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor()))
         defaultOld = ed->textEdit()->textCursor().selectedText();
 
     bool ok;

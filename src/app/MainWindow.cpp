@@ -15,6 +15,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
+#include <QSplitter>
 #include <QStatusBar>
 
 MainWindow::MainWindow(QWidget* parent)
@@ -24,8 +25,10 @@ MainWindow::MainWindow(QWidget* parent)
     resize(1280, 800);
 
     // Docks and central widget must exist before AppController touches them
-    m_editorTabs = new EditorTabWidget(this);
-    setCentralWidget(m_editorTabs);
+    m_splitter   = new QSplitter(Qt::Horizontal, this);
+    m_editorTabs = new EditorTabWidget(m_splitter);
+    m_splitter->addWidget(m_editorTabs);
+    setCentralWidget(m_splitter);
 
     setupDocks();
     setupStatusBar();
@@ -37,6 +40,65 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 MainWindow::~MainWindow() = default;
+
+BaseEditor* MainWindow::currentEditor() const
+{
+    return activeEditorTabs()->currentEditor();
+}
+
+EditorTabWidget* MainWindow::activeEditorTabs() const
+{
+    if (m_editorTabs2 && m_editorTabs2->isVisible() &&
+        m_editorTabs2->hasFocus())
+        return m_editorTabs2;
+    return m_editorTabs;
+}
+
+BaseEditor* MainWindow::editorForPath(const QString& path) const
+{
+    if (auto* ed = m_editorTabs->editorForPath(path)) return ed;
+    if (m_editorTabs2) return m_editorTabs2->editorForPath(path);
+    return nullptr;
+}
+
+QList<BaseEditor*> MainWindow::allOpenEditors() const
+{
+    QList<BaseEditor*> result;
+    auto collect = [&](EditorTabWidget* tabs) {
+        if (!tabs) return;
+        for (int i = 0; i < tabs->count(); ++i)
+            if (auto* ed = qobject_cast<BaseEditor*>(tabs->widget(i)))
+                result.append(ed);
+    };
+    collect(m_editorTabs);
+    collect(m_editorTabs2);
+    return result;
+}
+
+void MainWindow::splitEditorRight()
+{
+    if (!m_editorTabs2) {
+        m_editorTabs2 = new EditorTabWidget(m_splitter);
+        m_splitter->addWidget(m_editorTabs2);
+        // Equal split
+        const int half = m_splitter->width() / 2;
+        m_splitter->setSizes({half, half});
+        // Wire so files can be opened via go-to-definition etc.
+        connect(m_editorTabs2, &EditorTabWidget::fileOpenRequested,
+                m_controller, &AppController::onOpenFile);
+    }
+    m_editorTabs2->show();
+
+    // Open the active file in the second pane too, if there is one
+    if (auto* ed = m_editorTabs->currentEditor())
+        m_editorTabs2->openFile(ed->filePath());
+}
+
+void MainWindow::closeSplit()
+{
+    if (m_editorTabs2)
+        m_editorTabs2->hide();
+}
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
@@ -126,10 +188,15 @@ void MainWindow::setupMenuBar()
     auto* actShowSolution = viewMenu->addAction(tr("Solution Explorer"));
     auto* actShowFiles    = viewMenu->addAction(tr("Files"));
     auto* actShowOutput   = viewMenu->addAction(tr("Output"));
+    viewMenu->addSeparator();
+    auto* actSplitRight  = viewMenu->addAction(tr("Split Editor Right"), QKeySequence(Qt::CTRL | Qt::Key_Backslash));
+    auto* actCloseSplit  = viewMenu->addAction(tr("Close Split"),         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Backslash));
 
     connect(actShowSolution, &QAction::triggered, m_solutionExplorer, &QDockWidget::show);
     connect(actShowFiles,    &QAction::triggered, m_editorTabs,        &QWidget::show);
     connect(actShowOutput,   &QAction::triggered, m_outputPanel,       &QDockWidget::show);
+    connect(actSplitRight,   &QAction::triggered, this, &MainWindow::splitEditorRight);
+    connect(actCloseSplit,   &QAction::triggered, this, &MainWindow::closeSplit);
 
     // ---- Git ----
     auto* gitMenu = menuBar()->addMenu(tr("&Git"));

@@ -1,9 +1,12 @@
 #pragma once
 
+#include <QList>
 #include <QMainWindow>
 
 class AppController;
+class BaseEditor;
 class FindReplaceDialog;
+class QSplitter;
 class SolutionExplorer;
 class EditorTabWidget;
 class OutputPanel;
@@ -22,6 +25,14 @@ public:
     OutputPanel*      outputPanel()       const { return m_outputPanel; }
     StatusBarManager* statusBarMgr()      const { return m_statusBarMgr; }
 
+    BaseEditor*         currentEditor()     const;
+    EditorTabWidget*    activeEditorTabs()  const;
+    BaseEditor*         editorForPath(const QString& path) const;
+    QList<BaseEditor*>  allOpenEditors()    const;
+
+    void splitEditorRight();
+    void closeSplit();
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
@@ -37,11 +48,13 @@ private:
 
     void stubAction(const QString& name);
 
-    AppController*    m_controller          = nullptr;
-    QMenu*            m_recentMenu          = nullptr;
-    FindReplaceDialog* m_findReplaceDlg     = nullptr;
-    SolutionExplorer* m_solutionExplorer = nullptr;
-    EditorTabWidget*  m_editorTabs       = nullptr;
-    OutputPanel*      m_outputPanel      = nullptr;
-    StatusBarManager* m_statusBarMgr     = nullptr;
+    AppController*     m_controller      = nullptr;
+    QMenu*             m_recentMenu      = nullptr;
+    FindReplaceDialog* m_findReplaceDlg  = nullptr;
+    SolutionExplorer*  m_solutionExplorer = nullptr;
+    QSplitter*         m_splitter        = nullptr;
+    EditorTabWidget*   m_editorTabs      = nullptr;
+    EditorTabWidget*   m_editorTabs2     = nullptr;
+    OutputPanel*       m_outputPanel     = nullptr;
+    StatusBarManager*  m_statusBarMgr    = nullptr;
 };
