@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QPlainTextEdit>
+#include <QRegularExpression>
+#include <QSet>
 #include <QStringList>
 #include <QTextEdit>
 
@@ -17,11 +19,13 @@ public:
 
     int  lineNumberAreaWidth() const;
     void lineNumberAreaPaintEvent(QPaintEvent* event);
+    void lineNumberAreaMousePress(const QPoint& pos);
 
     // Call once to enable autocomplete with a base keyword list.
     // Document step-lines are added dynamically when the popup opens.
     void setBaseCompletionWords(const QStringList& words);
     void setTagCompletionWords(const QStringList& tags);
+    void setFoldPattern(const QRegularExpression& re);
 
     void setErrorMarks(const QList<QPair<int,int>>& lineColPairs);
     void clearErrorMarks();
@@ -46,13 +50,18 @@ private:
 
     QString currentLinePrefix() const;
     void    updateCompleterWords();
+    void    applyExtraSelections();
 
-    void applyExtraSelections();
+    void       toggleFold(int blockNumber);
+    QTextBlock foldEnd(const QTextBlock& header) const;
 
     QWidget*    m_lineNumberArea;
     QCompleter* m_completer  = nullptr;
     QStringList m_baseWords;
     QStringList m_tagWords;
+
+    QRegularExpression m_foldPattern;
+    QSet<int>          m_foldedBlocks;
 
     QList<QTextEdit::ExtraSelection> m_currentLineSelections;
     QList<QTextEdit::ExtraSelection> m_bracketSelections;

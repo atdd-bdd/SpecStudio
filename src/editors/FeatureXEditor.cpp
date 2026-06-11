@@ -15,6 +15,9 @@ FeatureXEditor::FeatureXEditor(const QString& filePath, QWidget* parent)
         "Given ", "When ", "Then ", "And ", "But ",
         "Data ", "import ",
     });
+    lineNumberEdit()->setFoldPattern(
+        QRegularExpression(R"(^\s*(Feature|Background|Scenario(?:\s+Outline)?|Examples|Rule|Data)\s*[:\s])",
+                           QRegularExpression::CaseInsensitiveOption));
     connect(lineNumberEdit(), &LineNumberEdit::goToDefinitionRequested,
             this,             &FeatureXEditor::goToDefinition);
 }

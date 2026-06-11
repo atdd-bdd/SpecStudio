@@ -3,8 +3,11 @@
 #include <QAbstractItemView>
 #include <QCompleter>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPlainTextDocumentLayout>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QSet>
 #include <QStringListModel>
@@ -32,6 +35,11 @@ protected:
         m_editor->lineNumberAreaPaintEvent(event);
     }
 
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        m_editor->lineNumberAreaMousePress(event->pos());
+    }
+
 private:
     LineNumberEdit* m_editor;
 };
@@ -57,12 +65,15 @@ LineNumberEdit::LineNumberEdit(QWidget* parent)
     updateLineNumberAreaWidth();
 }
 
+static constexpr int kFoldArrowWidth = 14;
+
 int LineNumberEdit::lineNumberAreaWidth() const
 {
     int digits = 1;
     int max = qMax(1, blockCount());
     while (max >= 10) { max /= 10; ++digits; }
-    return 8 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    int numWidth = 8 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
+    return numWidth + (m_foldPattern.isValid() ? kFoldArrowWidth : 0);
 }
 
 void LineNumberEdit::resizeEvent(QResizeEvent* event)
@@ -94,6 +105,10 @@ void LineNumberEdit::lineNumberAreaPaintEvent(QPaintEvent* event)
     QPainter painter(m_lineNumberArea);
     painter.fillRect(event->rect(), QColor(245, 245, 245));
 
+    const bool hasFold = m_foldPattern.isValid();
+    const int  w       = m_lineNumberArea->width();
+    const int  numW    = w - (hasFold ? kFoldArrowWidth : 0);
+
     QTextBlock block     = firstVisibleBlock();
     int blockNumber      = block.blockNumber();
     int top    = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
@@ -102,16 +117,137 @@ void LineNumberEdit::lineNumberAreaPaintEvent(QPaintEvent* event)
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             painter.setPen(QColor(130, 130, 130));
-            painter.drawText(0, top,
-                             m_lineNumberArea->width() - 4,
+            painter.drawText(0, top, numW - 4,
                              fontMetrics().height(),
                              Qt::AlignRight,
                              QString::number(blockNumber + 1));
+
+            if (hasFold && m_foldPattern.match(block.text()).hasMatch()) {
+                const bool folded = m_foldedBlocks.contains(blockNumber);
+                const int  cx     = numW + kFoldArrowWidth / 2;
+                const int  cy     = top + fontMetrics().height() / 2;
+                const int  r      = 4;
+                painter.setPen(Qt::NoPen);
+                painter.setBrush(QColor(100, 100, 100));
+                if (folded) {
+                    // ▶ right-pointing triangle
+                    QPoint pts[3] = {
+                        {cx - r + 2, cy - r}, {cx + r, cy}, {cx - r + 2, cy + r}
+                    };
+                    painter.drawPolygon(pts, 3);
+                } else {
+                    // ▼ down-pointing triangle
+                    QPoint pts[3] = {
+                        {cx - r, cy - r + 2}, {cx + r, cy - r + 2}, {cx, cy + r}
+                    };
+                    painter.drawPolygon(pts, 3);
+                }
+                painter.setBrush(Qt::NoBrush);
+            }
         }
         block = block.next();
         top   = bottom;
         bottom = top + qRound(blockBoundingRect(block).height());
         ++blockNumber;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Code folding
+// ---------------------------------------------------------------------------
+
+void LineNumberEdit::setFoldPattern(const QRegularExpression& re)
+{
+    m_foldPattern = re;
+    updateLineNumberAreaWidth();
+    m_lineNumberArea->update();
+}
+
+static int blockIndent(const QString& text)
+{
+    int n = 0;
+    while (n < text.size() && text[n].isSpace()) ++n;
+    return n;
+}
+
+QTextBlock LineNumberEdit::foldEnd(const QTextBlock& header) const
+{
+    const int headerIndent = blockIndent(header.text());
+    QTextBlock b    = header.next();
+    QTextBlock last = header;
+    while (b.isValid()) {
+        const QString t = b.text();
+        if (!t.trimmed().isEmpty()) {
+            if (blockIndent(t) <= headerIndent)
+                break;
+        }
+        last = b;
+        b    = b.next();
+    }
+    return last;
+}
+
+void LineNumberEdit::toggleFold(int blockNumber)
+{
+    QTextBlock header = document()->findBlockByNumber(blockNumber);
+    if (!header.isValid()) return;
+
+    const QTextBlock end = foldEnd(header);
+    if (end == header) return; // nothing to fold
+
+    const bool nowFolded = !m_foldedBlocks.contains(blockNumber);
+
+    QTextBlock b = header.next();
+    while (b.isValid()) {
+        b.setVisible(!nowFolded);
+        document()->markContentsDirty(b.position(), b.length());
+        if (b == end) break;
+        b = b.next();
+    }
+
+    if (nowFolded)
+        m_foldedBlocks.insert(blockNumber);
+    else
+        m_foldedBlocks.remove(blockNumber);
+
+    // If cursor is inside a now-hidden region, move it to the header
+    if (nowFolded) {
+        QTextCursor cur = textCursor();
+        if (cur.block().blockNumber() > blockNumber &&
+            cur.block().blockNumber() <= end.blockNumber()) {
+            cur = QTextCursor(header);
+            cur.movePosition(QTextCursor::EndOfLine);
+            setTextCursor(cur);
+        }
+    }
+
+    auto* layout = qobject_cast<QPlainTextDocumentLayout*>(document()->documentLayout());
+    if (layout) layout->requestUpdate();
+    viewport()->update();
+    m_lineNumberArea->update();
+}
+
+void LineNumberEdit::lineNumberAreaMousePress(const QPoint& pos)
+{
+    if (!m_foldPattern.isValid()) return;
+
+    const int w    = m_lineNumberArea->width();
+    const int numW = w - kFoldArrowWidth;
+    if (pos.x() < numW) return; // click was on the number, not the fold arrow
+
+    QTextBlock block     = firstVisibleBlock();
+    int top    = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    int bottom = top + qRound(blockBoundingRect(block).height());
+
+    while (block.isValid() && top <= pos.y()) {
+        if (block.isVisible() && bottom > pos.y()) {
+            if (m_foldPattern.match(block.text()).hasMatch())
+                toggleFold(block.blockNumber());
+            break;
+        }
+        block  = block.next();
+        top    = bottom;
+        bottom = top + qRound(blockBoundingRect(block).height());
     }
 }
 
