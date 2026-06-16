@@ -22,6 +22,7 @@ private:
     void buildEditorTab(class QTabWidget* tabs);
     void buildGitTab(QTabWidget* tabs);
     void buildFeaturexTab(QTabWidget* tabs);
+    void buildAppearanceTab(QTabWidget* tabs);
 
     void loadValues();
     void saveValues();
@@ -43,4 +44,7 @@ private:
 
     // Editor association table
     QTableWidget* m_editorTable    = nullptr;
+
+    // Appearance
+    QCheckBox*    m_darkTheme      = nullptr;
 };

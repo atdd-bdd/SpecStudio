@@ -1,7 +1,9 @@
 #include "SettingsDialog.h"
 #include "../../app/AppSettings.h"
+#include "../../app/ThemeManager.h"
 #include "../../model/Project.h"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -30,6 +32,7 @@ SettingsDialog::SettingsDialog(AppSettings* settings,
     buildEditorTab(tabs);
     buildGitTab(tabs);
     buildFeaturexTab(tabs);
+    buildAppearanceTab(tabs);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
 
@@ -130,6 +133,25 @@ void SettingsDialog::buildFeaturexTab(QTabWidget* tabs)
     tabs->addTab(widget, tr("FeatureX"));
 }
 
+void SettingsDialog::buildAppearanceTab(QTabWidget* tabs)
+{
+    auto* widget = new QWidget(tabs);
+    auto* layout = new QVBoxLayout(widget);
+
+    m_darkTheme = new QCheckBox(tr("Dark theme"), widget);
+    if (m_settings)
+        m_darkTheme->setChecked(m_settings->darkTheme());
+
+    // Apply immediately on toggle so the user sees it live
+    connect(m_darkTheme, &QCheckBox::toggled, this, [this](bool dark) {
+        ThemeManager::apply(qApp, dark);
+    });
+
+    layout->addWidget(m_darkTheme);
+    layout->addStretch();
+    tabs->addTab(widget, tr("Appearance"));
+}
+
 void SettingsDialog::loadValues()
 {
     if (!m_settings || !m_project) return;
@@ -156,6 +178,9 @@ void SettingsDialog::loadValues()
 void SettingsDialog::saveValues()
 {
     if (!m_settings) return;
+
+    if (m_darkTheme)
+        m_settings->setDarkTheme(m_darkTheme->isChecked());
 
     // Editor associations
     for (int row = 0; row < m_editorTable->rowCount(); ++row) {

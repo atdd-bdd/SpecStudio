@@ -74,6 +74,8 @@ set(SOURCES
 
     app/AppSettings.h
     app/AppSettings.cpp
+    app/ThemeManager.h
+    app/ThemeManager.cpp
 
     analyzer/AnalysisResult.h
     analyzer/ProjectIndex.h

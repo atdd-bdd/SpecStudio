@@ -173,3 +173,15 @@ void AppSettings::addRecentSolution(const QString& path)
     }
     m_settings.endArray();
 }
+
+// ---- Appearance ----
+
+bool AppSettings::darkTheme() const
+{
+    return m_settings.value("Appearance/darkTheme", false).toBool();
+}
+
+void AppSettings::setDarkTheme(bool dark)
+{
+    m_settings.setValue("Appearance/darkTheme", dark);
+}
