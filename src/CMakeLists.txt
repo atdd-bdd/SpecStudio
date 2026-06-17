@@ -57,6 +57,10 @@ set(SOURCES
     editors/syntax/GherkinHighlighter.cpp
     editors/syntax/FeatureXHighlighter.h
     editors/syntax/FeatureXHighlighter.cpp
+    editors/syntax/SpecTableHighlighter.h
+    editors/syntax/SpecTableHighlighter.cpp
+    editors/SpecTableEditor.h
+    editors/SpecTableEditor.cpp
 
     git/GitStatusCache.h
     git/GitStatusCache.cpp
@@ -82,6 +86,10 @@ set(SOURCES
     analyzer/ProjectIndex.cpp
     analyzer/FeatureXAnalyzer.h
     analyzer/FeatureXAnalyzer.cpp
+    analyzer/SpecTableIndex.h
+    analyzer/SpecTableIndex.cpp
+    analyzer/SpecTableAnalyzer.h
+    analyzer/SpecTableAnalyzer.cpp
 
     build/BuildController.h
     build/BuildController.cpp

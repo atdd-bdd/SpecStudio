@@ -8,6 +8,8 @@ class AppSettings;
 class SolutionTreeModel;
 class ProjectIndex;
 class FeatureXAnalyzer;
+class SpecTableIndex;
+class SpecTableAnalyzer;
 class BuildController;
 
 class AppController : public QObject
@@ -54,7 +56,9 @@ private:
     Solution*          m_solution   = nullptr;
     AppSettings*       m_settings   = nullptr;
     SolutionTreeModel* m_treeModel  = nullptr;
-    ProjectIndex*      m_index      = nullptr;
-    FeatureXAnalyzer*  m_analyzer   = nullptr;
-    BuildController*   m_builder    = nullptr;
+    ProjectIndex*      m_index          = nullptr;
+    FeatureXAnalyzer*  m_analyzer       = nullptr;
+    SpecTableIndex*    m_specTableIndex = nullptr;
+    SpecTableAnalyzer* m_specAnalyzer   = nullptr;
+    BuildController*   m_builder        = nullptr;
 };

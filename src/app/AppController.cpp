@@ -17,7 +17,10 @@
 #include "AppSettings.h"
 #include "../analyzer/ProjectIndex.h"
 #include "../analyzer/FeatureXAnalyzer.h"
+#include "../analyzer/SpecTableIndex.h"
+#include "../analyzer/SpecTableAnalyzer.h"
 #include "../model/ProjectFile.h"
+#include "../model/FileType.h"
 #include "../build/BuildController.h"
 #include "../build/BuildOutputParser.h"
 #include "../git/GitClient.h"
@@ -43,10 +46,12 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
     : QObject(parent)
     , m_mainWindow(mainWindow)
 {
-    m_settings  = new AppSettings();
-    m_index     = new ProjectIndex();
-    m_analyzer  = new FeatureXAnalyzer(m_settings, m_index);
-    m_builder   = new BuildController(this);
+    m_settings       = new AppSettings();
+    m_index          = new ProjectIndex();
+    m_analyzer       = new FeatureXAnalyzer(m_settings, m_index);
+    m_specTableIndex = new SpecTableIndex();
+    m_specAnalyzer   = new SpecTableAnalyzer(m_specTableIndex);
+    m_builder        = new BuildController(this);
     m_treeModel = new SolutionTreeModel(this);
     mainWindow->solutionExplorer()->setModel(m_treeModel);
 
@@ -524,12 +529,23 @@ void AppController::onAnalyze()
     QList<Diagnostic> all;
     QStringList allTags;
     for (auto* proj : m_solution->projects()) {
+        // FeatureX analysis
         m_index->rebuild(proj);
-        auto diags = m_analyzer->analyzeProject(proj);
-        all.append(diags);
+        all.append(m_analyzer->analyzeProject(proj));
         for (const QString& t : m_index->tags())
             if (!allTags.contains(t))
                 allTags.append(t);
+
+        // SpecTable analysis
+        QStringList specTableFiles;
+        for (auto* file : proj->files())
+            if (file->type() == FileType::SpecTable)
+                specTableFiles.append(file->absolutePath());
+        if (!specTableFiles.isEmpty()) {
+            m_specTableIndex->rebuildProject(specTableFiles);
+            for (const QString& f : specTableFiles)
+                all.append(m_specAnalyzer->analyzeFile(f));
+        }
     }
 
     m_mainWindow->outputPanel()->setDiagnostics(all);
