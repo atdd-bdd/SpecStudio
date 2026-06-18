@@ -8,13 +8,15 @@
 
 struct SpecTableSymbols
 {
-    QMap<QString, QString> entities;      // name → filePath
-    QMap<QString, QString> domainTerms;   // name → filePath
-    QMap<QString, QString> dataTypes;     // name → filePath
-    QMap<QString, QString> attributes;    // name → filePath
-    QMap<QString, QString> businessRules; // name → filePath
-    QMap<QString, QString> calculations;  // name → filePath
-    QMap<QString, QString> constraints;   // name → filePath
+    QMap<QString, QString> entities;       // name → filePath
+    QMap<QString, QString> domainTerms;    // name → filePath
+    QMap<QString, QString> dataTypes;      // name → filePath
+    QMap<QString, QString> attributes;     // name → filePath
+    QMap<QString, QString> businessRules;  // name → filePath
+    QMap<QString, QString> calculations;   // name → filePath
+    QMap<QString, QString> scenarios;      // name → filePath
+    QMap<QString, QString> scenarioGroups; // name → filePath
+    QMap<QString, QString> specifications; // name → filePath
 
     bool hasAttributeSet(const QString& name) const
     {
@@ -47,8 +49,9 @@ public:
     // Symbols visible project-wide (union of all files in rebuildProject).
     const SpecTableSymbols& projectSymbols() const { return m_project; }
 
-    // Import paths declared in a file (absolute).
+    // Import / Insert paths declared in a file (absolute).
     QStringList importsFor(const QString& filePath) const;
+    QStringList insertsFor(const QString& filePath) const;
 
     // Returns the pipe-table rows defined under "Attributes <name>" (first row = headers).
     QVector<QStringList> attributeRows(const QString& name) const;
@@ -59,7 +62,8 @@ private:
 
     // Cache: file → symbols declared IN that file only (no transitive imports)
     mutable QMap<QString, SpecTableSymbols> m_fileSymbols;
-    mutable QMap<QString, QStringList>      m_fileImports; // absolute paths
+    mutable QMap<QString, QStringList>      m_fileImports; // absolute paths (recursively parsed)
+    mutable QMap<QString, QStringList>      m_fileInserts; // absolute paths (data files, not parsed)
 
     SpecTableSymbols m_project;
 };

@@ -14,6 +14,7 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles)
 {
     m_fileSymbols.clear();
     m_fileImports.clear();
+    m_fileInserts.clear();
     m_project = {};
 
     for (const QString& f : specTableFiles) {
@@ -24,13 +25,15 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles)
 
     // Merge all file-level symbols into the project-wide view
     for (const auto& sym : m_fileSymbols) {
-        for (auto it = sym.entities.cbegin();      it != sym.entities.cend();      ++it) m_project.entities.insert(it.key(), it.value());
-        for (auto it = sym.domainTerms.cbegin();   it != sym.domainTerms.cend();   ++it) m_project.domainTerms.insert(it.key(), it.value());
-        for (auto it = sym.dataTypes.cbegin();     it != sym.dataTypes.cend();     ++it) m_project.dataTypes.insert(it.key(), it.value());
-        for (auto it = sym.attributes.cbegin();    it != sym.attributes.cend();    ++it) m_project.attributes.insert(it.key(), it.value());
-        for (auto it = sym.businessRules.cbegin(); it != sym.businessRules.cend(); ++it) m_project.businessRules.insert(it.key(), it.value());
-        for (auto it = sym.calculations.cbegin();  it != sym.calculations.cend();  ++it) m_project.calculations.insert(it.key(), it.value());
-        for (auto it = sym.constraints.cbegin();   it != sym.constraints.cend();   ++it) m_project.constraints.insert(it.key(), it.value());
+        for (auto it = sym.entities.cbegin();       it != sym.entities.cend();       ++it) m_project.entities.insert(it.key(), it.value());
+        for (auto it = sym.domainTerms.cbegin();    it != sym.domainTerms.cend();    ++it) m_project.domainTerms.insert(it.key(), it.value());
+        for (auto it = sym.dataTypes.cbegin();      it != sym.dataTypes.cend();      ++it) m_project.dataTypes.insert(it.key(), it.value());
+        for (auto it = sym.attributes.cbegin();     it != sym.attributes.cend();     ++it) m_project.attributes.insert(it.key(), it.value());
+        for (auto it = sym.businessRules.cbegin();  it != sym.businessRules.cend();  ++it) m_project.businessRules.insert(it.key(), it.value());
+        for (auto it = sym.calculations.cbegin();   it != sym.calculations.cend();   ++it) m_project.calculations.insert(it.key(), it.value());
+        for (auto it = sym.scenarios.cbegin();      it != sym.scenarios.cend();      ++it) m_project.scenarios.insert(it.key(), it.value());
+        for (auto it = sym.scenarioGroups.cbegin(); it != sym.scenarioGroups.cend(); ++it) m_project.scenarioGroups.insert(it.key(), it.value());
+        for (auto it = sym.specifications.cbegin(); it != sym.specifications.cend(); ++it) m_project.specifications.insert(it.key(), it.value());
     }
 }
 
@@ -45,6 +48,11 @@ SpecTableSymbols SpecTableIndex::buildFor(const QString& filePath) const
 QStringList SpecTableIndex::importsFor(const QString& filePath) const
 {
     return m_fileImports.value(QFileInfo(filePath).absoluteFilePath());
+}
+
+QStringList SpecTableIndex::insertsFor(const QString& filePath) const
+{
+    return m_fileInserts.value(QFileInfo(filePath).absoluteFilePath());
 }
 
 QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
@@ -100,17 +108,21 @@ void SpecTableIndex::parseFile(const QString& filePath,
     QFile f(abs);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
-    static QRegularExpression reEntity     (R"(^\s*Entity\s+(\w+))",       QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDomainTerm (R"(^\s*DomainTerm\s+(\w+))",   QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDataType   (R"(^\s*DataType\s+(\w+))",     QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reAttributes (R"(^\s*Attributes\s+(\w+))",   QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reBizRule    (R"(^\s*BusinessRule\s+(\w+))", QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reCalc       (R"(^\s*Calculation\s+(\w+))",  QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reConstraint (R"(^\s*Constraint\s+(\w+))",   QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reImport     ("^\\s*Import\\s+\"([^\"]+)\"", QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reEntity       (R"(^\s*Entity\s+(\w+))",          QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reDomainTerm   (R"(^\s*DomainTerm\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reDataType     (R"(^\s*DataType\s+(\w+))",        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reAttributes   (R"(^\s*Attributes\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reBizRule      (R"(^\s*BusinessRule\s+(\w+))",    QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reCalc         (R"(^\s*Calculation\s+(\w+))",     QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reScenario     (R"(^\s*Scenario\s+(.+)$)",        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reScenarioGrp  (R"(^\s*ScenarioGroup\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reSpecification(R"(^\s*Specification\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reImport       ("^\\s*Import\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reInsert       ("^\\s*Insert\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
 
     SpecTableSymbols& fileSym = m_fileSymbols[abs];
     QStringList&      fileImp = m_fileImports[abs];
+    QStringList&      fileIns = m_fileInserts[abs];
 
     QTextStream in(&f);
     while (!in.atEnd()) {
@@ -135,8 +147,14 @@ void SpecTableIndex::parseFile(const QString& filePath,
         m = reCalc.match(line);
         if (m.hasMatch()) { const QString n = m.captured(1); fileSym.calculations.insert(n, abs); out.calculations.insert(n, abs); continue; }
 
-        m = reConstraint.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.constraints.insert(n, abs); out.constraints.insert(n, abs); continue; }
+        m = reScenario.match(line);
+        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.scenarios.insert(n, abs); out.scenarios.insert(n, abs); continue; }
+
+        m = reScenarioGrp.match(line);
+        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.scenarioGroups.insert(n, abs); out.scenarioGroups.insert(n, abs); continue; }
+
+        m = reSpecification.match(line);
+        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.specifications.insert(n, abs); out.specifications.insert(n, abs); continue; }
 
         m = reImport.match(line);
         if (m.hasMatch()) {
@@ -145,6 +163,15 @@ void SpecTableIndex::parseFile(const QString& filePath,
             if (!fileImp.contains(resolved))
                 fileImp.append(resolved);
             parseFile(resolved, out, visited);
+            continue;
+        }
+
+        m = reInsert.match(line);
+        if (m.hasMatch()) {
+            const QString resolved = QFileInfo(
+                QFileInfo(abs).absolutePath() + "/" + m.captured(1)).absoluteFilePath();
+            if (!fileIns.contains(resolved))
+                fileIns.append(resolved);
         }
     }
 }

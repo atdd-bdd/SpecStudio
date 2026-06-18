@@ -13,15 +13,17 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
     setHighlighter(new SpecTableHighlighter(textEdit()->document()));
 
     setCompletionWords({
-        "Entity ", "DomainTerm ", "DataType ", "Attributes ", "BusinessRule ",
-        "Calculation ", "Constraint ", "Import ", "Insert ",
+        "Specification ", "Entity ", "DomainTerm ", "DataType ", "Attributes ",
+        "BusinessRule ", "Calculation ", "Import ", "Insert ",
+        "Scenario ", "ScenarioGroup ", "Background ",
+        "Description ", "Details ", "Constraint ", "Examples",
         "Given ", "When ", "Then ", "And ", "But ",
         "applying BusinessRule ", "applying Calculation ",
     });
 
     lineNumberEdit()->setFoldPattern(
         QRegularExpression(
-            R"(^\s*(Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Constraint)\b)",
+            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background)\b)",
             QRegularExpression::CaseInsensitiveOption));
 }
 

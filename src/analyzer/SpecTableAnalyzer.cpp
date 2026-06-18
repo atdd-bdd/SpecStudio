@@ -37,22 +37,25 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     // Build the symbol set visible from this file (own declarations + imports)
     const SpecTableSymbols visible = m_index->buildFor(filePath);
 
-    checkImports       (filePath, visible, diags);
-    checkStepRefs      (filePath, visible, diags);
-    checkDescriptions  (filePath, diags);
-    checkDataTypeTables(filePath, diags);
+    checkImports     (filePath, visible, diags);
+    checkInserts     (filePath, diags);
+    checkStepRefs    (filePath, visible, diags);
+    checkDescriptions(filePath, diags);
+    checkExamples    (filePath, diags);
 
     return diags;
 }
 
 // ---------------------------------------------------------------------------
-// Check 1 — Import paths exist and are .spectable files
+// Check 1a — Import paths exist
 // ---------------------------------------------------------------------------
 
 void SpecTableAnalyzer::checkImports(const QString& filePath,
                                       const SpecTableSymbols&,
                                       QList<Diagnostic>& out) const
 {
+    const QStringList imports = m_index->importsFor(filePath);
+
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
@@ -71,14 +74,40 @@ void SpecTableAnalyzer::checkImports(const QString& filePath,
         const QString importedPath = m.captured(1);
         const QString resolved     = QFileInfo(dir + "/" + importedPath).absoluteFilePath();
 
-        if (!importedPath.endsWith(".spectable", Qt::CaseInsensitive))
-            out.append(makeDiag(filePath, lineNum,
-                QStringLiteral("Import '%1' is not a .spectable file").arg(importedPath),
-                Diagnostic::Severity::Warning));
-
         if (!QFile::exists(resolved))
             out.append(makeDiag(filePath, lineNum,
                 QStringLiteral("Imported file not found: '%1'").arg(importedPath)));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check 1b — Insert paths exist (any file type allowed)
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkInserts(const QString& filePath,
+                                      QList<Diagnostic>& out) const
+{
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    static QRegularExpression reInsert("^\\s*Insert\\s+\"([^\"]+)\"",
+                                       QRegularExpression::CaseInsensitiveOption);
+    const QString dir = QFileInfo(filePath).absolutePath();
+
+    QTextStream in(&f);
+    int lineNum = 0;
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        ++lineNum;
+        auto m = reInsert.match(line);
+        if (!m.hasMatch()) continue;
+
+        const QString insertedPath = m.captured(1);
+        const QString resolved     = QFileInfo(dir + "/" + insertedPath).absoluteFilePath();
+
+        if (!QFile::exists(resolved))
+            out.append(makeDiag(filePath, lineNum,
+                QStringLiteral("Inserted file not found: '%1'").arg(insertedPath)));
     }
 }
 
@@ -154,7 +183,7 @@ void SpecTableAnalyzer::checkStepRefs(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
-// Check 3 — BusinessRule, DataType, Calculation should have a description (* line)
+// Check 3 — BusinessRule, DataType, Calculation should have a Description
 // ---------------------------------------------------------------------------
 
 void SpecTableAnalyzer::checkDescriptions(const QString& filePath,
@@ -166,7 +195,9 @@ void SpecTableAnalyzer::checkDescriptions(const QString& filePath,
     static QRegularExpression reDecl(
         R"(^\s*(BusinessRule|DataType|Calculation)\s+(\w+))",
         QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDesc(R"(^\s*\*.+)");
+    // Accept "Description <text>" (new spec) or "* text" (legacy)
+    static QRegularExpression reDesc(R"(^\s*(Description\s+\S|\*.+))",
+                                     QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reBlank(R"(^\s*$)");
 
     QTextStream in(&f);
@@ -177,7 +208,7 @@ void SpecTableAnalyzer::checkDescriptions(const QString& filePath,
         auto m = reDecl.match(lines[i]);
         if (!m.hasMatch()) continue;
 
-        // Look ahead: skip blank lines, expect a * description within 3 lines
+        // Look ahead: skip blank lines, expect a Description within 3 lines
         bool found = false;
         for (int j = i + 1; j < qMin(i + 4, lines.size()); ++j) {
             if (reDesc.match(lines[j]).hasMatch()) { found = true; break; }
@@ -185,49 +216,63 @@ void SpecTableAnalyzer::checkDescriptions(const QString& filePath,
         }
         if (!found)
             out.append(makeDiag(filePath, i + 1,
-                QStringLiteral("%1 '%2' has no description (* line)")
+                QStringLiteral("%1 '%2' has no Description")
                     .arg(m.captured(1), m.captured(2)),
                 Diagnostic::Severity::Warning));
     }
 }
 
 // ---------------------------------------------------------------------------
-// Check 4 — DataType tables must have "Value" and "Valid" columns
+// Check 4 — BusinessRule/Calculation need Examples; DataType needs a table
 // ---------------------------------------------------------------------------
 
-void SpecTableAnalyzer::checkDataTypeTables(const QString& filePath,
-                                             QList<Diagnostic>& out) const
+void SpecTableAnalyzer::checkExamples(const QString& filePath,
+                                       QList<Diagnostic>& out) const
 {
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
-    static QRegularExpression reDataType(R"(^\s*DataType\s+(\w+))",
+    static QRegularExpression reDecl(
+        R"(^\s*(BusinessRule|DataType|Calculation)\s+(\w+))",
+        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reExamples(R"(^\s*Examples\b)",
                                          QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reTableRow(R"(^\s*\|)");
+    static QRegularExpression reNextTopLevel(
+        R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background)\b)",
+        QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);
     QStringList lines;
     while (!in.atEnd()) lines.append(in.readLine());
 
     for (int i = 0; i < lines.size(); ++i) {
-        auto m = reDataType.match(lines[i]);
+        auto m = reDecl.match(lines[i]);
         if (!m.hasMatch()) continue;
 
-        const QString name = m.captured(1);
+        const QString keyword = m.captured(1).toLower();
+        const QString name    = m.captured(2);
 
-        // Find the first table header row following this declaration
-        for (int j = i + 1; j < qMin(i + 8, lines.size()); ++j) {
-            if (!reTableRow.match(lines[j]).hasMatch()) continue;
+        bool hasExamples = false;
+        bool hasTable    = false;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            if (reNextTopLevel.match(lines[j]).hasMatch()) break;
+            if (reExamples.match(lines[j]).hasMatch()) hasExamples = true;
+            if (reTableRow.match(lines[j]).hasMatch())  hasTable    = true;
+        }
 
-            const QString header = lines[j].toLower();
-            const bool hasValue = header.contains("value");
-            const bool hasValid = header.contains("valid");
-
-            if (!hasValue || !hasValid)
-                out.append(makeDiag(filePath, j + 1,
-                    QStringLiteral("DataType '%1' table must have 'Value' and 'Valid' columns")
-                        .arg(name)));
-            break;
+        if (keyword == "datatype") {
+            if (!hasTable && !hasExamples)
+                out.append(makeDiag(filePath, i + 1,
+                    QStringLiteral("DataType '%1' has no data table or Examples section").arg(name),
+                    Diagnostic::Severity::Warning));
+        } else {
+            // BusinessRule or Calculation must have an Examples section
+            if (!hasExamples)
+                out.append(makeDiag(filePath, i + 1,
+                    QStringLiteral("%1 '%2' has no Examples section")
+                        .arg(m.captured(1), name),
+                    Diagnostic::Severity::Warning));
         }
     }
 }

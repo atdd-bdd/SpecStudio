@@ -13,8 +13,14 @@ void SpecTableHighlighter::buildRules()
     QTextCharFormat declFmt;
     declFmt.setForeground(QColor("#569CD6")); // VS blue
     declFmt.setFontWeight(QFont::Bold);
-    addRule(R"(^\s*(Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Constraint|Import|Insert)\b)",
+    addRule(R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Examples)\b)",
             declFmt);
+
+    // --- Named comment keywords (Description, Details, Constraint) ---
+    QTextCharFormat namedCommentFmt;
+    namedCommentFmt.setForeground(QColor("#6A9955")); // VS green
+    namedCommentFmt.setFontItalic(true);
+    addRule(R"(^\s*(Description|Details|Constraint)\b)", namedCommentFmt);
 
     // --- Step keywords ---
     QTextCharFormat stepFmt;
@@ -32,7 +38,12 @@ void SpecTableHighlighter::buildRules()
     attrRefFmt.setForeground(QColor("#808080")); // dark grey
     addRule(R"(:\s*(\w+)\s*$)", attrRefFmt);
 
-    // --- Description / annotation lines starting with * ---
+    // --- Line continuation marker \ at end of Details lines ---
+    QTextCharFormat contFmt;
+    contFmt.setForeground(QColor("#808080"));
+    addRule(R"(\\$)", contFmt);
+
+    // --- Legacy description lines starting with * ---
     QTextCharFormat descFmt;
     descFmt.setForeground(QColor("#6A9955")); // VS green
     descFmt.setFontItalic(true);
@@ -58,11 +69,11 @@ void SpecTableHighlighter::buildRules()
     validFmt.setForeground(QColor("#4EC9B0"));
     addRule(R"(\b(Valid|Yes|No)\b)", validFmt);
 
-    // --- Section headers  # ... ---
-    QTextCharFormat sectionFmt;
-    sectionFmt.setForeground(QColor("#C586C0"));
-    sectionFmt.setFontWeight(QFont::Bold);
-    addRule(R"(^\s*#.*$)", sectionFmt);
+    // --- Unnamed comments # ... (inline or full-line) — must be last ---
+    QTextCharFormat commentFmt;
+    commentFmt.setForeground(QColor("#6A9955")); // VS green
+    commentFmt.setFontItalic(true);
+    addRule(R"(#.*$)", commentFmt);
 }
 
 void SpecTableHighlighter::highlightBlock(const QString& text)
