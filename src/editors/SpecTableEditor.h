@@ -8,7 +8,4 @@ class SpecTableEditor : public PlainTextEditor
 
 public:
     explicit SpecTableEditor(const QString& filePath, QWidget* parent = nullptr);
-
-    void editTable()  override;
-    void editString() override;
 };

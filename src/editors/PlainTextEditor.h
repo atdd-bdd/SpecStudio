@@ -27,6 +27,9 @@ public:
     void setErrorMarks(const QList<QPair<int,int>>& marks) override;
     void setTagCompletionWords(const QStringList& tags)    override;
 
+    void editTable()  override;
+    void editString() override;
+
     bool findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool replaceCurrent(const QString& replacement);
@@ -35,6 +38,8 @@ public:
     QPlainTextEdit* textEdit() const { return m_edit; }
 
 protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
     void setHighlighter(QSyntaxHighlighter* highlighter);
     void setCompletionWords(const QStringList& words);
     LineNumberEdit* lineNumberEdit() const { return m_edit; }
@@ -43,6 +48,10 @@ private slots:
     void onFileChangedOnDisk(const QString& path);
 
 private:
+    bool isInTableContext()  const;
+    bool isInStringContext() const;
+    void showEditorContextMenu(const QPoint& globalPos);
+
     LineNumberEdit*     m_edit        = nullptr;
     QSyntaxHighlighter* m_highlighter = nullptr;
     QFileSystemWatcher* m_watcher     = nullptr;
