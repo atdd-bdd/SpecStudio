@@ -60,6 +60,10 @@ public:
     // The full list of file extensions SpecStudio recognises (used in dialogs)
     static QStringList knownExtensions();
 
+    // Returns the OS-registered default application path for an extension (e.g. "csv").
+    // Returns empty string if not registered or on unsupported platforms.
+    static QString osDefaultEditor(const QString& ext);
+
 private:
     static QString projectKey(const QString& projectRoot);
 

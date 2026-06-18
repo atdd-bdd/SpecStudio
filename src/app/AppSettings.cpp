@@ -174,6 +174,52 @@ void AppSettings::addRecentSolution(const QString& path)
     m_settings.endArray();
 }
 
+// ---- OS default editor ----
+
+QString AppSettings::osDefaultEditor(const QString& ext)
+{
+#ifdef Q_OS_WIN
+    const QString dotExt = "." + ext.toLower();
+
+    // Prefer the user's explicit file-type association (HKCU UserChoice)
+    QString progId;
+    {
+        QSettings uc(
+            "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion"
+            "\\Explorer\\FileExts\\" + dotExt + "\\UserChoice",
+            QSettings::NativeFormat);
+        progId = uc.value("ProgId").toString();
+    }
+
+    // Fall back to the machine-wide association in HKCR
+    if (progId.isEmpty()) {
+        QSettings cr("HKEY_CLASSES_ROOT\\" + dotExt, QSettings::NativeFormat);
+        progId = cr.value(".").toString();
+    }
+
+    if (progId.isEmpty()) return {};
+
+    // Resolve the shell\open\command for this ProgID
+    QSettings cmd(
+        "HKEY_CLASSES_ROOT\\" + progId + "\\shell\\open\\command",
+        QSettings::NativeFormat);
+    QString command = cmd.value(".").toString().trimmed();
+    if (command.isEmpty()) return {};
+
+    // Extract just the executable path (strip args and surrounding quotes)
+    if (command.startsWith('"')) {
+        int end = command.indexOf('"', 1);
+        if (end > 1) return command.mid(1, end - 1);
+    } else {
+        int sp = command.indexOf(' ');
+        return (sp > 0) ? command.left(sp) : command;
+    }
+#else
+    Q_UNUSED(ext)
+#endif
+    return {};
+}
+
 // ---- Default project location ----
 
 QString AppSettings::defaultProjectLocation() const

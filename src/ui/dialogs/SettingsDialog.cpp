@@ -82,17 +82,24 @@ void SettingsDialog::buildEditorTab(QTabWidget* tabs)
     m_editorTable->horizontalHeader()->setStretchLastSection(true);
     m_editorTable->setSelectionBehavior(QAbstractItemView::SelectRows);
 
-    // Populate known extensions
+    // Populate known extensions; blank entries are pre-filled with the OS default
     const QStringList knownExts = AppSettings::knownExtensions();
     for (const QString& ext : knownExts) {
+        const QString bareExt = ext.mid(1); // strip '.'
+        QString prog = m_settings ? m_settings->editorForExtension(bareExt) : QString();
+        if (prog.isEmpty())
+            prog = AppSettings::osDefaultEditor(bareExt);
+
         int row = m_editorTable->rowCount();
         m_editorTable->insertRow(row);
         m_editorTable->setItem(row, 0, new QTableWidgetItem(ext));
-        m_editorTable->setItem(row, 1, new QTableWidgetItem(
-            m_settings ? m_settings->editorForExtension(ext.mid(1)) : QString()));
+        m_editorTable->setItem(row, 1, new QTableWidgetItem(prog));
     }
 
-    auto* browseBtn = new QPushButton(tr("Browse..."), widget);
+    auto* browseBtn   = new QPushButton(tr("Browse..."),        widget);
+    auto* osDefaultBtn = new QPushButton(tr("Use OS Defaults"), widget);
+    auto* clearBtn    = new QPushButton(tr("Clear"),            widget);
+
     connect(browseBtn, &QPushButton::clicked, widget, [this] {
         int row = m_editorTable->currentRow();
         if (row < 0) return;
@@ -101,8 +108,29 @@ void SettingsDialog::buildEditorTab(QTabWidget* tabs)
             m_editorTable->item(row, 1)->setText(prog);
     });
 
+    // Fill ALL rows with OS defaults (overwriting whatever is there)
+    connect(osDefaultBtn, &QPushButton::clicked, widget, [this] {
+        for (int row = 0; row < m_editorTable->rowCount(); ++row) {
+            auto* extItem  = m_editorTable->item(row, 0);
+            auto* progItem = m_editorTable->item(row, 1);
+            if (!extItem || !progItem) continue;
+            const QString def = AppSettings::osDefaultEditor(extItem->text().mid(1));
+            if (!def.isEmpty())
+                progItem->setText(def);
+        }
+    });
+
+    // Clear the selected row's program (revert to built-in)
+    connect(clearBtn, &QPushButton::clicked, widget, [this] {
+        int row = m_editorTable->currentRow();
+        if (row >= 0 && m_editorTable->item(row, 1))
+            m_editorTable->item(row, 1)->setText(QString());
+    });
+
     auto* btnRow = new QHBoxLayout();
+    btnRow->addWidget(osDefaultBtn);
     btnRow->addStretch();
+    btnRow->addWidget(clearBtn);
     btnRow->addWidget(browseBtn);
 
     layout->addWidget(new QLabel(tr("Map file extensions to external editors (blank = built-in):"), widget));
