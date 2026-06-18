@@ -180,7 +180,11 @@ void MainWindow::setupMenuBar()
     connect(actRename,     &QAction::triggered, m_controller, &AppController::onRenameStep);
     editMenu->addSeparator();
     auto* actFormatTable = editMenu->addAction(tr("Format Table"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F));
-    connect(actFormatTable, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->formatTable(); });
+    connect(actFormatTable, &QAction::triggered, this, [this] { if (auto* ed = currentEditor()) ed->formatTable(); });
+    auto* actEditTable  = editMenu->addAction(tr("Edit Table..."),  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
+    auto* actEditString = editMenu->addAction(tr("Edit String..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Q));
+    connect(actEditTable,  &QAction::triggered, this, [this] { if (auto* ed = currentEditor()) ed->editTable(); });
+    connect(actEditString, &QAction::triggered, this, [this] { if (auto* ed = currentEditor()) ed->editString(); });
 
     // ---- View ----
     auto* viewMenu = menuBar()->addMenu(tr("&View"));

@@ -75,6 +75,10 @@ set(SOURCES
     ui/dialogs/FindReplaceDialog.cpp
     ui/dialogs/ConflictResolutionDialog.h
     ui/dialogs/ConflictResolutionDialog.cpp
+    ui/dialogs/GridDialog.h
+    ui/dialogs/GridDialog.cpp
+    ui/dialogs/StringDialog.h
+    ui/dialogs/StringDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp

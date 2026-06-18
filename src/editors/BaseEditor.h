@@ -26,6 +26,8 @@ public:
     virtual void selectAll()     {}
     virtual void goToLine(int)   {}
     virtual void formatTable()   {}
+    virtual void editTable()     {}
+    virtual void editString()    {}
     virtual void setErrorMarks(const QList<QPair<int,int>>&) {}
     virtual void setTagCompletionWords(const QStringList&)  {}
 
