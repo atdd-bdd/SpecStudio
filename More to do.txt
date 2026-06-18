@@ -7,7 +7,19 @@ Add Scenario keyword
 
 Should the name of the spectable file automatically be the "feature name" ? 
 
-Change * to Description 
+When the user types the attributeset,  check to see that it exists.   If it does not 
+exist, then ask if they want to create it or do they want to change the name to an existing one.   
+If create, then just below, create the Attributes  If the attributes (or entity) already exist
+and there is no table beneath the step, create a header line with all the attributes. 
+
+
+When an Attributes or Entity first line is finished, then add the table headers if a 
+table does not yet exist.     
+
+When adding a table to a Examples or Details for a DataType, and the table does not exist
+then add the column headers to the first line.   
+
+Add the ~ for a space character in tables.   
 
 Do the lookup of Given/When/Then matches.   Use the entire project as the match plus any 
 import statements from other projects.   
@@ -18,6 +30,7 @@ The attribute set should be checked - to find attribute or entity that matches
 When it does - put a header in there. 
 
 DomainTerms should be checked to see if already created. 
+C:\Users\user\source\repos\GherkinEditorClaude
 
 Do the git repository underneath -  Ask again how to read all these files into another git project. 
 
