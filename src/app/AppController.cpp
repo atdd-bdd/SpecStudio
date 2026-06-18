@@ -26,6 +26,7 @@
 #include "../git/GitClient.h"
 #include "../editors/BaseEditor.h"
 #include "../editors/PlainTextEditor.h"
+#include "../editors/SpecTableEditor.h"
 #include <QPlainTextEdit>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -746,6 +747,11 @@ void AppController::onOpenFile(const QString& absolutePath)
 {
     if (absolutePath.isEmpty()) return;
     m_mainWindow->editorTabs()->openFile(absolutePath);
+
+    // Give SpecTableEditor access to the project index for context menu features
+    if (auto* ste = qobject_cast<SpecTableEditor*>(
+            m_mainWindow->editorForPath(absolutePath)))
+        ste->setIndex(m_specTableIndex);
 }
 
 void AppController::openRecentSolution(const QString& sspecPath)

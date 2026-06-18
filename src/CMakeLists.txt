@@ -79,6 +79,8 @@ set(SOURCES
     ui/dialogs/GridDialog.cpp
     ui/dialogs/StringDialog.h
     ui/dialogs/StringDialog.cpp
+    ui/dialogs/AttributeTableDialog.h
+    ui/dialogs/AttributeTableDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp

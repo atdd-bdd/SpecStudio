@@ -47,6 +47,48 @@ QStringList SpecTableIndex::importsFor(const QString& filePath) const
     return m_fileImports.value(QFileInfo(filePath).absoluteFilePath());
 }
 
+QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
+{
+    // Look up in Attributes declarations first, then Entity declarations
+    QString filePath = m_project.attributes.value(name);
+    if (filePath.isEmpty())
+        filePath = m_project.entities.value(name);
+    if (filePath.isEmpty()) return {};
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+
+    static QRegularExpression reDecl(R"(^\s*(Attributes|Entity)\s+(\w+))",
+                                     QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow(R"(^\s*\|)");
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines << in.readLine();
+
+    for (int i = 0; i < lines.size(); ++i) {
+        auto m = reDecl.match(lines[i]);
+        if (!m.hasMatch() || m.captured(2).compare(name, Qt::CaseInsensitive) != 0)
+            continue;
+
+        QVector<QStringList> result;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            if (!reRow.match(lines[j]).hasMatch()) {
+                if (lines[j].trimmed().isEmpty()) continue;
+                break;
+            }
+            const QStringList parts = lines[j].split('|');
+            QStringList cells;
+            for (int p = 1; p < parts.size() - 1; ++p)
+                cells << parts[p].trimmed();
+            if (!cells.isEmpty())
+                result << cells;
+        }
+        return result;
+    }
+    return {};
+}
+
 void SpecTableIndex::parseFile(const QString& filePath,
                                SpecTableSymbols& out,
                                QSet<QString>& visited) const

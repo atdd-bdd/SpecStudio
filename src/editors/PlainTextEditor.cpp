@@ -36,7 +36,7 @@ PlainTextEditor::PlainTextEditor(const QString& filePath, QWidget* parent)
     connect(m_edit, &QPlainTextEdit::modificationChanged,
             this,   [this](bool modified) { setDirty(modified); });
 
-    m_edit->installEventFilter(this);
+    m_edit->viewport()->installEventFilter(this);
 
     m_watcher = new QFileSystemWatcher(this);
     connect(m_watcher, &QFileSystemWatcher::fileChanged,
@@ -115,7 +115,7 @@ bool PlainTextEditor::save()
 
 bool PlainTextEditor::eventFilter(QObject* obj, QEvent* event)
 {
-    if (obj == m_edit && event->type() == QEvent::ContextMenu) {
+    if (obj == m_edit->viewport() && event->type() == QEvent::ContextMenu) {
         auto* ce = static_cast<QContextMenuEvent*>(event);
         showEditorContextMenu(ce->globalPos());
         return true;
@@ -134,8 +134,14 @@ void PlainTextEditor::showEditorContextMenu(const QPoint& globalPos)
     auto* tableAct  = menu->addAction(inTable  ? tr("Edit Table...")  : tr("Add Table..."));
     auto* stringAct = menu->addAction(inString ? tr("Edit String...") : tr("Add String..."));
 
+    // A step can't have both a table and a docstring — disable Add String when a table is present
+    if (inTable && !inString)
+        stringAct->setEnabled(false);
+
     connect(tableAct,  &QAction::triggered, this, &PlainTextEditor::editTable);
     connect(stringAct, &QAction::triggered, this, &PlainTextEditor::editString);
+
+    populateContextMenu(menu);
 
     menu->exec(globalPos);
     delete menu;

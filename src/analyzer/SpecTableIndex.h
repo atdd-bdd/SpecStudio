@@ -4,6 +4,7 @@
 #include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
 struct SpecTableSymbols
 {
@@ -48,6 +49,9 @@ public:
 
     // Import paths declared in a file (absolute).
     QStringList importsFor(const QString& filePath) const;
+
+    // Returns the pipe-table rows defined under "Attributes <name>" (first row = headers).
+    QVector<QStringList> attributeRows(const QString& name) const;
 
 private:
     void parseFile(const QString& filePath, SpecTableSymbols& out,

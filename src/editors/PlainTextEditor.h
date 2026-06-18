@@ -40,6 +40,9 @@ public:
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
 
+    // Subclasses override to append extra actions before the menu is shown.
+    virtual void populateContextMenu(QMenu*) {}
+
     void setHighlighter(QSyntaxHighlighter* highlighter);
     void setCompletionWords(const QStringList& words);
     LineNumberEdit* lineNumberEdit() const { return m_edit; }

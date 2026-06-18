@@ -29,7 +29,7 @@ void SpecTableHighlighter::buildRules()
 
     // --- AttributeSet reference after colon  ": SomeName" ---
     QTextCharFormat attrRefFmt;
-    attrRefFmt.setForeground(QColor("#DCDCAA")); // VS yellow
+    attrRefFmt.setForeground(QColor("#808080")); // dark grey
     addRule(R"(:\s*(\w+)\s*$)", attrRefFmt);
 
     // --- Description / annotation lines starting with * ---
