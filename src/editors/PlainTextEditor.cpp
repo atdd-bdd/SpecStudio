@@ -78,16 +78,24 @@ void PlainTextEditor::onFileChangedOnDisk(const QString& path)
 
 bool PlainTextEditor::save()
 {
-    QFile file(filePath());
+    const QString path = filePath();
+
+    // Unwatch before writing so our own save doesn't trigger the external-change prompt
+    m_watcher->removePath(path);
+
+    QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        m_watcher->addPath(path);
         QMessageBox::critical(this, tr("Save Failed"),
-            tr("Cannot write '%1': %2").arg(filePath(), file.errorString()));
+            tr("Cannot write '%1': %2").arg(path, file.errorString()));
         return false;
     }
 
     QTextStream out(&file);
     out << m_edit->toPlainText();
+    file.close();
 
+    m_watcher->addPath(path);
     m_edit->document()->setModified(false);
     setDirty(false);
     return true;
