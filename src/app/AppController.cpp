@@ -151,41 +151,61 @@ void AppController::onNewSolution()
 
 void AppController::onNewProject()
 {
-    if (!m_solution) {
-        QMessageBox::information(m_mainWindow, tr("No Solution"),
-            tr("Open or create a solution first."));
-        return;
-    }
-
-    NewProjectDialog dlg(m_solution, m_mainWindow);
+    NewProjectDialog dlg(m_solution, m_settings->defaultProjectLocation(), m_mainWindow);
     if (dlg.exec() != QDialog::Accepted) return;
 
-    QString name    = dlg.projectName();
-    QString projDir = m_solution->rootPath() + QDir::separator() + name;
+    const QString projName = dlg.projectName();
+    QString projDir;
 
-    QDir dir(projDir);
-    if (!dir.exists() && !dir.mkpath(".")) {
-        QMessageBox::critical(m_mainWindow, tr("Error"),
-            tr("Cannot create project folder: %1").arg(projDir));
-        return;
+    if (dlg.isStandalone()) {
+        // ── Standalone: project IS the root; solution lives in the same folder ──
+        projDir = dlg.standaloneLocation();
+        QDir dir(projDir);
+        if (!dir.exists() && !dir.mkpath(".")) {
+            QMessageBox::critical(m_mainWindow, tr("Error"),
+                tr("Cannot create project folder: %1").arg(projDir));
+            return;
+        }
+        auto* newSol = new Solution(projName, projDir);
+        setSolution(newSol);
+        // projDir == m_solution->rootPath(), relativePath will be "."
+
+    } else if (!dlg.addToCurrentSolution()) {
+        // ── New solution + project as subfolder ───────────────────────────────
+        const QString solFolder = dlg.newSolutionFolder();
+        QDir solDir(solFolder);
+        if (!solDir.exists() && !solDir.mkpath(".")) {
+            QMessageBox::critical(m_mainWindow, tr("Error"),
+                tr("Cannot create solution folder: %1").arg(solFolder));
+            return;
+        }
+        auto* newSol = new Solution(dlg.newSolutionName(), solFolder);
+        setSolution(newSol);
+
+        projDir = m_solution->rootPath() + QDir::separator() + projName;
+        QDir pdir(projDir);
+        if (!pdir.exists() && !pdir.mkpath(".")) {
+            QMessageBox::critical(m_mainWindow, tr("Error"),
+                tr("Cannot create project folder: %1").arg(projDir));
+            return;
+        }
+    } else {
+        // ── Add to current solution ───────────────────────────────────────────
+        projDir = m_solution->rootPath() + QDir::separator() + projName;
+        QDir dir(projDir);
+        if (!dir.exists() && !dir.mkpath(".")) {
+            QMessageBox::critical(m_mainWindow, tr("Error"),
+                tr("Cannot create project folder: %1").arg(projDir));
+            return;
+        }
     }
 
-    // Run git init via a temporary GitClient
+    // Run git init in the project directory
     {
-        GitClient initGit(projDir);
-        bool ok = false;
-        connect(&initGit, &GitClient::outputReady,
-                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput);
-        connect(&initGit, &GitClient::errorOccurred,
-                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput);
-
-        // runGit is private, so use commitAll with no files to trigger git init indirectly.
-        // Instead, expose a dedicated init via QProcess here.
         QProcess proc;
         proc.setWorkingDirectory(projDir);
         proc.start("git", {"init"});
-        ok = proc.waitForFinished(10000) && proc.exitCode() == 0;
-
+        const bool ok = proc.waitForFinished(10000) && proc.exitCode() == 0;
         if (!ok) {
             QMessageBox::warning(m_mainWindow, tr("Git Init Failed"),
                 tr("Could not run 'git init' in '%1'.\n"
@@ -198,7 +218,7 @@ void AppController::onNewProject()
         }
     }
 
-    auto* project = new Project(name, projDir);
+    auto* project = new Project(projName, projDir);
     project->scanFiles();
     m_solution->addProject(project);
 

@@ -1,23 +1,67 @@
-# SpecTable DSL Syntax Guide (v2.2)
+```
+# SpecTable DSL Syntax Guide (v2.4)
 
 A unified, business‑friendly, automation‑ready language for describing specifications, datatypes, domain terms, business rules, calculations, entities, scenarios, and scenario groups.
 
 ============================================================
-0. SPECIFICATION
+0. COMMENTS (NAMED AND UNNAMED)
 ============================================================
 
-Top-level command:
-Specification <text>
+Description
+SpecTable supports two kinds of comments: named and unnamed.
 
-Optional named comments:
-Description <summary>
 Details \
+  Named comments: \
+    - Description <text> \
+    - Details <multi-line text using \> \
+    - Constraint <text> \
+  These may appear under ANY top-level command. \
+  They do not affect semantics. \
+  \
+  Unnamed comments: \
+    - Begin with "#" \
+    - May appear on their own line \
+    - Or appended to the end of any line \
+  Unnamed comments have no semantic meaning. \
+
+Example:
+# Unnamed comment
+DataType AccountID   # Inline unnamed comment
+Description Identifier for an account.
+Details \
+  Must match regex. \
+Constraint Must be unique.
+
+============================================================
+1. TOP-LEVEL COMMANDS
+============================================================
+
+The following are the ONLY top-level commands:
+
+- Specification
+- DataType
+- DomainTerm
+- BusinessRule
+- Calculation
+- Entity
+- Attributes
+- Scenario
+- ScenarioGroup
+- Background
+- Import
+- Insert
+
+Each may contain optional named comments (Description, Details, Constraint).
+
+============================================================
+2. SPECIFICATION
+============================================================
+
+Syntax:
+Specification <text>
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
-
-Notes:
-
-- Specification appears once at the top of the file.
-- Description and Details are optional and treated as comments.
 
 Example:
 Specification Account Withdrawal Rules
@@ -26,44 +70,37 @@ Details \
   Covers checking and savings withdrawals. \
 
 ============================================================
+3. DATATYPES
+============================================================
 
-1. DATATYPES
-   ============================================================
-
-Top-level command:
+Syntax:
 DataType <Name>
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
+Examples                      (required unless enumeration)
+| ... | Notes |
 
-Examples (required unless enumeration):
-Examples
-| ... columns including optional Notes ... |
-
-Enumeration form (no Examples):
+Enumeration form:
 | Value | Notes |
 
 Example:
-DataType AccountID
-Description Must be three digits, a dash, then three digits.
+DataType AccountType
+Description Allowed account categories.
 Details \
-  Regex: ^\d{3}-\d{3}$ \
-Examples
-| Value   | Valid | Notes |
-| 123-456 | Yes   | Correct format |
+  These values represent the only valid account types. \
+| Value    | Notes |
+| Checking |       |
+| Savings  |       |
 
 ============================================================
-2. DOMAIN TERMS
+4. DOMAIN TERMS
 ============================================================
 
-Top-level command:
+Syntax:
 DomainTerm <Name> : <DataTypeName>
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
 
 Example:
@@ -71,83 +108,58 @@ DomainTerm CustomerID : AccountID
 Description Business identifier for a customer.
 
 ============================================================
-3. BUSINESS RULES
+5. BUSINESS RULES
 ============================================================
 
-Top-level command:
-BusinessRule <Name>
-
-Optional named comments:
-Description <summary>
-Details \
+Syntax:
+BusinessRule <Name> : <AttributeSet>
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
-
-Examples (required):
-Examples
+Examples                      (required)
 | ... | Notes |
 
-Attributes (required):
-Attributes <Name>
-| Attribute | Type | Default | Notes | In-Out |
-
 Example:
-BusinessRule OverdraftFee
+BusinessRule OverdraftFee : OverdraftFee
 Description Calculates overdraft fee.
 Details \
   Applies only when Balance < 0. \
 Examples
 | Balance | AccountType | Fee | Notes |
 | -50     | Checking    | 35  | Standard fee |
-Attributes OverdraftFee
-| Attribute | Type | Default | Notes | In-Out |
-| Balance   | Dollar | 0 | | In |
-| Fee       | Dollar | 0 | | Out |
+| -50     | Savings     | 25  | Lower fee |
 
 ============================================================
-4. CALCULATIONS
+6. CALCULATIONS
 ============================================================
 
-Top-level command:
-Calculation <Name>
-
-Optional named comments:
-Description <summary>
-Details \
+Syntax:
+Calculation <Name> : <AttributeSet>
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
-
-Examples (required):
-Examples
+Examples                      (required)
 | ... | Notes |
 
-Attributes (required):
-Attributes <Name>
-| Attribute | Type | Default | Notes | In-Out |
-
 Example:
-Calculation NetBalance
+Calculation NetBalance : NetBalance
 Description Computes net balance.
 Details \
   NetBalance = Balance - Fee \
 Examples
 | Balance | Fee | NetBalance | Notes |
 | 100     | 1   | 99         | Basic case |
-Attributes NetBalance
-| Attribute  | Type   | Default | Notes | In-Out |
-| Balance    | Dollar | 0       |       | In     |
-| Fee        | Dollar | 0       |       | In     |
-| NetBalance | Dollar | 0       |       | Out    |
 
 ============================================================
-5. ENTITIES
+7. ENTITIES
 ============================================================
 
-Top-level command:
+Syntax:
 Entity <Name>
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
+| Attribute | Type | Default | Notes |
 
 Example:
 Entity Account
@@ -158,36 +170,40 @@ Description Represents a bank account.
 | AccountID | AccountID   | (none)   | Must be provided |
 
 ============================================================
-6. ATTRIBUTES
+8. ATTRIBUTES
 ============================================================
 
-Top-level command:
+Syntax:
 Attributes <Name>
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
+| Attribute | Type | Default | Notes | In-Out? |
+
+Notes:
+- Attributes blocks are stand-alone.
+- Used by BusinessRule, Calculation, Scenario step tables.
 
 Example:
-Attributes WithdrawalInput
-| Attribute | Type | Default | Notes |
-| Amount    | Dollar | 0 | Withdrawal amount |
+Attributes OverdraftFee
+| Attribute   | Type        | Default | Notes | In-Out |
+| Balance     | Dollar      | 0       |       | In     |
+| AccountType | AccountType | Checking|       | In     |
+| Fee         | Dollar      | 0       |       | Out    |
 
 ============================================================
-7. SCENARIOS
+9. SCENARIOS
 ============================================================
 
-Top-level command:
+Syntax:
 Scenario <text>
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
-
-Allowed children:
-Given / When / Then / And
+Given <desc> : <AttributeSet>
+And <desc> : <AttributeSet>
+When <desc> : <AttributeSet>
+Then <desc> : <AttributeSet>
 
 Example:
 Scenario Withdraw from checking
@@ -203,42 +219,16 @@ Then resulting balance is: BalanceCheck
 | Balance   | 50    |
 
 ============================================================
-8. COMMENTS
+10. BACKGROUND
 ============================================================
 
-Named comments:
-Description <text>
-Details \
-  <multi-line text> \
-Constraint <text>
-
-Notes:
-
-- These are comments only.
-- They may appear under any top-level command.
-- They do not affect semantics.
-
-Example:
-Constraint AccountID must be unique.
-
-
-
-Unnamed comment begins with a #.   It may appear on its own line or be appended to any line 
-
-============================================================
-9. BACKGROUND
-============================================================
-
-Top-level command:
+Syntax:
 Background:
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
-
-Contains:
-Given / And steps only.
+Given ...
+And ...
 
 Example:
 Background:
@@ -248,19 +238,18 @@ Given accounts are: Account
 | Checking | 100     | 123-456   |
 
 ============================================================
-10. SCENARIO GROUPS
+11. SCENARIO GROUPS
 ============================================================
 
-Top-level command:
+Syntax:
 ScenarioGroup <name>
-
-Optional named comments:
-Description <summary>
-Details \
+Description <summary>        (optional)
+Details \                     (optional)
   <multi-line explanation> \
-
-Contains:
-Scenario blocks only.
+Scenario <text>
+  Given ...
+  When ...
+  Then ...
 
 Example:
 ScenarioGroup Withdrawals
@@ -273,10 +262,10 @@ Scenario Withdraw from checking
   Then ...
 
 ============================================================
-11. DIRECTIVES (IMPORT / INSERT)
+12. DIRECTIVES (IMPORT / INSERT)
 ============================================================
 
-Top-level commands:
+Syntax:
 Import "file"
 Insert "file"
 
@@ -290,22 +279,24 @@ Import "common-types.featurex"
 Insert "../data/accounts.csv"
 
 ============================================================
-12. SEMANTICS
+13. SEMANTICS
 ============================================================
 
 Description
 Defines the meaning of all constructs.
 
 Details \
-
-- Description, Details, Constraint are comments. \
-- Examples required for BusinessRule, Calculation, DataType (non-enum). \
-- Scenario ends at next top-level command. \
-- ScenarioGroup ends at next ScenarioGroup or EOF. \
-- Background applies to all Scenarios. \
+  - Description, Details, Constraint are comments. \
+  - Unnamed comments (#) may appear anywhere. \
+  - Examples required for BusinessRule, Calculation, DataType (non-enum). \
+  - Scenario ends at next top-level command. \
+  - ScenarioGroup ends at next ScenarioGroup or EOF. \
+  - Background applies to all Scenarios. \
+  - BusinessRule <Name> : <AttributeSet> binds rule to its Attributes block. \
+  - Calculation <Name> : <AttributeSet> binds calculation to its Attributes block. \
 
 ============================================================
-13. TAXONOMY
+14. TAXONOMY
 ============================================================
 
 Description
@@ -324,11 +315,15 @@ Details \
   Background \
   Import \
   Insert \
-  (Comments: Description, Details, Constraint) \
+  (Comments: Description, Details, Constraint, #) \
 
 Example:
 | Concept       | Purpose |
 |---------------|---------|
-| DataType      | Defines structure |
 | Scenario      | Behavioral flow |
 | ScenarioGroup | Organizes scenarios |
+| DataType      | Defines structure |
+| BusinessRule  | Defines logic |
+| Calculation   | Defines formulas |
+
+```

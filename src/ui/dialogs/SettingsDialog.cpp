@@ -29,6 +29,7 @@ SettingsDialog::SettingsDialog(AppSettings* settings,
     setMinimumSize(520, 400);
 
     auto* tabs = new QTabWidget(this);
+    buildGeneralTab(tabs);
     buildEditorTab(tabs);
     buildGitTab(tabs);
     buildFeaturexTab(tabs);
@@ -44,6 +45,31 @@ SettingsDialog::SettingsDialog(AppSettings* settings,
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     loadValues();
+}
+
+void SettingsDialog::buildGeneralTab(QTabWidget* tabs)
+{
+    auto* widget = new QWidget(tabs);
+    auto* form   = new QFormLayout(widget);
+
+    m_defaultLocEdit = new QLineEdit(widget);
+    if (m_settings)
+        m_defaultLocEdit->setText(m_settings->defaultProjectLocation());
+
+    auto* browseBtn = new QPushButton(tr("Browse..."), widget);
+    connect(browseBtn, &QPushButton::clicked, widget, [this] {
+        QString dir = QFileDialog::getExistingDirectory(
+            this, tr("Select Default Project Location"), m_defaultLocEdit->text());
+        if (!dir.isEmpty()) m_defaultLocEdit->setText(dir);
+    });
+
+    auto* row = new QHBoxLayout();
+    row->addWidget(m_defaultLocEdit);
+    row->addWidget(browseBtn);
+
+    form->addRow(tr("Default project location:"), row);
+
+    tabs->addTab(widget, tr("General"));
 }
 
 void SettingsDialog::buildEditorTab(QTabWidget* tabs)
@@ -178,6 +204,9 @@ void SettingsDialog::loadValues()
 void SettingsDialog::saveValues()
 {
     if (!m_settings) return;
+
+    if (m_defaultLocEdit)
+        m_settings->setDefaultProjectLocation(m_defaultLocEdit->text().trimmed());
 
     if (m_darkTheme)
         m_settings->setDarkTheme(m_darkTheme->isChecked());

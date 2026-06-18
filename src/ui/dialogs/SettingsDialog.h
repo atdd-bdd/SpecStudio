@@ -19,7 +19,8 @@ public:
                    QWidget*     parent = nullptr);
 
 private:
-    void buildEditorTab(class QTabWidget* tabs);
+    void buildGeneralTab(class QTabWidget* tabs);
+    void buildEditorTab(QTabWidget* tabs);
     void buildGitTab(QTabWidget* tabs);
     void buildFeaturexTab(QTabWidget* tabs);
     void buildAppearanceTab(QTabWidget* tabs);
@@ -41,6 +42,9 @@ private:
     QCheckBox*    m_uniqueScenario = nullptr;
     QCheckBox*    m_uniqueStep     = nullptr;
     QComboBox*    m_stepScope      = nullptr;
+
+    // General
+    QLineEdit*    m_defaultLocEdit = nullptr;
 
     // Editor association table
     QTableWidget* m_editorTable    = nullptr;

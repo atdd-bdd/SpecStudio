@@ -174,6 +174,19 @@ void AppSettings::addRecentSolution(const QString& path)
     m_settings.endArray();
 }
 
+// ---- Default project location ----
+
+QString AppSettings::defaultProjectLocation() const
+{
+    const QString docs = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    return m_settings.value("General/defaultProjectLocation", docs).toString();
+}
+
+void AppSettings::setDefaultProjectLocation(const QString& path)
+{
+    m_settings.setValue("General/defaultProjectLocation", path);
+}
+
 // ---- Appearance ----
 
 bool AppSettings::darkTheme() const

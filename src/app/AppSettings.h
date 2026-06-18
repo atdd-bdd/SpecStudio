@@ -49,6 +49,10 @@ public:
     QStringList recentSolutions() const;
     void        addRecentSolution(const QString& path);
 
+    // Default project/solution location
+    QString defaultProjectLocation() const;
+    void    setDefaultProjectLocation(const QString& path);
+
     // Appearance
     bool darkTheme() const;
     void setDarkTheme(bool dark);
