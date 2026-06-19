@@ -771,7 +771,23 @@ void AppController::onOpenFile(const QString& absolutePath)
     // Give SpecTableEditor access to the project index for context menu features
     if (auto* ste = qobject_cast<SpecTableEditor*>(
             m_mainWindow->editorForPath(absolutePath)))
+    {
+        // Rebuild the spec table index now so symbols are available before the
+        // user runs Analyze. Include the opened file even if the project hasn't
+        // scanned it yet (e.g. freshly created file).
+        QStringList specTableFiles;
+        if (m_solution) {
+            for (auto* proj : m_solution->projects())
+                for (auto* file : proj->files())
+                    if (file->type() == FileType::SpecTable)
+                        specTableFiles.append(file->absolutePath());
+        }
+        if (!specTableFiles.contains(absolutePath))
+            specTableFiles.append(absolutePath);
+        m_specTableIndex->rebuildProject(specTableFiles);
+
         ste->setIndex(m_specTableIndex);
+    }
 }
 
 void AppController::openRecentSolution(const QString& sspecPath)
