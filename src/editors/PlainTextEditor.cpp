@@ -117,6 +117,9 @@ bool PlainTextEditor::eventFilter(QObject* obj, QEvent* event)
 {
     if (obj == m_edit->viewport() && event->type() == QEvent::ContextMenu) {
         auto* ce = static_cast<QContextMenuEvent*>(event);
+        // Move text cursor to click position so context-sensitive items reflect
+        // what the user right-clicked on, not the previous cursor location.
+        m_edit->setTextCursor(m_edit->cursorForPosition(ce->pos()));
         showEditorContextMenu(ce->globalPos());
         return true;
     }
