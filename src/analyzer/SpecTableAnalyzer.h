@@ -18,7 +18,8 @@ private:
     void checkInserts      (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepRefs     (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkDescriptions (const QString& filePath, QList<Diagnostic>& out) const;
-    void checkExamples     (const QString& filePath, QList<Diagnostic>& out) const;
+    void checkExamples     (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
+    void checkDefineRefs   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,

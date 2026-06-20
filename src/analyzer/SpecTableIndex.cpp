@@ -34,6 +34,7 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles)
         for (auto it = sym.scenarios.cbegin();      it != sym.scenarios.cend();      ++it) m_project.scenarios.insert(it.key(), it.value());
         for (auto it = sym.scenarioGroups.cbegin(); it != sym.scenarioGroups.cend(); ++it) m_project.scenarioGroups.insert(it.key(), it.value());
         for (auto it = sym.specifications.cbegin(); it != sym.specifications.cend(); ++it) m_project.specifications.insert(it.key(), it.value());
+        for (auto it = sym.defines.cbegin();        it != sym.defines.cend();        ++it) m_project.defines.insert(it.key(), it.value());
     }
 }
 
@@ -117,6 +118,7 @@ void SpecTableIndex::parseFile(const QString& filePath,
     static QRegularExpression reScenario     (R"(^\s*Scenario\s+(.+)$)",        QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reScenarioGrp  (R"(^\s*ScenarioGroup\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reSpecification(R"(^\s*Specification\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reDefine       (R"(^\s*Define\s+(\w+)\s*=)",      QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reImport       ("^\\s*Import\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reInsert       ("^\\s*Insert\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
 
@@ -155,6 +157,9 @@ void SpecTableIndex::parseFile(const QString& filePath,
 
         m = reSpecification.match(line);
         if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.specifications.insert(n, abs); out.specifications.insert(n, abs); continue; }
+
+        m = reDefine.match(line);
+        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.defines.insert(n, abs); out.defines.insert(n, abs); continue; }
 
         m = reImport.match(line);
         if (m.hasMatch()) {

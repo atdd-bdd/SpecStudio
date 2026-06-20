@@ -13,8 +13,11 @@ void SpecTableHighlighter::buildRules()
     QTextCharFormat declFmt;
     declFmt.setForeground(QColor("#569CD6")); // VS blue
     declFmt.setFontWeight(QFont::Bold);
-    addRule(R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Examples)\b)",
+    addRule(R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Define)\b)",
             declFmt);
+
+    // --- Examples: <AttributeSet> — highlighted as declaration keyword ---
+    addRule(R"(^\s*(Examples:))", declFmt);
 
     // --- Named comment keywords (Description, Details, Constraint) ---
     QTextCharFormat namedCommentFmt;
@@ -33,10 +36,33 @@ void SpecTableHighlighter::buildRules()
     applyFmt.setForeground(QColor("#4EC9B0"));
     addRule(R"(\bapplying\b)", applyFmt);
 
-    // --- AttributeSet reference after colon  ": SomeName" ---
+    // --- Transposed modifier keyword ---
+    QTextCharFormat modFmt;
+    modFmt.setForeground(QColor("#C586C0")); // VS purple
+    modFmt.setFontWeight(QFont::Bold);
+    addRule(R"(\bTransposed\b)", modFmt);
+
+    // --- Built-in DataType names ---
+    QTextCharFormat builtinFmt;
+    builtinFmt.setForeground(QColor("#4FC1FF")); // light blue
+    addRule(R"(\b(Character|String|Text|Integer|Float|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
+            builtinFmt);
+
+    // --- Built-in AttributeSet names ---
+    QTextCharFormat builtinAttrFmt;
+    builtinAttrFmt.setForeground(QColor("#4EC9B0")); // teal
+    builtinAttrFmt.setFontWeight(QFont::Bold);
+    addRule(R"(\b(EnumerationValues|ValidValues)\b)", builtinAttrFmt);
+
+    // --- AttributeSet reference after colon  ": SomeName [Transposed]" ---
     QTextCharFormat attrRefFmt;
     attrRefFmt.setForeground(QColor("#808080")); // dark grey
-    addRule(R"(:\s*(\w+)\s*$)", attrRefFmt);
+    addRule(R"(:\s*(\w+)(?:\s+Transposed)?\s*$)", attrRefFmt);
+
+    // --- Value references  =Name ---
+    QTextCharFormat valueRefFmt;
+    valueRefFmt.setForeground(QColor("#CE9178")); // VS orange
+    addRule(R"(=[A-Za-z_]\w*)", valueRefFmt);
 
     // --- Line continuation marker \ at end of Details lines ---
     QTextCharFormat contFmt;
@@ -49,7 +75,7 @@ void SpecTableHighlighter::buildRules()
     descFmt.setFontItalic(true);
     addRule(R"(^\s*\*.*$)", descFmt);
 
-    // --- Quoted strings (file paths in Import/Insert) ---
+    // --- Quoted strings (file paths in Import/Insert/Define) ---
     QTextCharFormat stringFmt;
     stringFmt.setForeground(QColor("#CE9178")); // VS orange
     addRule(R"("[^"]*")", stringFmt);
@@ -64,10 +90,10 @@ void SpecTableHighlighter::buildRules()
     dirFmt.setForeground(QColor("#C586C0")); // VS purple
     addRule(R"(\b(In-Out|In|Out)\b)", dirFmt);
 
-    // --- Valid / Yes / No in DataType tables ---
+    // --- Valid / Yes / No / True / False in tables ---
     QTextCharFormat validFmt;
     validFmt.setForeground(QColor("#4EC9B0"));
-    addRule(R"(\b(Valid|Yes|No)\b)", validFmt);
+    addRule(R"(\b(Valid|Yes|No|True|False|true|false)\b)", validFmt);
 
     // --- Unnamed comments # ... (inline or full-line) — must be last ---
     QTextCharFormat commentFmt;

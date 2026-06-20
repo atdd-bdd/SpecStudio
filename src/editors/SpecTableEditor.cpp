@@ -14,16 +14,23 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
 
     setCompletionWords({
         "Specification ", "Entity ", "DomainTerm ", "DataType ", "Attributes ",
-        "BusinessRule ", "Calculation ", "Import ", "Insert ",
+        "BusinessRule ", "Calculation ", "Import ", "Insert ", "Define ",
         "Scenario ", "ScenarioGroup ", "Background ",
-        "Description ", "Details ", "Constraint ", "Examples",
+        "Description ", "Details ", "Constraint ",
+        "Examples: EnumerationValues", "Examples: ValidValues", "Examples: ",
+        "Transposed",
         "Given ", "When ", "Then ", "And ", "But ",
         "applying BusinessRule ", "applying Calculation ",
+        // Built-in DataTypes
+        "Character", "String", "Text", "Integer", "Float",
+        "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo",
+        // Built-in AttributeSets
+        "EnumerationValues", "ValidValues",
     });
 
     lineNumberEdit()->setFoldPattern(
         QRegularExpression(
-            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background)\b)",
+            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Define)\b)",
             QRegularExpression::CaseInsensitiveOption));
 }
 

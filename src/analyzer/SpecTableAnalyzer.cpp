@@ -41,7 +41,8 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkInserts     (filePath, diags);
     checkStepRefs    (filePath, visible, diags);
     checkDescriptions(filePath, diags);
-    checkExamples    (filePath, diags);
+    checkExamples    (filePath, visible, diags);
+    checkDefineRefs  (filePath, visible, diags);
 
     return diags;
 }
@@ -223,10 +224,11 @@ void SpecTableAnalyzer::checkDescriptions(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
-// Check 4 — BusinessRule/Calculation need Examples; DataType needs a table
+// Check 4 — BusinessRule/Calculation need Examples:; DataType needs a table
 // ---------------------------------------------------------------------------
 
 void SpecTableAnalyzer::checkExamples(const QString& filePath,
+                                       const SpecTableSymbols& visible,
                                        QList<Diagnostic>& out) const
 {
     QFile f(filePath);
@@ -235,11 +237,12 @@ void SpecTableAnalyzer::checkExamples(const QString& filePath,
     static QRegularExpression reDecl(
         R"(^\s*(BusinessRule|DataType|Calculation)\s+(\w+))",
         QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reExamples(R"(^\s*Examples\b)",
+    // Examples: <AttributeSet> — colon required in v2.7.2
+    static QRegularExpression reExamples(R"(^\s*Examples:\s*(\w+))",
                                          QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reTableRow(R"(^\s*\|)");
     static QRegularExpression reNextTopLevel(
-        R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background)\b)",
+        R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Define)\b)",
         QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);
@@ -253,26 +256,63 @@ void SpecTableAnalyzer::checkExamples(const QString& filePath,
         const QString keyword = m.captured(1).toLower();
         const QString name    = m.captured(2);
 
-        bool hasExamples = false;
-        bool hasTable    = false;
+        bool hasExamples    = false;
+        bool hasTable       = false;
         for (int j = i + 1; j < lines.size(); ++j) {
             if (reNextTopLevel.match(lines[j]).hasMatch()) break;
-            if (reExamples.match(lines[j]).hasMatch()) hasExamples = true;
-            if (reTableRow.match(lines[j]).hasMatch())  hasTable    = true;
+            auto em = reExamples.match(lines[j]);
+            if (em.hasMatch()) {
+                hasExamples = true;
+                // Validate the AttributeSet reference
+                const QString attrName = em.captured(1);
+                if (!visible.hasAttributeSet(attrName))
+                    out.append(makeDiag(filePath, j + 1,
+                        QStringLiteral("Unknown AttributeSet '%1' in Examples:").arg(attrName)));
+            }
+            if (reTableRow.match(lines[j]).hasMatch()) hasTable = true;
         }
 
         if (keyword == "datatype") {
             if (!hasTable && !hasExamples)
                 out.append(makeDiag(filePath, i + 1,
-                    QStringLiteral("DataType '%1' has no data table or Examples section").arg(name),
+                    QStringLiteral("DataType '%1' has no data table or Examples: section").arg(name),
                     Diagnostic::Severity::Warning));
         } else {
-            // BusinessRule or Calculation must have an Examples section
             if (!hasExamples)
                 out.append(makeDiag(filePath, i + 1,
-                    QStringLiteral("%1 '%2' has no Examples section")
+                    QStringLiteral("%1 '%2' has no Examples: section")
                         .arg(m.captured(1), name),
                     Diagnostic::Severity::Warning));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check 5 — =Name value references must resolve to a Define declaration
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkDefineRefs(const QString& filePath,
+                                         const SpecTableSymbols& visible,
+                                         QList<Diagnostic>& out) const
+{
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    static QRegularExpression reRef(R"(=([A-Za-z_]\w*))");
+
+    QTextStream in(&f);
+    int lineNum = 0;
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        ++lineNum;
+
+        QRegularExpressionMatchIterator it = reRef.globalMatch(line);
+        while (it.hasNext()) {
+            auto m = it.next();
+            const QString refName = m.captured(1);
+            if (!visible.hasDefine(refName))
+                out.append(makeDiag(filePath, lineNum,
+                    QStringLiteral("Undefined value reference '=%1'").arg(refName)));
         }
     }
 }

@@ -6,6 +6,15 @@
 #include <QStringList>
 #include <QVector>
 
+// Built-in AttributeSet names that need no declaration
+static const QStringList k_builtinAttributeSets = { "EnumerationValues", "ValidValues" };
+
+// Built-in DataType names that need no declaration
+static const QStringList k_builtinDataTypes = {
+    "Character", "String", "Text", "Integer", "Float",
+    "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
+};
+
 struct SpecTableSymbols
 {
     QMap<QString, QString> entities;       // name → filePath
@@ -17,10 +26,12 @@ struct SpecTableSymbols
     QMap<QString, QString> scenarios;      // name → filePath
     QMap<QString, QString> scenarioGroups; // name → filePath
     QMap<QString, QString> specifications; // name → filePath
+    QMap<QString, QString> defines;        // name → filePath
 
     bool hasAttributeSet(const QString& name) const
     {
-        return attributes.contains(name) || entities.contains(name);
+        return attributes.contains(name) || entities.contains(name)
+               || k_builtinAttributeSets.contains(name);
     }
 
     bool hasBusinessRule(const QString& name) const
@@ -31,6 +42,11 @@ struct SpecTableSymbols
     bool hasCalculation(const QString& name) const
     {
         return calculations.contains(name);
+    }
+
+    bool hasDefine(const QString& name) const
+    {
+        return defines.contains(name);
     }
 };
 
