@@ -8,12 +8,15 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QFont>
+#include <QFontComboBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -34,6 +37,7 @@ SettingsDialog::SettingsDialog(AppSettings* settings,
     buildGitTab(tabs);
     buildFeaturexTab(tabs);
     buildAppearanceTab(tabs);
+    buildFontsTab(tabs);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
 
@@ -206,6 +210,56 @@ void SettingsDialog::buildAppearanceTab(QTabWidget* tabs)
     tabs->addTab(widget, tr("Appearance"));
 }
 
+void SettingsDialog::buildFontsTab(QTabWidget* tabs)
+{
+    auto* widget = new QWidget(tabs);
+    auto* form   = new QFormLayout(widget);
+
+    auto makeRow = [&](const QString& label,
+                       QFontComboBox*& combo, QSpinBox*& spin, QLabel*& preview,
+                       const QFont& current)
+    {
+        combo = new QFontComboBox(widget);
+        combo->setCurrentFont(current);
+        combo->setMinimumWidth(200);
+
+        spin = new QSpinBox(widget);
+        spin->setRange(6, 72);
+        spin->setValue(current.pointSize() > 0 ? current.pointSize() : 10);
+        spin->setSuffix(" pt");
+        spin->setFixedWidth(70);
+
+        preview = new QLabel(tr("AaBbCc 123"), widget);
+        preview->setFont(current);
+        preview->setMinimumWidth(120);
+
+        auto* row = new QHBoxLayout();
+        row->addWidget(combo);
+        row->addWidget(spin);
+        row->addWidget(preview);
+        row->addStretch();
+        form->addRow(label, row);
+
+        auto updatePreview = [combo, spin, preview] {
+            QFont f = combo->currentFont();
+            f.setPointSize(spin->value());
+            preview->setFont(f);
+        };
+        connect(combo, &QFontComboBox::currentFontChanged, widget, updatePreview);
+        connect(spin,  qOverload<int>(&QSpinBox::valueChanged), widget, updatePreview);
+    };
+
+    const QFont edFont  = m_settings ? m_settings->editorFont() : QFont("Courier New", 12);
+    const QFont outFont = m_settings ? m_settings->outputFont() : QFont("Courier New", 10);
+    const QFont uiFont  = m_settings ? m_settings->uiFont()     : QApplication::font();
+
+    makeRow(tr("Editor:"), m_editorFontCombo, m_editorFontSize, m_editorPreview, edFont);
+    makeRow(tr("Output:"), m_outputFontCombo, m_outputFontSize, m_outputPreview, outFont);
+    makeRow(tr("Menus / UI:"), m_uiFontCombo, m_uiFontSize, m_uiPreview, uiFont);
+
+    tabs->addTab(widget, tr("Fonts"));
+}
+
 void SettingsDialog::loadValues()
 {
     if (!m_settings || !m_project) return;
@@ -238,6 +292,22 @@ void SettingsDialog::saveValues()
 
     if (m_darkTheme)
         m_settings->setDarkTheme(m_darkTheme->isChecked());
+
+    if (m_editorFontCombo && m_editorFontSize) {
+        QFont f = m_editorFontCombo->currentFont();
+        f.setPointSize(m_editorFontSize->value());
+        m_settings->setEditorFont(f);
+    }
+    if (m_outputFontCombo && m_outputFontSize) {
+        QFont f = m_outputFontCombo->currentFont();
+        f.setPointSize(m_outputFontSize->value());
+        m_settings->setOutputFont(f);
+    }
+    if (m_uiFontCombo && m_uiFontSize) {
+        QFont f = m_uiFontCombo->currentFont();
+        f.setPointSize(m_uiFontSize->value());
+        m_settings->setUiFont(f);
+    }
 
     // Editor associations
     for (int row = 0; row < m_editorTable->rowCount(); ++row) {

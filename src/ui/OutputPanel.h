@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDockWidget>
+#include <QFont>
 #include "../analyzer/AnalysisResult.h"
 
 class QTabWidget;
@@ -24,6 +25,8 @@ public:
     void showAnalysisTab();
     void showFindResultsTab();
     void showDiffTab();
+
+    void setOutputFont(const QFont& font);
 
 signals:
     void diagnosticActivated(const QString& filePath, int line);

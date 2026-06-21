@@ -51,6 +51,7 @@ signals:
 private:
     void loadSolution(const QString& sspecPath);
     void setSolution(Solution* solution);
+    void applyFonts();
 
     MainWindow*        m_mainWindow = nullptr;
     Solution*          m_solution   = nullptr;

@@ -31,6 +31,7 @@
 #include <QTextBlock>
 #include <QTextCursor>
 
+#include <QApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -66,6 +67,8 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, &AppController::onDeleteFile);
     connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
             this, &AppController::onOpenFile);
+
+    applyFonts();
 
     connect(mainWindow->outputPanel(), &OutputPanel::diagnosticActivated,
             this, [this](const QString& filePath, int line) {
@@ -340,6 +343,7 @@ void AppController::onSettings()
 
     SettingsDialog dlg(m_settings, proj, m_mainWindow);
     dlg.exec();
+    applyFonts();
 }
 
 void AppController::onCommitAndPush()
@@ -763,10 +767,25 @@ void AppController::onRenameStep()
             .arg(totalReplaced).arg(filesChanged));
 }
 
+void AppController::applyFonts()
+{
+    qApp->setFont(m_settings->uiFont());
+    m_mainWindow->outputPanel()->setOutputFont(m_settings->outputFont());
+    const QFont edFont = m_settings->editorFont();
+    for (auto* ed : m_mainWindow->allOpenEditors())
+        if (auto* pte = qobject_cast<PlainTextEditor*>(ed))
+            pte->textEdit()->setFont(edFont);
+}
+
 void AppController::onOpenFile(const QString& absolutePath)
 {
     if (absolutePath.isEmpty()) return;
     m_mainWindow->editorTabs()->openFile(absolutePath);
+
+    // Apply editor font to newly opened editor
+    if (auto* pte = qobject_cast<PlainTextEditor*>(
+            m_mainWindow->editorForPath(absolutePath)))
+        pte->textEdit()->setFont(m_settings->editorFont());
 
     // Give SpecTableEditor access to the project index for context menu features
     if (auto* ste = qobject_cast<SpecTableEditor*>(

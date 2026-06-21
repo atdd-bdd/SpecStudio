@@ -73,6 +73,14 @@ void OutputPanel::clearBuildOutput()
     m_buildOut->clear();
 }
 
+void OutputPanel::setOutputFont(const QFont& font)
+{
+    m_buildOut->setFont(font);
+    m_diffView->setFont(font);
+    m_analysisList->setFont(font);
+    m_findList->setFont(font);
+}
+
 void OutputPanel::setFindResults(const QList<Diagnostic>& results, const QString& term)
 {
     m_findResults = results;

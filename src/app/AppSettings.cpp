@@ -1,5 +1,6 @@
 #include "AppSettings.h"
 
+#include <QApplication>
 #include <QCryptographicHash>
 #include <QStandardPaths>
 
@@ -243,4 +244,47 @@ bool AppSettings::darkTheme() const
 void AppSettings::setDarkTheme(bool dark)
 {
     m_settings.setValue("Appearance/darkTheme", dark);
+}
+
+// ---- Fonts ----
+
+QFont AppSettings::editorFont() const
+{
+    const QString family = m_settings.value("Fonts/editorFamily", "Courier New").toString();
+    const int size       = m_settings.value("Fonts/editorSize",   12).toInt();
+    return QFont(family, size);
+}
+
+void AppSettings::setEditorFont(const QFont& font)
+{
+    m_settings.setValue("Fonts/editorFamily", font.family());
+    m_settings.setValue("Fonts/editorSize",   font.pointSize());
+}
+
+QFont AppSettings::outputFont() const
+{
+    const QString family = m_settings.value("Fonts/outputFamily", "Courier New").toString();
+    const int size       = m_settings.value("Fonts/outputSize",   10).toInt();
+    return QFont(family, size);
+}
+
+void AppSettings::setOutputFont(const QFont& font)
+{
+    m_settings.setValue("Fonts/outputFamily", font.family());
+    m_settings.setValue("Fonts/outputSize",   font.pointSize());
+}
+
+QFont AppSettings::uiFont() const
+{
+    if (!m_settings.contains("Fonts/uiFamily"))
+        return QApplication::font();
+    const QString family = m_settings.value("Fonts/uiFamily").toString();
+    const int size       = m_settings.value("Fonts/uiSize", 9).toInt();
+    return QFont(family, size);
+}
+
+void AppSettings::setUiFont(const QFont& font)
+{
+    m_settings.setValue("Fonts/uiFamily", font.family());
+    m_settings.setValue("Fonts/uiSize",   font.pointSize());
 }

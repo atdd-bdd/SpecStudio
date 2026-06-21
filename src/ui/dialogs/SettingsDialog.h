@@ -4,10 +4,13 @@
 
 class AppSettings;
 class Project;
-class QLineEdit;
-class QTableWidget;
 class QCheckBox;
 class QComboBox;
+class QFontComboBox;
+class QLabel;
+class QLineEdit;
+class QSpinBox;
+class QTableWidget;
 
 class SettingsDialog : public QDialog
 {
@@ -24,6 +27,7 @@ private:
     void buildGitTab(QTabWidget* tabs);
     void buildFeaturexTab(QTabWidget* tabs);
     void buildAppearanceTab(QTabWidget* tabs);
+    void buildFontsTab(QTabWidget* tabs);
 
     void loadValues();
     void saveValues();
@@ -51,4 +55,15 @@ private:
 
     // Appearance
     QCheckBox*    m_darkTheme      = nullptr;
+
+    // Fonts
+    QFontComboBox* m_editorFontCombo = nullptr;
+    QSpinBox*      m_editorFontSize  = nullptr;
+    QLabel*        m_editorPreview   = nullptr;
+    QFontComboBox* m_outputFontCombo = nullptr;
+    QSpinBox*      m_outputFontSize  = nullptr;
+    QLabel*        m_outputPreview   = nullptr;
+    QFontComboBox* m_uiFontCombo     = nullptr;
+    QSpinBox*      m_uiFontSize      = nullptr;
+    QLabel*        m_uiPreview       = nullptr;
 };

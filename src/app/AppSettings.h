@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QFont>
 #include <QSettings>
 #include <QString>
 
@@ -56,6 +57,16 @@ public:
     // Appearance
     bool darkTheme() const;
     void setDarkTheme(bool dark);
+
+    // Fonts
+    QFont editorFont() const;
+    void  setEditorFont(const QFont& font);
+
+    QFont outputFont() const;
+    void  setOutputFont(const QFont& font);
+
+    QFont uiFont() const;
+    void  setUiFont(const QFont& font);
 
     // The full list of file extensions SpecStudio recognises (used in dialogs)
     static QStringList knownExtensions();
