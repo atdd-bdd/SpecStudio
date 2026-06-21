@@ -31,6 +31,7 @@ protected:
 private:
     bool handleTableTabKey();
     void formatAllTables();
+    void fixTrailingContinuations();
     void insertTableRow();
     void deleteTableRow();
     void transposeTable();
@@ -38,6 +39,7 @@ private:
     void autoInsertTableHeader();
     void extractAsAttributeSet();
     void extractAsDefine();
+    void editMultilineComment();
 
     SpecTableIndex* m_index          = nullptr;
     QStringList     m_staticKeywords;

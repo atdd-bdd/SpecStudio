@@ -836,8 +836,9 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
             ++filesChanged;
             projModified = true;
 
-            if (auto* ed = m_mainWindow->editorTabs()->editorForPath(file->absolutePath()))
-                ed->load(file->absolutePath());
+            if (auto* pte = qobject_cast<PlainTextEditor*>(
+                    m_mainWindow->editorForPath(file->absolutePath())))
+                pte->suppressNextExternalChange();
         }
         if (projModified) {
             connect(proj->git(), &GitClient::outputReady,

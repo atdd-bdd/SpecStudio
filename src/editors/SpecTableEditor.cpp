@@ -4,11 +4,16 @@
 #include "../ui/dialogs/AttributeTableDialog.h"
 
 #include <QApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFileInfo>
+#include <QFontMetrics>
 #include <QHelpEvent>
 #include <QInputDialog>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QPlainTextEdit>
+#include <QVBoxLayout>
 #include <QRegularExpression>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -65,7 +70,42 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
 bool SpecTableEditor::save()
 {
     formatAllTables();
+    fixTrailingContinuations();
     return PlainTextEditor::save();
+}
+
+// ---------------------------------------------------------------------------
+// Strip the trailing ' \' from the last line of each continuation block.
+// Opener lines like "Details \" keep their backslash; only indented
+// continuation lines that end a block are cleaned.
+// ---------------------------------------------------------------------------
+
+void SpecTableEditor::fixTrailingContinuations()
+{
+    QTextDocument* doc = textEdit()->document();
+    QTextCursor tc(doc);
+    tc.beginEditBlock();
+
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+        const QString text = b.text();
+        // Only indented lines ending with ' \' are candidates
+        if (text.isEmpty() || !text.at(0).isSpace()) continue;
+        if (!text.endsWith(QStringLiteral(" \\"))) continue;
+
+        // Check whether the next line is also a continuation (indented)
+        const QTextBlock next = b.next();
+        const bool nextIsContinuation = next.isValid()
+                                        && !next.text().isEmpty()
+                                        && next.text().at(0).isSpace();
+        if (nextIsContinuation) continue;
+
+        // Last continuation line — remove the trailing ' \'
+        tc.setPosition(b.position() + text.length() - 2);
+        tc.setPosition(b.position() + text.length(), QTextCursor::KeepAnchor);
+        tc.removeSelectedText();
+    }
+
+    tc.endEditBlock();
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +461,119 @@ void SpecTableEditor::autoInsertTableHeader()
 }
 
 // ---------------------------------------------------------------------------
+// Edit multi-line comment — join continuation lines into a single string,
+// let the user edit it, then reflow at the current viewport width.
+// ---------------------------------------------------------------------------
+
+void SpecTableEditor::editMultilineComment()
+{
+    QTextDocument* doc = textEdit()->document();
+
+    static QRegularExpression reField(
+        R"(^\s*(Description|Details|Constraint|Notes)\s*(.*))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    // Walk back from cursor to find the field opener line
+    int openerNum = textEdit()->textCursor().blockNumber();
+    for (int i = openerNum; i >= 0; --i) {
+        const QString t = doc->findBlockByNumber(i).text();
+        if (reField.match(t).hasMatch()) { openerNum = i; break; }
+        if (i < textEdit()->textCursor().blockNumber()
+            && (t.isEmpty() || !t.at(0).isSpace())) return;
+    }
+
+    QTextBlock opener = doc->findBlockByNumber(openerNum);
+    auto om = reField.match(opener.text());
+    if (!om.hasMatch()) return;
+
+    const QString keyword = om.captured(1);
+    // Detect the opener's leading indent
+    QString openerIndent;
+    for (const QChar ch : opener.text()) { if (!ch.isSpace()) break; openerIndent += ch; }
+    const QString contIndent = openerIndent + "  ";
+
+    // Collect the inline text (after the keyword) and continuation lines
+    QString inlineRaw = om.captured(2).trimmed();
+    const bool isMultilineOpener = (inlineRaw == "\\" || inlineRaw.isEmpty());
+    if (inlineRaw.endsWith(" \\")) inlineRaw.chop(2);
+    else if (inlineRaw.endsWith("\\")) inlineRaw.chop(1);
+    inlineRaw = inlineRaw.trimmed();
+
+    QStringList parts;
+    if (!inlineRaw.isEmpty()) parts << inlineRaw;
+
+    int lastContNum = openerNum;
+    if (isMultilineOpener) {
+        for (int i = openerNum + 1; i < doc->blockCount(); ++i) {
+            const QString t = doc->findBlockByNumber(i).text();
+            if (t.isEmpty() || !t.at(0).isSpace()) break;
+            lastContNum = i;
+            QString stripped = t.trimmed();
+            if (stripped.endsWith(" \\")) stripped.chop(2);
+            else if (stripped.endsWith("\\")) stripped.chop(1);
+            parts << stripped.trimmed();
+        }
+    }
+
+    const QString fullText = parts.join(" ").simplified();
+
+    // Dialog
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Edit %1").arg(keyword));
+    dlg.resize(620, 160);
+    auto* edit = new QPlainTextEdit(fullText, &dlg);
+    edit->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    auto* bb = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(edit);
+    lay->addWidget(bb);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString newText = edit->toPlainText().simplified();
+    if (newText.isEmpty()) return;
+
+    // Compute wrap width from viewport
+    const int charW = qMax(1, textEdit()->fontMetrics().horizontalAdvance(QChar('M')));
+    const int viewW = textEdit()->viewport()->width();
+    const int maxContentCols = qMax(30, viewW / charW - int(contIndent.length()) - 2);
+
+    // Word-wrap
+    QStringList words = newText.split(' ', Qt::SkipEmptyParts);
+    QStringList wrapped;
+    QString line;
+    for (const QString& word : words) {
+        if (!line.isEmpty() && line.length() + 1 + word.length() > maxContentCols) {
+            wrapped << line;
+            line = word;
+        } else {
+            if (!line.isEmpty()) line += ' ';
+            line += word;
+        }
+    }
+    if (!line.isEmpty()) wrapped << line;
+
+    // Build replacement lines
+    QStringList newLines;
+    if (wrapped.size() == 1) {
+        newLines << openerIndent + keyword + " " + wrapped.first();
+    } else {
+        newLines << openerIndent + keyword + " \\";
+        for (int i = 0; i < wrapped.size() - 1; ++i)
+            newLines << contIndent + wrapped[i] + " \\";
+        newLines << contIndent + wrapped.last();
+    }
+
+    QTextCursor tc(doc);
+    QTextBlock endBlock = doc->findBlockByNumber(lastContNum);
+    tc.setPosition(opener.position());
+    tc.setPosition(endBlock.position() + endBlock.length() - 1, QTextCursor::KeepAnchor);
+    tc.insertText(newLines.join('\n'));
+}
+
+// ---------------------------------------------------------------------------
 // Phase 9 — Extract ad-hoc table as a new Attributes or Define declaration
 // ---------------------------------------------------------------------------
 
@@ -552,6 +705,26 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         connect(renameAct, &QAction::triggered, this, [this, word] {
             emit renameSymbolRequested(word);
         });
+    }
+
+    // Edit Comment (shown when cursor is on a Description/Details/Constraint line or continuation)
+    {
+        static QRegularExpression reField(
+            R"(^\s*(Description|Details|Constraint|Notes)\b)",
+            QRegularExpression::CaseInsensitiveOption);
+        const QTextBlock cur = textEdit()->textCursor().block();
+        const bool onField = reField.match(cur.text()).hasMatch();
+        const bool onCont  = !cur.text().isEmpty() && cur.text().at(0).isSpace()
+                             && cur.previous().isValid()
+                             && (reField.match(cur.previous().text()).hasMatch()
+                                 || (!cur.previous().text().isEmpty()
+                                     && cur.previous().text().at(0).isSpace()));
+        if (onField || onCont) {
+            menu->addSeparator();
+            auto* editCommentAct = menu->addAction(tr("Edit Comment..."));
+            connect(editCommentAct, &QAction::triggered,
+                    this, &SpecTableEditor::editMultilineComment);
+        }
     }
 
     // Table row editing (shown when cursor is on a pipe row)
