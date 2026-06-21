@@ -34,8 +34,9 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     QList<Diagnostic> diags;
     if (!m_index) return diags;
 
-    // Build the symbol set visible from this file (own declarations + imports)
-    const SpecTableSymbols visible = m_index->buildFor(filePath);
+    // All files in the same project share full visibility.
+    // Import is only needed for files outside the project.
+    const SpecTableSymbols& visible = m_index->projectSymbols();
 
     checkImports               (filePath, visible, diags);
     checkInserts               (filePath, diags);
@@ -46,7 +47,6 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkCleanup               (filePath, diags);
     checkTableColumnConsistency(filePath, diags);
     checkStepTableContents     (filePath, visible, diags);
-    checkBrokenProjectRefs     (filePath, visible, diags);
 
     return diags;
 }
@@ -573,63 +573,3 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
     }
 }
 
-// ---------------------------------------------------------------------------
-// Check 9 — Suggest Import for symbols that exist project-wide but aren't visible
-// ---------------------------------------------------------------------------
-
-void SpecTableAnalyzer::checkBrokenProjectRefs(const QString& filePath,
-                                                const SpecTableSymbols& visible,
-                                                QList<Diagnostic>& out) const
-{
-    const SpecTableSymbols& proj = m_index->projectSymbols();
-
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(?:\s+Transposed)?\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reApplying(
-        R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDefRef(R"(=([A-Za-z_]\w*))");
-    static QRegularExpression reExamples(R"(^\s*Examples:\s*(\w+))",
-                                         QRegularExpression::CaseInsensitiveOption);
-
-    QTextStream in(&f);
-    int lineNum = 0;
-    while (!in.atEnd()) {
-        const QString line = in.readLine();
-        ++lineNum;
-
-        // Step AttributeSet references
-        auto m = reStepAttr.match(line);
-        if (m.hasMatch() && !reApplying.match(line).hasMatch()) {
-            const QString name = m.captured(1);
-            if (!visible.hasAttributeSet(name) && proj.hasAttributeSet(name))
-                out.append(makeDiag(filePath, lineNum,
-                    QStringLiteral("'%1' exists in the project but is not imported").arg(name),
-                    Diagnostic::Severity::Warning));
-        }
-
-        // Define references
-        QRegularExpressionMatchIterator it = reDefRef.globalMatch(line);
-        while (it.hasNext()) {
-            const QString name = it.next().captured(1);
-            if (!visible.hasDefine(name) && proj.hasDefine(name))
-                out.append(makeDiag(filePath, lineNum,
-                    QStringLiteral("Define '%1' exists in the project but is not imported").arg(name),
-                    Diagnostic::Severity::Warning));
-        }
-
-        // Examples: references
-        auto em = reExamples.match(line);
-        if (em.hasMatch()) {
-            const QString name = em.captured(1);
-            if (!visible.hasAttributeSet(name) && proj.hasAttributeSet(name))
-                out.append(makeDiag(filePath, lineNum,
-                    QStringLiteral("'%1' exists in the project but is not imported").arg(name),
-                    Diagnostic::Severity::Warning));
-        }
-    }
-}

@@ -23,7 +23,6 @@ private:
     void checkCleanup               (const QString& filePath, QList<Diagnostic>& out) const;
     void checkTableColumnConsistency (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepTableContents      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkBrokenProjectRefs      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,

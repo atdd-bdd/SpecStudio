@@ -55,6 +55,7 @@ private:
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);
     void renameSpecTableSymbol(const QString& symbolName);
+    void onSymbolAtCursor(const QString& name);
 
     MainWindow*        m_mainWindow = nullptr;
     Solution*          m_solution   = nullptr;

@@ -865,6 +865,16 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
             .arg(oldName, newName).arg(totalReplaced).arg(filesChanged));
 }
 
+void AppController::onSymbolAtCursor(const QString& name)
+{
+    auto* panel = m_mainWindow->attributeInspector();
+    if (!panel) return;
+    if (name.isEmpty())
+        panel->clear();
+    else
+        panel->showSymbol(name, m_specTableIndex);
+}
+
 void AppController::navigateToLine(const QString& filePath, int line)
 {
     onOpenFile(filePath);
@@ -959,13 +969,8 @@ void AppController::onOpenFile(const QString& absolutePath)
         connect(ste, &SpecTableEditor::renameSymbolRequested,
                 this, &AppController::renameSpecTableSymbol, Qt::UniqueConnection);
 
-        if (auto* panel = m_mainWindow->attributeInspector()) {
-            connect(ste, &SpecTableEditor::symbolAtCursor,
-                    panel, [panel, this](const QString& name) {
-                if (name.isEmpty()) panel->clear();
-                else panel->showSymbol(name, m_specTableIndex);
-            }, Qt::UniqueConnection);
-        }
+        connect(ste, &SpecTableEditor::symbolAtCursor,
+                this, &AppController::onSymbolAtCursor, Qt::UniqueConnection);
     }
 }
 
