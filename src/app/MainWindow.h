@@ -4,7 +4,9 @@
 #include <QMainWindow>
 
 class AppController;
+class AttributeInspectorPanel;
 class BaseEditor;
+class EntityTreePanel;
 class FindReplaceDialog;
 class QSplitter;
 class SolutionExplorer;
@@ -20,10 +22,12 @@ public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
-    SolutionExplorer* solutionExplorer() const { return m_solutionExplorer; }
-    EditorTabWidget*  editorTabs()        const { return m_editorTabs; }
-    OutputPanel*      outputPanel()       const { return m_outputPanel; }
-    StatusBarManager* statusBarMgr()      const { return m_statusBarMgr; }
+    SolutionExplorer*       solutionExplorer()      const { return m_solutionExplorer; }
+    EditorTabWidget*        editorTabs()            const { return m_editorTabs; }
+    OutputPanel*            outputPanel()           const { return m_outputPanel; }
+    StatusBarManager*       statusBarMgr()          const { return m_statusBarMgr; }
+    AttributeInspectorPanel* attributeInspector()  const { return m_attrInspector; }
+    EntityTreePanel*         entityTree()           const { return m_entityTree; }
 
     BaseEditor*         currentEditor()     const;
     EditorTabWidget*    activeEditorTabs()  const;
@@ -55,6 +59,8 @@ private:
     QSplitter*         m_splitter        = nullptr;
     EditorTabWidget*   m_editorTabs      = nullptr;
     EditorTabWidget*   m_editorTabs2     = nullptr;
-    OutputPanel*       m_outputPanel     = nullptr;
-    StatusBarManager*  m_statusBarMgr    = nullptr;
+    OutputPanel*            m_outputPanel     = nullptr;
+    StatusBarManager*       m_statusBarMgr    = nullptr;
+    AttributeInspectorPanel* m_attrInspector  = nullptr;
+    EntityTreePanel*         m_entityTree      = nullptr;
 };

@@ -8,6 +8,8 @@
 #include "../ui/EditorTabWidget.h"
 #include "../ui/StatusBarManager.h"
 #include "../ui/OutputPanel.h"
+#include "../ui/AttributeInspectorPanel.h"
+#include "../ui/EntityTreePanel.h"
 #include "../ui/dialogs/NewSolutionDialog.h"
 #include "../ui/dialogs/NewProjectDialog.h"
 #include "../ui/dialogs/NewFileDialog.h"
@@ -41,6 +43,7 @@
 #include <QPrintDialog>
 #include <QPrinter>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <QTreeView>
 
@@ -68,22 +71,15 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
     connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
             this, &AppController::onOpenFile);
 
+    if (auto* ep = mainWindow->entityTree())
+        connect(ep, &EntityTreePanel::navigateToRequested,
+                this, &AppController::navigateToLine);
+
     applyFonts();
 
     connect(mainWindow->outputPanel(), &OutputPanel::diagnosticActivated,
             this, [this](const QString& filePath, int line) {
-                onOpenFile(filePath);
-                // Navigate to line in the opened editor
-                auto* ed = m_mainWindow->editorTabs()->editorForPath(filePath);
-                if (auto* pte = qobject_cast<PlainTextEditor*>(ed)) {
-                    QTextCursor cursor = pte->textEdit()->document()->findBlockByLineNumber(
-                        qMax(0, line - 1)).position() >= 0
-                        ? QTextCursor(pte->textEdit()->document()->findBlockByLineNumber(
-                            qMax(0, line - 1)))
-                        : QTextCursor(pte->textEdit()->document());
-                    pte->textEdit()->setTextCursor(cursor);
-                    pte->textEdit()->ensureCursorVisible();
-                }
+                navigateToLine(filePath, line);
             });
 }
 
@@ -586,8 +582,16 @@ void AppController::onAnalyze()
     }
 
     // Push collected tags to all open editors so @ autocomplete works
-    for (auto* ed : m_mainWindow->allOpenEditors())
+    for (auto* ed : m_mainWindow->allOpenEditors()) {
         ed->setTagCompletionWords(allTags);
+        // Refresh SpecTable symbol completions from the rebuilt index
+        if (auto* ste = qobject_cast<SpecTableEditor*>(ed))
+            ste->refreshDynamicCompletions();
+    }
+
+    // Refresh visualization panels
+    if (auto* panel = m_mainWindow->entityTree())
+        panel->refresh(m_specTableIndex);
 }
 
 void AppController::onRenameFile(const QString& absolutePath)
@@ -664,16 +668,30 @@ void AppController::onFindAllUsages()
         return;
     }
 
-    // Default to selected text in current editor
+    // Default to selected text or word under cursor in current editor
     QString defaultTerm;
-    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor()))
+    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor())) {
         defaultTerm = ed->textEdit()->textCursor().selectedText();
+        if (defaultTerm.isEmpty()) {
+            QTextCursor tc = ed->textEdit()->textCursor();
+            tc.select(QTextCursor::WordUnderCursor);
+            defaultTerm = tc.selectedText().trimmed();
+        }
+    }
+    const bool currentIsSpecTable =
+        qobject_cast<SpecTableEditor*>(m_mainWindow->currentEditor()) != nullptr;
 
     bool ok;
     const QString term = QInputDialog::getText(
         m_mainWindow, tr("Find All Usages"),
         tr("Search for:"), QLineEdit::Normal, defaultTerm, &ok);
     if (!ok || term.isEmpty()) return;
+
+    // For SpecTable files use symbol-aware whole-word search
+    if (currentIsSpecTable) {
+        findReferencesForSymbol(term);
+        return;
+    }
 
     QList<Diagnostic> results;
     for (auto* proj : m_solution->projects()) {
@@ -767,6 +785,133 @@ void AppController::onRenameStep()
             .arg(totalReplaced).arg(filesChanged));
 }
 
+void AppController::renameSpecTableSymbol(const QString& oldName)
+{
+    if (!m_solution || m_solution->projects().isEmpty()) return;
+
+    const SymbolLocation loc = m_specTableIndex->projectSymbols().locationFor(oldName);
+    if (loc.filePath.isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("Unknown Symbol"),
+            tr("'%1' is not a known SpecTable symbol.").arg(oldName));
+        return;
+    }
+
+    bool ok;
+    const QString newName = QInputDialog::getText(
+        m_mainWindow, tr("Rename Symbol"),
+        tr("Rename '%1' to:").arg(oldName), QLineEdit::Normal, oldName, &ok);
+    if (!ok || newName.isEmpty() || newName == oldName) return;
+
+    static QRegularExpression reIdent(R"(^[A-Za-z_]\w*$)");
+    if (!reIdent.match(newName).hasMatch()) {
+        QMessageBox::warning(m_mainWindow, tr("Invalid Name"),
+            tr("'%1' is not a valid symbol name.").arg(newName));
+        return;
+    }
+
+    const QRegularExpression re(
+        QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(oldName)));
+
+    int filesChanged = 0, totalReplaced = 0;
+    for (auto* proj : m_solution->projects()) {
+        bool projModified = false;
+        for (auto* file : proj->files()) {
+            if (file->type() != FileType::SpecTable) continue;
+            QFile f(file->absolutePath());
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            QTextStream in(&f);
+            QString content = in.readAll();
+            f.close();
+
+            const int count = content.count(re);
+            if (count == 0) continue;
+
+            content.replace(re, newName);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) continue;
+            QTextStream out(&f);
+            out << content;
+            f.close();
+
+            totalReplaced += count;
+            ++filesChanged;
+            projModified = true;
+
+            if (auto* ed = m_mainWindow->editorTabs()->editorForPath(file->absolutePath()))
+                ed->load(file->absolutePath());
+        }
+        if (projModified) {
+            connect(proj->git(), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            proj->git()->commitAll(tr("Rename: %1 → %2").arg(oldName, newName));
+        }
+    }
+
+    // Rebuild index and refresh completions
+    if (filesChanged > 0) {
+        QStringList stFiles;
+        for (auto* proj : m_solution->projects())
+            for (auto* file : proj->files())
+                if (file->type() == FileType::SpecTable)
+                    stFiles.append(file->absolutePath());
+        m_specTableIndex->rebuildProject(stFiles);
+        for (auto* ed : m_mainWindow->allOpenEditors())
+            if (auto* ste = qobject_cast<SpecTableEditor*>(ed))
+                ste->refreshDynamicCompletions();
+    }
+
+    QMessageBox::information(m_mainWindow, tr("Rename Complete"),
+        tr("Renamed '%1' to '%2': %3 occurrence(s) in %4 file(s).")
+            .arg(oldName, newName).arg(totalReplaced).arg(filesChanged));
+}
+
+void AppController::navigateToLine(const QString& filePath, int line)
+{
+    onOpenFile(filePath);
+    auto* ed = m_mainWindow->editorTabs()->editorForPath(filePath);
+    if (auto* pte = qobject_cast<PlainTextEditor*>(ed)) {
+        QTextDocument* doc = pte->textEdit()->document();
+        QTextBlock block = doc->findBlockByLineNumber(qMax(0, line - 1));
+        QTextCursor cursor = block.isValid() ? QTextCursor(block) : QTextCursor(doc);
+        pte->textEdit()->setTextCursor(cursor);
+        pte->textEdit()->ensureCursorVisible();
+    }
+}
+
+void AppController::findReferencesForSymbol(const QString& symbolName)
+{
+    if (!m_solution || m_solution->projects().isEmpty()) return;
+
+    const QRegularExpression re(
+        QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(symbolName)));
+
+    QList<Diagnostic> results;
+    for (auto* proj : m_solution->projects()) {
+        for (auto* file : proj->files()) {
+            if (file->type() != FileType::SpecTable) continue;
+            QFile f(file->absolutePath());
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            QTextStream in(&f);
+            int lineNum = 1;
+            while (!in.atEnd()) {
+                const QString line = in.readLine();
+                if (re.match(line).hasMatch()) {
+                    Diagnostic d;
+                    d.filePath = file->absolutePath();
+                    d.line     = lineNum;
+                    d.message  = line.trimmed();
+                    d.severity = Diagnostic::Severity::Info;
+                    results.append(d);
+                }
+                ++lineNum;
+            }
+        }
+    }
+
+    m_mainWindow->outputPanel()->setFindResults(results, symbolName);
+    m_mainWindow->outputPanel()->showFindResultsTab();
+}
+
 void AppController::applyFonts()
 {
     qApp->setFont(m_settings->uiFont());
@@ -806,6 +951,21 @@ void AppController::onOpenFile(const QString& absolutePath)
         m_specTableIndex->rebuildProject(specTableFiles);
 
         ste->setIndex(m_specTableIndex);
+
+        connect(ste, &SpecTableEditor::goToDefinitionRequested,
+                this, &AppController::navigateToLine, Qt::UniqueConnection);
+        connect(ste, &SpecTableEditor::findReferencesRequested,
+                this, &AppController::findReferencesForSymbol, Qt::UniqueConnection);
+        connect(ste, &SpecTableEditor::renameSymbolRequested,
+                this, &AppController::renameSpecTableSymbol, Qt::UniqueConnection);
+
+        if (auto* panel = m_mainWindow->attributeInspector()) {
+            connect(ste, &SpecTableEditor::symbolAtCursor,
+                    panel, [panel, this](const QString& name) {
+                if (name.isEmpty()) panel->clear();
+                else panel->showSymbol(name, m_specTableIndex);
+            }, Qt::UniqueConnection);
+        }
     }
 }
 

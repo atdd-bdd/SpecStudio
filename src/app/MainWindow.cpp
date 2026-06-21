@@ -5,6 +5,8 @@
 #include "../ui/EditorTabWidget.h"
 #include "../ui/OutputPanel.h"
 #include "../ui/StatusBarManager.h"
+#include "../ui/AttributeInspectorPanel.h"
+#include "../ui/EntityTreePanel.h"
 #include "../ui/dialogs/FindReplaceDialog.h"
 #include "../editors/BaseEditor.h"
 
@@ -189,18 +191,22 @@ void MainWindow::setupMenuBar()
     // ---- View ----
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
 
-    auto* actShowSolution = viewMenu->addAction(tr("Solution Explorer"));
-    auto* actShowFiles    = viewMenu->addAction(tr("Files"));
-    auto* actShowOutput   = viewMenu->addAction(tr("Output"));
+    auto* actShowSolution  = viewMenu->addAction(tr("Solution Explorer"));
+    auto* actShowSymTree   = viewMenu->addAction(tr("Symbol Tree"));
+    auto* actShowAttrInsp  = viewMenu->addAction(tr("Attribute Inspector"));
+    auto* actShowFiles     = viewMenu->addAction(tr("Files"));
+    auto* actShowOutput    = viewMenu->addAction(tr("Output"));
     viewMenu->addSeparator();
     auto* actSplitRight  = viewMenu->addAction(tr("Split Editor Right"), QKeySequence(Qt::CTRL | Qt::Key_Backslash));
     auto* actCloseSplit  = viewMenu->addAction(tr("Close Split"),         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Backslash));
 
-    connect(actShowSolution, &QAction::triggered, m_solutionExplorer, &QDockWidget::show);
-    connect(actShowFiles,    &QAction::triggered, m_editorTabs,        &QWidget::show);
-    connect(actShowOutput,   &QAction::triggered, m_outputPanel,       &QDockWidget::show);
-    connect(actSplitRight,   &QAction::triggered, this, &MainWindow::splitEditorRight);
-    connect(actCloseSplit,   &QAction::triggered, this, &MainWindow::closeSplit);
+    connect(actShowSolution,  &QAction::triggered, m_solutionExplorer, &QDockWidget::show);
+    connect(actShowSymTree,   &QAction::triggered, m_entityTree,        &QDockWidget::show);
+    connect(actShowAttrInsp,  &QAction::triggered, m_attrInspector,     &QDockWidget::show);
+    connect(actShowFiles,     &QAction::triggered, m_editorTabs,        &QWidget::show);
+    connect(actShowOutput,    &QAction::triggered, m_outputPanel,       &QDockWidget::show);
+    connect(actSplitRight,    &QAction::triggered, this, &MainWindow::splitEditorRight);
+    connect(actCloseSplit,    &QAction::triggered, this, &MainWindow::closeSplit);
 
     // ---- Git ----
     auto* gitMenu = menuBar()->addMenu(tr("&Git"));
@@ -238,6 +244,15 @@ void MainWindow::setupDocks()
 
     m_solutionExplorer = new SolutionExplorer(this);
     addDockWidget(Qt::LeftDockWidgetArea, m_solutionExplorer);
+
+    m_entityTree = new EntityTreePanel(this);
+    addDockWidget(Qt::LeftDockWidgetArea, m_entityTree);
+    tabifyDockWidget(m_solutionExplorer, m_entityTree);
+    m_solutionExplorer->raise();
+
+    m_attrInspector = new AttributeInspectorPanel(this);
+    addDockWidget(Qt::RightDockWidgetArea, m_attrInspector);
+    m_attrInspector->hide();
 
     m_outputPanel = new OutputPanel(this);
     addDockWidget(Qt::BottomDockWidgetArea, m_outputPanel);

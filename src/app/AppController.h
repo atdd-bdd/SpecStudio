@@ -52,6 +52,9 @@ private:
     void loadSolution(const QString& sspecPath);
     void setSolution(Solution* solution);
     void applyFonts();
+    void navigateToLine(const QString& filePath, int line);
+    void findReferencesForSymbol(const QString& symbolName);
+    void renameSpecTableSymbol(const QString& symbolName);
 
     MainWindow*        m_mainWindow = nullptr;
     Solution*          m_solution   = nullptr;

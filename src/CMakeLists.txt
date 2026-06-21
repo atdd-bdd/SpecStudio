@@ -17,6 +17,10 @@ set(SOURCES
     ui/OutputPanel.cpp
     ui/StatusBarManager.h
     ui/StatusBarManager.cpp
+    ui/AttributeInspectorPanel.h
+    ui/AttributeInspectorPanel.cpp
+    ui/EntityTreePanel.h
+    ui/EntityTreePanel.cpp
 
     model/FileType.h
     model/ProjectFile.h
