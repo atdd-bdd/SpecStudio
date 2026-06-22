@@ -2,6 +2,7 @@
 #include "FeatureEditor.h"
 #include "FeatureXEditor.h"
 #include "SpecTableEditor.h"
+#include "SpecConfigEditor.h"
 #include "PlainTextEditor.h"
 #include "ExternalEditor.h"
 #include "../model/FileType.h"
@@ -26,6 +27,8 @@ BaseEditor* EditorFactory::create(const QString& absolutePath,
         return new FeatureXEditor(absolutePath, parent);
     case FileType::SpecTable:
         return new SpecTableEditor(absolutePath, parent);
+    case FileType::SpecConfig:
+        return new SpecConfigEditor(absolutePath, parent);
     case FileType::Text:
         return new PlainTextEditor(absolutePath, parent);
     default:

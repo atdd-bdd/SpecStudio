@@ -6,6 +6,7 @@ enum class FileType {
     Feature,
     FeatureX,
     SpecTable,
+    SpecConfig,
     Csv,
     Markdown,
     Text,
@@ -18,6 +19,7 @@ inline FileType fileTypeFromPath(const QString& path)
     if (ext == "feature")    return FileType::Feature;
     if (ext == "featurex")   return FileType::FeatureX;
     if (ext == "spectable")  return FileType::SpecTable;
+    if (ext == "specconfig") return FileType::SpecConfig;
     if (ext == "csv" || ext == "xls" || ext == "xlsx") return FileType::Csv;
     if (ext == "md")         return FileType::Markdown;
     if (ext == "txt")        return FileType::Text;
@@ -29,7 +31,8 @@ inline QString fileTypeDisplayName(FileType t)
     switch (t) {
         case FileType::Feature:   return "Feature";
         case FileType::FeatureX:  return "FeatureX";
-        case FileType::SpecTable: return "SpecTable";
+        case FileType::SpecTable:  return "SpecTable";
+        case FileType::SpecConfig: return "SpecConfig";
         case FileType::Csv:       return "Spreadsheet";
         case FileType::Markdown:  return "Markdown";
         case FileType::Text:      return "Text";

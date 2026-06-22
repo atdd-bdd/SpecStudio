@@ -23,6 +23,8 @@ set(SOURCES
     ui/EntityTreePanel.cpp
 
     model/FileType.h
+    model/SpecConfig.h
+    model/SpecConfig.cpp
     model/ProjectFile.h
     model/ProjectFile.cpp
     model/Project.h
@@ -65,6 +67,8 @@ set(SOURCES
     editors/syntax/SpecTableHighlighter.cpp
     editors/SpecTableEditor.h
     editors/SpecTableEditor.cpp
+    editors/SpecConfigEditor.h
+    editors/SpecConfigEditor.cpp
 
     git/GitStatusCache.h
     git/GitStatusCache.cpp

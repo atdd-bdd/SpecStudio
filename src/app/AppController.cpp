@@ -25,6 +25,7 @@
 #include "../model/FileType.h"
 #include "../build/BuildController.h"
 #include "../build/BuildOutputParser.h"
+#include "../model/SpecConfig.h"
 #include "../git/GitClient.h"
 #include "../editors/BaseEditor.h"
 #include "../editors/PlainTextEditor.h"
@@ -473,16 +474,67 @@ void AppController::onPull()
     }
 }
 
-// Returns the path to SpecTableConverter.exe (next to our own executable)
-static QString converterPath()
+// Auto-detect SpecTableConverter.exe: check same dir as SpecStudio, then dev build locations
+static QString autoDetectConverter()
 {
-    return QCoreApplication::applicationDirPath() + "/SpecTableConverter.exe";
+    const QString appDir = QCoreApplication::applicationDirPath();
+    // Production: converter deployed next to SpecStudio.exe
+    const QString prod = appDir + "/SpecTableConverter.exe";
+    if (QFile::exists(prod)) return prod;
+    // Development: Visual Studio build layout  build/src/Debug -> build/converter/Debug
+    const QString devDebug   = appDir + "/../../converter/Debug/SpecTableConverter.exe";
+    const QString devRelease = appDir + "/../../converter/Release/SpecTableConverter.exe";
+    if (QFile::exists(devDebug))   return QFileInfo(devDebug).absoluteFilePath();
+    if (QFile::exists(devRelease)) return QFileInfo(devRelease).absoluteFilePath();
+    return {};
 }
 
-// Returns the generated-output directory for a given .spectable file
-static QString outputDirFor(const QString& filePath)
+// Find the nearest .specconfig file walking from spectableDir up to projectRoot
+static QString findSpecConfig(const QString& spectableDir, const QString& projectRoot)
 {
-    return QFileInfo(filePath).dir().absolutePath() + "/generated";
+    QDir dir(spectableDir);
+    const QString projAbs = QFileInfo(projectRoot).absoluteFilePath();
+    while (true) {
+        const QStringList found = dir.entryList({ "*.specconfig" }, QDir::Files);
+        if (!found.isEmpty())
+            return dir.absoluteFilePath(found.first());
+        if (dir.absolutePath() == projAbs) break;
+        if (!dir.cdUp()) break;
+    }
+    return {};
+}
+
+// Resolve the output directory from a SpecConfig (relative = beside the config file)
+static QString resolveOutputDir(const SpecConfig& cfg, const QString& configFilePath,
+                                 const QString& spectableFilePath)
+{
+    const QString base = configFilePath.isEmpty()
+        ? QFileInfo(spectableFilePath).dir().absolutePath()
+        : QFileInfo(configFilePath).dir().absolutePath();
+
+    const QString out = cfg.outputDirectory.trimmed();
+    if (out.isEmpty()) return base + "/generated";
+    if (QFileInfo(out).isAbsolute()) return out;
+    return QDir(base).absoluteFilePath(out);
+}
+
+// Set up build signal connections (call after disconnect)
+void AppController::setupBuildConnections()
+{
+    m_buildAccum.clear();
+    connect(m_builder, &BuildController::outputReady,
+            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+            Qt::UniqueConnection);
+    connect(m_builder, &BuildController::outputReady,
+            this, [this](const QString& text) { m_buildAccum += text; });
+    connect(m_builder, &BuildController::buildFinished,
+            this, [this](bool success) {
+                const auto diags = BuildOutputParser::parse(m_buildAccum);
+                if (!diags.isEmpty())
+                    m_mainWindow->outputPanel()->setDiagnostics(diags);
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    success ? tr("Done.") : tr("Build failed."));
+            });
 }
 
 void AppController::onBuildCurrentFile()
@@ -500,35 +552,40 @@ void AppController::onBuildCurrentFile()
         return;
     }
 
-    const QString converter = converterPath();
-    const QString outDir    = outputDirFor(ed->filePath());
+    // Locate config
+    const QString projRoot = m_solution
+        ? (m_solution->projectForFile(ed->filePath())
+           ? m_solution->projectForFile(ed->filePath())->rootPath() : QString())
+        : QString();
+    const QString cfgPath  = findSpecConfig(QFileInfo(ed->filePath()).dir().absolutePath(),
+                                             projRoot.isEmpty()
+                                             ? QFileInfo(ed->filePath()).dir().absolutePath()
+                                             : projRoot);
+    const SpecConfig cfg   = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
+
+    // Resolve converter and output dir
+    const QString converter = cfg.converterPath.isEmpty() ? autoDetectConverter()
+                                                           : cfg.converterPath;
+    const QString outDir    = resolveOutputDir(cfg, cfgPath, ed->filePath());
 
     m_mainWindow->outputPanel()->clearBuildOutput();
     m_mainWindow->outputPanel()->showBuildTab();
     m_mainWindow->outputPanel()->appendBuildOutput(
         tr("--- Converting %1 ---").arg(QFileInfo(ed->filePath()).fileName()));
+    if (cfgPath.isEmpty())
+        m_mainWindow->outputPanel()->appendBuildOutput(
+            tr("No .specconfig found — using defaults"));
     m_mainWindow->outputPanel()->appendBuildOutput(
-        tr("Output directory: %1").arg(outDir));
+        tr("Output: %1").arg(outDir));
 
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
+    setupBuildConnections();
 
-    m_buildAccum.clear();
-    connect(m_builder, &BuildController::outputReady,
-            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-            Qt::UniqueConnection);
-    connect(m_builder, &BuildController::outputReady,
-            this, [this](const QString& text) { m_buildAccum += text; });
-    connect(m_builder, &BuildController::buildFinished,
-            this, [this](bool success) {
-                auto diags = BuildOutputParser::parse(m_buildAccum);
-                if (!diags.isEmpty())
-                    m_mainWindow->outputPanel()->setDiagnostics(diags);
-                m_mainWindow->outputPanel()->appendBuildOutput(
-                    success ? tr("Done.") : tr("Build failed."));
-            });
-
-    m_builder->run(converter, { ed->filePath(), outDir });
+    QStringList args = { ed->filePath(), outDir };
+    if (cfg.overwriteGlue) args << "--overwrite-glue";
+    if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
+    m_builder->run(converter, args);
 }
 
 void AppController::onBuildProject()
@@ -544,30 +601,23 @@ void AppController::onBuildProject()
 
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
+    setupBuildConnections();
 
-    m_buildAccum.clear();
-    connect(m_builder, &BuildController::outputReady,
-            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-            Qt::UniqueConnection);
-    connect(m_builder, &BuildController::outputReady,
-            this, [this](const QString& text) { m_buildAccum += text; });
-    connect(m_builder, &BuildController::buildFinished,
-            this, [this](bool success) {
-                auto diags = BuildOutputParser::parse(m_buildAccum);
-                if (!diags.isEmpty())
-                    m_mainWindow->outputPanel()->setDiagnostics(diags);
-                if (!success)
-                    m_mainWindow->outputPanel()->appendBuildOutput(tr("Build failed."));
-            });
-
-    const QString converter = converterPath();
     for (auto* proj : m_solution->projects()) {
+        const QString cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
+        const SpecConfig cfg  = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
+        const QString converter = cfg.converterPath.isEmpty() ? autoDetectConverter()
+                                                               : cfg.converterPath;
+
         for (auto* pf : proj->files()) {
             if (pf->type() == FileType::SpecTable) {
-                const QString outDir = outputDirFor(pf->absolutePath());
+                const QString outDir = resolveOutputDir(cfg, cfgPath, pf->absolutePath());
                 m_mainWindow->outputPanel()->appendBuildOutput(
                     tr("--- Converting %1 ---").arg(pf->fileName()));
-                m_builder->run(converter, { pf->absolutePath(), outDir });
+                QStringList args = { pf->absolutePath(), outDir };
+                if (cfg.overwriteGlue) args << "--overwrite-glue";
+                if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
+                m_builder->run(converter, args);
             }
         }
     }
