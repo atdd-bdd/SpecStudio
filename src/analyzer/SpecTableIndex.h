@@ -15,18 +15,23 @@ static const QStringList k_builtinDataTypes = {
     "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
 };
 
+struct SymbolLocation {
+    QString filePath;
+    int     line = 0;
+};
+
 struct SpecTableSymbols
 {
-    QMap<QString, QString> entities;       // name → filePath
-    QMap<QString, QString> domainTerms;    // name → filePath
-    QMap<QString, QString> dataTypes;      // name → filePath
-    QMap<QString, QString> attributes;     // name → filePath
-    QMap<QString, QString> businessRules;  // name → filePath
-    QMap<QString, QString> calculations;   // name → filePath
-    QMap<QString, QString> scenarios;      // name → filePath
-    QMap<QString, QString> scenarioGroups; // name → filePath
-    QMap<QString, QString> specifications; // name → filePath
-    QMap<QString, QString> defines;        // name → filePath
+    QMap<QString, SymbolLocation> entities;
+    QMap<QString, SymbolLocation> domainTerms;
+    QMap<QString, SymbolLocation> dataTypes;
+    QMap<QString, SymbolLocation> attributes;
+    QMap<QString, SymbolLocation> businessRules;
+    QMap<QString, SymbolLocation> calculations;
+    QMap<QString, SymbolLocation> scenarios;
+    QMap<QString, SymbolLocation> scenarioGroups;
+    QMap<QString, SymbolLocation> specifications;
+    QMap<QString, SymbolLocation> defines;
 
     bool hasAttributeSet(const QString& name) const
     {
@@ -47,6 +52,28 @@ struct SpecTableSymbols
     bool hasDefine(const QString& name) const
     {
         return defines.contains(name);
+    }
+
+    // Returns the file path where the symbol is declared (empty if not found).
+    QString filePathFor(const QString& name) const
+    {
+        for (const auto* m : { &entities, &domainTerms, &dataTypes, &attributes,
+                                &businessRules, &calculations, &scenarios,
+                                &scenarioGroups, &specifications, &defines }) {
+            if (m->contains(name)) return m->value(name).filePath;
+        }
+        return {};
+    }
+
+    // Returns the declaration location of the named symbol, or an invalid location.
+    SymbolLocation locationFor(const QString& name) const
+    {
+        for (const auto* m : { &entities, &domainTerms, &dataTypes, &attributes,
+                                &businessRules, &calculations, &scenarios,
+                                &scenarioGroups, &specifications, &defines }) {
+            if (m->contains(name)) return m->value(name);
+        }
+        return {};
     }
 };
 

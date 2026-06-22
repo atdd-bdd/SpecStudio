@@ -59,9 +59,9 @@ QStringList SpecTableIndex::insertsFor(const QString& filePath) const
 QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
 {
     // Look up in Attributes declarations first, then Entity declarations
-    QString filePath = m_project.attributes.value(name);
+    QString filePath = m_project.attributes.value(name).filePath;
     if (filePath.isEmpty())
-        filePath = m_project.entities.value(name);
+        filePath = m_project.entities.value(name).filePath;
     if (filePath.isEmpty()) return {};
 
     QFile f(filePath);
@@ -127,39 +127,41 @@ void SpecTableIndex::parseFile(const QString& filePath,
     QStringList&      fileIns = m_fileInserts[abs];
 
     QTextStream in(&f);
+    int lineNum = 0;
     while (!in.atEnd()) {
         const QString line = in.readLine();
+        ++lineNum;
         QRegularExpressionMatch m;
 
         m = reEntity.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.entities.insert(n, abs); out.entities.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.entities.insert(n, loc); out.entities.insert(n, loc); continue; }
 
         m = reDomainTerm.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.domainTerms.insert(n, abs); out.domainTerms.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.domainTerms.insert(n, loc); out.domainTerms.insert(n, loc); continue; }
 
         m = reDataType.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.dataTypes.insert(n, abs); out.dataTypes.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.dataTypes.insert(n, loc); out.dataTypes.insert(n, loc); continue; }
 
         m = reAttributes.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.attributes.insert(n, abs); out.attributes.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.attributes.insert(n, loc); out.attributes.insert(n, loc); continue; }
 
         m = reBizRule.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.businessRules.insert(n, abs); out.businessRules.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.businessRules.insert(n, loc); out.businessRules.insert(n, loc); continue; }
 
         m = reCalc.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.calculations.insert(n, abs); out.calculations.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.calculations.insert(n, loc); out.calculations.insert(n, loc); continue; }
 
         m = reScenario.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.scenarios.insert(n, abs); out.scenarios.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); SymbolLocation loc{abs, lineNum}; fileSym.scenarios.insert(n, loc); out.scenarios.insert(n, loc); continue; }
 
         m = reScenarioGrp.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.scenarioGroups.insert(n, abs); out.scenarioGroups.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); SymbolLocation loc{abs, lineNum}; fileSym.scenarioGroups.insert(n, loc); out.scenarioGroups.insert(n, loc); continue; }
 
         m = reSpecification.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); fileSym.specifications.insert(n, abs); out.specifications.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); SymbolLocation loc{abs, lineNum}; fileSym.specifications.insert(n, loc); out.specifications.insert(n, loc); continue; }
 
         m = reDefine.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); fileSym.defines.insert(n, abs); out.defines.insert(n, abs); continue; }
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.defines.insert(n, loc); out.defines.insert(n, loc); continue; }
 
         m = reImport.match(line);
         if (m.hasMatch()) {
