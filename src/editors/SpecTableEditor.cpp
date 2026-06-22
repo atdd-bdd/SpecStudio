@@ -11,6 +11,8 @@
 #include <QFontMetrics>
 #include <QHelpEvent>
 #include <QInputDialog>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QKeyEvent>
 #include <QMenu>
 #include <QPlainTextEdit>
@@ -395,70 +397,172 @@ void SpecTableEditor::transposeTable()
 
 void SpecTableEditor::autoInsertTableHeader()
 {
-    if (!m_index) return;
-
     QTextCursor tc     = textEdit()->textCursor();
     QTextBlock curBlk  = tc.block();
     QTextBlock prevBlk = curBlk.previous();
 
     if (!prevBlk.isValid()) return;
-    if (!curBlk.text().trimmed().isEmpty()) return; // cursor not on a blank line
-    // Don't insert if a table row already follows
+    if (!curBlk.text().trimmed().isEmpty()) return;
     if (curBlk.next().isValid() && curBlk.next().text().trimmed().startsWith('|')) return;
 
-    static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reApplying(
-        R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-
     const QString prevLine = prevBlk.text();
-    auto m = reStep.match(prevLine);
-    if (!m.hasMatch()) return;
-    if (reApplying.match(prevLine).hasMatch()) return;
-
-    const QString name       = m.captured(1);
-    const bool    transposed = !m.captured(2).trimmed().isEmpty();
-    const SpecTableSymbols& syms = m_index->projectSymbols();
-    if (!syms.hasAttributeSet(name) && !syms.dataTypes.contains(name)) return;
+    const QString prevTrimmed = prevLine.trimmed();
 
     QString indent;
     for (const QChar ch : prevLine) { if (!ch.isSpace()) break; indent += ch; }
 
-    QString tableText;
-
-    if (syms.dataTypes.contains(name) && !syms.hasAttributeSet(name)) {
-        tableText = indent + "|   |   |   |\n" + indent + "|   |   |   |";
-    } else {
-        const QVector<QStringList> attrDef = m_index->attributeRows(name);
-        if (attrDef.size() < 2) return;
-
-        QStringList attrNames;
-        for (int r = 1; r < attrDef.size(); ++r)
-            if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
-        if (attrNames.isEmpty()) return;
-
-        if (transposed) {
-            QStringList lines;
-            for (const QString& a : attrNames)
-                lines << (indent + "| " + a + " |  |");
-            tableText = lines.join("\n");
-        } else {
-            QString hdr = indent + "|", data = indent + "|";
-            for (const QString& a : attrNames) {
-                hdr  += " " + a + " |";
-                data += " " + QString(a.length(), ' ') + " |";
-            }
-            tableText = hdr + "\n" + data;
+    // ── Case 1: Attributes/Entity line → insert standard header ──────────────
+    {
+        static QRegularExpression reAttrDecl(
+            R"(^\s*(Attributes|Entity)\s+\S+)",
+            QRegularExpression::CaseInsensitiveOption);
+        if (reAttrDecl.match(prevLine).hasMatch()) {
+            const QString hdr = indent + "| Attribute | Type | Default | Notes |";
+            tc.movePosition(QTextCursor::StartOfBlock);
+            tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            tc.insertText(hdr);
+            return;
         }
     }
 
-    if (tableText.isEmpty()) return;
+    // ── Case 2: Step line with : AttrSetName ──────────────────────────────────
+    {
+        static QRegularExpression reStep(
+            R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            QRegularExpression::CaseInsensitiveOption);
+        static QRegularExpression reApplying(
+            R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
+            QRegularExpression::CaseInsensitiveOption);
 
-    tc.movePosition(QTextCursor::StartOfBlock);
-    tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-    tc.insertText(tableText);
+        auto m = reStep.match(prevLine);
+        if (!m.hasMatch() || reApplying.match(prevLine).hasMatch()) return;
+
+        const QString name       = m.captured(1);
+        const bool    transposed = !m.captured(2).trimmed().isEmpty();
+
+        if (!m_index) return;
+        const SpecTableSymbols& syms = m_index->projectSymbols();
+
+        // ── Unknown AttributeSet: prompt to create or pick ────────────────────
+        if (!syms.hasAttributeSet(name) && !syms.dataTypes.contains(name)) {
+            // Collect known attribute set names for the "pick" option
+            QStringList known;
+            for (auto it = syms.attributes.begin(); it != syms.attributes.end(); ++it)
+                known << it.key();
+            for (auto it = syms.entities.begin(); it != syms.entities.end(); ++it)
+                if (!known.contains(it.key())) known << it.key();
+            known.sort(Qt::CaseInsensitive);
+
+            QMessageBox box(QMessageBox::Question,
+                tr("Unknown AttributeSet"),
+                tr("AttributeSet '%1' is not defined in this project.\n\n"
+                   "What would you like to do?").arg(name),
+                QMessageBox::NoButton, textEdit());
+            QPushButton* createBtn = box.addButton(tr("Create '%1'").arg(name), QMessageBox::AcceptRole);
+            QPushButton* pickBtn   = nullptr;
+            if (!known.isEmpty())
+                pickBtn = box.addButton(tr("Pick Existing..."), QMessageBox::ActionRole);
+            box.addButton(QMessageBox::Cancel);
+            box.exec();
+
+            QAbstractButton* clicked = box.clickedButton();
+            if (clicked == static_cast<QAbstractButton*>(createBtn)) {
+                // Insert "Attributes <name>" block at end of file with header row
+                QTextCursor end = textEdit()->textCursor();
+                end.movePosition(QTextCursor::End);
+                end.insertText(QString("\n\nAttributes %1\n| Attribute | Type | Default | Notes |\n|           |      |         |       |")
+                               .arg(name));
+                // Now insert column header stub where the step is
+                const QString hdr = indent + "| " + name + " |  |";
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                tc.insertText(hdr);
+            } else if (pickBtn && clicked == static_cast<QAbstractButton*>(pickBtn)) {
+                bool ok = false;
+                const QString picked = QInputDialog::getItem(
+                    textEdit(), tr("Pick AttributeSet"),
+                    tr("Replace '%1' with:").arg(name),
+                    known, 0, false, &ok);
+                if (ok && !picked.isEmpty()) {
+                    // Rewrite the previous line replacing the name
+                    QTextCursor prev = textEdit()->textCursor();
+                    prev.movePosition(QTextCursor::PreviousBlock);
+                    prev.movePosition(QTextCursor::StartOfBlock);
+                    prev.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                    QString newLine = prev.selectedText();
+                    newLine.replace(
+                        QRegularExpression(R"(:\s*)" + QRegularExpression::escape(name)
+                                           + R"((\s+Transposed)?\s*$)",
+                                           QRegularExpression::CaseInsensitiveOption),
+                        ": " + picked + (transposed ? " Transposed" : ""));
+                    prev.insertText(newLine);
+                    // Then fall through to insert the header for the picked set
+                    QTimer::singleShot(0, this, [this, picked, transposed, indent]() {
+                        if (!m_index) return;
+                        const QVector<QStringList> attrDef = m_index->attributeRows(picked);
+                        if (attrDef.size() < 2) return;
+                        QStringList attrNames;
+                        for (int r = 1; r < attrDef.size(); ++r)
+                            if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
+                        if (attrNames.isEmpty()) return;
+                        QString tableText;
+                        if (transposed) {
+                            QStringList ls;
+                            for (const QString& a : attrNames) ls << (indent + "| " + a + " |  |");
+                            tableText = ls.join("\n");
+                        } else {
+                            QString hdr = indent + "|", data = indent + "|";
+                            for (const QString& a : attrNames) {
+                                hdr  += " " + a + " |";
+                                data += " " + QString(a.length(), ' ') + " |";
+                            }
+                            tableText = hdr + "\n" + data;
+                        }
+                        QTextCursor tc2 = textEdit()->textCursor();
+                        tc2.movePosition(QTextCursor::StartOfBlock);
+                        tc2.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                        tc2.insertText(tableText);
+                    });
+                }
+            }
+            return;
+        }
+
+        // ── Known AttributeSet: insert its column headers ─────────────────────
+        QString tableText;
+
+        if (syms.dataTypes.contains(name) && !syms.hasAttributeSet(name)) {
+            tableText = indent + "|   |   |   |\n" + indent + "|   |   |   |";
+        } else {
+            const QVector<QStringList> attrDef = m_index->attributeRows(name);
+            if (attrDef.size() < 2) return;
+
+            QStringList attrNames;
+            for (int r = 1; r < attrDef.size(); ++r)
+                if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
+            if (attrNames.isEmpty()) return;
+
+            if (transposed) {
+                QStringList lines;
+                for (const QString& a : attrNames)
+                    lines << (indent + "| " + a + " |  |");
+                tableText = lines.join("\n");
+            } else {
+                QString hdr = indent + "|", data = indent + "|";
+                for (const QString& a : attrNames) {
+                    hdr  += " " + a + " |";
+                    data += " " + QString(a.length(), ' ') + " |";
+                }
+                tableText = hdr + "\n" + data;
+            }
+        }
+
+        if (tableText.isEmpty()) return;
+
+        tc.movePosition(QTextCursor::StartOfBlock);
+        tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        tc.insertText(tableText);
+    }
 }
 
 // ---------------------------------------------------------------------------
