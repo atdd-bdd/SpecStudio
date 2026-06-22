@@ -487,21 +487,24 @@ void AppController::onBuildCurrentFile()
     m_mainWindow->outputPanel()->clearBuildOutput();
     m_mainWindow->outputPanel()->showBuildTab();
 
-    QString accum;
+    // Disconnect any previous lambda connections from prior build runs before reconnecting
+    disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
+    disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
+
+    m_buildAccum.clear();
     connect(m_builder, &BuildController::outputReady,
             m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
             Qt::UniqueConnection);
     connect(m_builder, &BuildController::outputReady,
-            this, [&accum](const QString& text) { accum += text; },
-            Qt::UniqueConnection);
+            this, [this](const QString& text) { m_buildAccum += text; });
     connect(m_builder, &BuildController::buildFinished,
-            this, [this, &accum](bool success) {
-                auto diags = BuildOutputParser::parse(accum);
+            this, [this](bool success) {
+                auto diags = BuildOutputParser::parse(m_buildAccum);
                 if (!diags.isEmpty())
                     m_mainWindow->outputPanel()->setDiagnostics(diags);
                 if (!success)
                     m_mainWindow->outputPanel()->appendBuildOutput(tr("Build failed."));
-            }, Qt::UniqueConnection);
+            });
 
     m_builder->buildFile(ed->filePath(), translator);
 }
@@ -519,21 +522,23 @@ void AppController::onBuildProject()
     m_mainWindow->outputPanel()->clearBuildOutput();
     m_mainWindow->outputPanel()->showBuildTab();
 
-    QString accum;
+    disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
+    disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
+
+    m_buildAccum.clear();
     connect(m_builder, &BuildController::outputReady,
             m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
             Qt::UniqueConnection);
     connect(m_builder, &BuildController::outputReady,
-            this, [&accum](const QString& text) { accum += text; },
-            Qt::UniqueConnection);
+            this, [this](const QString& text) { m_buildAccum += text; });
     connect(m_builder, &BuildController::buildFinished,
-            this, [this, &accum](bool success) {
-                auto diags = BuildOutputParser::parse(accum);
+            this, [this](bool success) {
+                auto diags = BuildOutputParser::parse(m_buildAccum);
                 if (!diags.isEmpty())
                     m_mainWindow->outputPanel()->setDiagnostics(diags);
                 if (!success)
                     m_mainWindow->outputPanel()->appendBuildOutput(tr("Build failed."));
-            }, Qt::UniqueConnection);
+            });
 
     for (auto* proj : m_solution->projects())
         m_builder->buildProject(proj, translator);
