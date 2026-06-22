@@ -34,6 +34,7 @@
 #include <QTextCursor>
 
 #include <QApplication>
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -472,6 +473,18 @@ void AppController::onPull()
     }
 }
 
+// Returns the path to SpecTableConverter.exe (next to our own executable)
+static QString converterPath()
+{
+    return QCoreApplication::applicationDirPath() + "/SpecTableConverter.exe";
+}
+
+// Returns the generated-output directory for a given .spectable file
+static QString outputDirFor(const QString& filePath)
+{
+    return QFileInfo(filePath).dir().absolutePath() + "/generated";
+}
+
 void AppController::onBuildCurrentFile()
 {
     auto* ed = m_mainWindow->currentEditor();
@@ -481,13 +494,22 @@ void AppController::onBuildCurrentFile()
         return;
     }
 
-    // Translator program can be stored in settings in future; empty for now
-    QString translator; // TODO: read from m_settings once translator setting is added
+    if (fileTypeFromPath(ed->filePath()) != FileType::SpecTable) {
+        QMessageBox::information(m_mainWindow, tr("Not Supported"),
+            tr("Build is only supported for .spectable files."));
+        return;
+    }
+
+    const QString converter = converterPath();
+    const QString outDir    = outputDirFor(ed->filePath());
 
     m_mainWindow->outputPanel()->clearBuildOutput();
     m_mainWindow->outputPanel()->showBuildTab();
+    m_mainWindow->outputPanel()->appendBuildOutput(
+        tr("--- Converting %1 ---").arg(QFileInfo(ed->filePath()).fileName()));
+    m_mainWindow->outputPanel()->appendBuildOutput(
+        tr("Output directory: %1").arg(outDir));
 
-    // Disconnect any previous lambda connections from prior build runs before reconnecting
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
 
@@ -502,11 +524,11 @@ void AppController::onBuildCurrentFile()
                 auto diags = BuildOutputParser::parse(m_buildAccum);
                 if (!diags.isEmpty())
                     m_mainWindow->outputPanel()->setDiagnostics(diags);
-                if (!success)
-                    m_mainWindow->outputPanel()->appendBuildOutput(tr("Build failed."));
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    success ? tr("Done.") : tr("Build failed."));
             });
 
-    m_builder->buildFile(ed->filePath(), translator);
+    m_builder->run(converter, { ed->filePath(), outDir });
 }
 
 void AppController::onBuildProject()
@@ -517,8 +539,6 @@ void AppController::onBuildProject()
         return;
     }
 
-    QString translator; // TODO: read from m_settings
-
     m_mainWindow->outputPanel()->clearBuildOutput();
     m_mainWindow->outputPanel()->showBuildTab();
 
@@ -540,8 +560,17 @@ void AppController::onBuildProject()
                     m_mainWindow->outputPanel()->appendBuildOutput(tr("Build failed."));
             });
 
-    for (auto* proj : m_solution->projects())
-        m_builder->buildProject(proj, translator);
+    const QString converter = converterPath();
+    for (auto* proj : m_solution->projects()) {
+        for (auto* pf : proj->files()) {
+            if (pf->type() == FileType::SpecTable) {
+                const QString outDir = outputDirFor(pf->absolutePath());
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    tr("--- Converting %1 ---").arg(pf->fileName()));
+                m_builder->run(converter, { pf->absolutePath(), outDir });
+            }
+        }
+    }
 }
 
 void AppController::onAnalyze()

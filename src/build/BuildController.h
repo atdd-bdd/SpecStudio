@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
 
 class Project;
 
@@ -11,8 +12,10 @@ class BuildController : public QObject
 public:
     explicit BuildController(QObject* parent = nullptr);
 
-    void buildFile(const QString& absolutePath, const QString& translatorProgram);
-    void buildProject(Project* project,          const QString& translatorProgram);
+    // Run an external tool with the given arguments.
+    // Emits outputReady for each chunk of stdout/stderr,
+    // then buildFinished(true/false) when the process exits.
+    void run(const QString& program, const QStringList& args);
 
 signals:
     void outputReady(const QString& text);
