@@ -1,5 +1,6 @@
 #include "SpectableParser.h"
 #include "CSharpGenerator.h"
+#include "JavaGenerator.h"
 
 #include <QCoreApplication>
 #include <QCommandLineParser>
@@ -16,15 +17,24 @@ int main(int argc, char* argv[])
 
     QCommandLineParser cli;
     cli.setApplicationDescription(
-        "Convert a .spectable file into C# unit test scaffolding.");
+        "Convert a .spectable file into unit test scaffolding.");
     cli.addHelpOption();
     cli.addVersionOption();
 
     cli.addPositionalArgument("input",  "Path to the .spectable file");
-    cli.addPositionalArgument("output", "Output directory for generated .cs files");
+    cli.addPositionalArgument("output", "Output directory for generated files");
+
+    QCommandLineOption langOpt({ "l", "language" },
+        "Target language: CSharp (default) or Java", "language", "CSharp");
+    cli.addOption(langOpt);
+
+    QCommandLineOption fwOpt({ "f", "framework" },
+        "Test framework: MSTest/NUnit/xUnit (C#) or JUnit/TestNG (Java). "
+        "Default: MSTest for C#, JUnit for Java", "framework", "");
+    cli.addOption(fwOpt);
 
     QCommandLineOption nsOpt({ "n", "namespace" },
-        "C# namespace prefix (default: gherkinexecutor)", "prefix", "gherkinexecutor");
+        "Namespace/package prefix (default: gherkinexecutor)", "prefix", "gherkinexecutor");
     cli.addOption(nsOpt);
 
     QCommandLineOption overwriteGlueOpt("overwrite-glue",
@@ -39,8 +49,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const QString inputPath  = pos[0];
-    const QString outputDir  = pos[1];
+    const QString inputPath = pos[0];
+    const QString outputDir = pos[1];
+    const QString language  = cli.value(langOpt).trimmed();
+    QString framework       = cli.value(fwOpt).trimmed();
 
     if (!QFileInfo::exists(inputPath)) {
         std::cerr << "ERROR:0:Input file not found: " << inputPath.toStdString() << "\n";
@@ -51,24 +63,36 @@ int main(int argc, char* argv[])
     SpectableParser parser;
     SpectableFile   file = parser.parse(inputPath);
 
-    // Print parse diagnostics
     bool hasError = false;
     for (const ParseMessage& m : file.messages) {
         const char* sev = m.warning ? "WARNING" : "ERROR";
         std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
         if (!m.warning) hasError = true;
     }
-
     if (hasError) return 1;
 
     // Generate
-    CSharpGenerator::Options opts;
-    opts.nsPrefix      = cli.value(nsOpt);
-    opts.outputDir     = outputDir;
-    opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+    QStringList genMsgs;
 
-    CSharpGenerator gen;
-    const QStringList genMsgs = gen.generate(file, opts);
+    if (language.compare("Java", Qt::CaseInsensitive) == 0) {
+        if (framework.isEmpty()) framework = "JUnit";
+        JavaGenerator::Options opts;
+        opts.packagePrefix = cli.value(nsOpt);
+        opts.outputDir     = outputDir;
+        opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        opts.framework     = framework;
+        JavaGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else {
+        // Default: C#
+        if (framework.isEmpty()) framework = "MSTest";
+        CSharpGenerator::Options opts;
+        opts.nsPrefix      = cli.value(nsOpt);
+        opts.outputDir     = outputDir;
+        opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        CSharpGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    }
 
     for (const QString& msg : genMsgs) {
         std::cout << msg.toStdString() << "\n";

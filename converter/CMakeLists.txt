@@ -4,6 +4,7 @@ add_executable(SpecTableConverter
     main.cpp
     SpectableParser.cpp
     CSharpGenerator.cpp
+    JavaGenerator.cpp
 )
 
 target_compile_features(SpecTableConverter PRIVATE cxx_std_17)

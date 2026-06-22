@@ -583,8 +583,10 @@ void AppController::onBuildCurrentFile()
     setupBuildConnections();
 
     QStringList args = { ed->filePath(), outDir };
-    if (cfg.overwriteGlue) args << "--overwrite-glue";
+    if (!cfg.language.isEmpty())        args << "--language"  << cfg.language;
+    if (!cfg.framework.isEmpty())       args << "--framework" << cfg.framework;
     if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
+    if (cfg.overwriteGlue)              args << "--overwrite-glue";
     m_builder->run(converter, args);
 }
 
@@ -615,8 +617,10 @@ void AppController::onBuildProject()
                 m_mainWindow->outputPanel()->appendBuildOutput(
                     tr("--- Converting %1 ---").arg(pf->fileName()));
                 QStringList args = { pf->absolutePath(), outDir };
-                if (cfg.overwriteGlue) args << "--overwrite-glue";
+                if (!cfg.language.isEmpty())        args << "--language"  << cfg.language;
+                if (!cfg.framework.isEmpty())       args << "--framework" << cfg.framework;
                 if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
+                if (cfg.overwriteGlue)              args << "--overwrite-glue";
                 m_builder->run(converter, args);
             }
         }
