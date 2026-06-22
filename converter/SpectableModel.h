@@ -71,6 +71,7 @@ struct SpectableFile {
     QVector<AttrSet>       attrSets;
     QVector<Define>        defines;
     QVector<Step>          backgroundSteps;
+    QVector<Step>          cleanupSteps;
     QVector<Scenario>      scenarios;
     QVector<ParseMessage>  messages;
 };

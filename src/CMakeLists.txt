@@ -89,6 +89,8 @@ set(SOURCES
     ui/dialogs/StringDialog.cpp
     ui/dialogs/AttributeTableDialog.h
     ui/dialogs/AttributeTableDialog.cpp
+    ui/dialogs/BackgroundCleanupDialog.h
+    ui/dialogs/BackgroundCleanupDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp

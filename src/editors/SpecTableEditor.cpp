@@ -2,6 +2,7 @@
 #include "syntax/SpecTableHighlighter.h"
 #include "../analyzer/SpecTableIndex.h"
 #include "../ui/dialogs/AttributeTableDialog.h"
+#include "../ui/dialogs/BackgroundCleanupDialog.h"
 
 #include <QApplication>
 #include <QDialog>
@@ -665,6 +666,24 @@ void SpecTableEditor::refreshDynamicCompletions()
 
 void SpecTableEditor::populateContextMenu(QMenu* menu)
 {
+    // Background / Cleanup display — always available for .spectable files
+    {
+        const QString fp = filePath();
+        auto* bgAct = menu->addAction(tr("Display Background..."));
+        connect(bgAct, &QAction::triggered, this, [fp, this] {
+            auto* dlg = new BackgroundCleanupDialog(
+                fp, BackgroundCleanupDialog::Mode::Background, window());
+            dlg->show();
+        });
+        auto* clAct = menu->addAction(tr("Display Cleanup..."));
+        connect(clAct, &QAction::triggered, this, [fp, this] {
+            auto* dlg = new BackgroundCleanupDialog(
+                fp, BackgroundCleanupDialog::Mode::Cleanup, window());
+            dlg->show();
+        });
+        menu->addSeparator();
+    }
+
     if (!m_index) return;
 
     QTextCursor tc = textEdit()->textCursor();

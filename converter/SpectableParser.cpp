@@ -88,7 +88,7 @@ bool SpectableParser::isSkipKeyword(const QString& firstWord)
 {
     static const QStringList words = {
         "Description", "Details", "Constraint", "Notes",
-        "Import", "Insert", "Cleanup"
+        "Import", "Insert"
     };
     for (const QString& k : words)
         if (firstWord.startsWith(k, Qt::CaseInsensitive))
@@ -130,6 +130,7 @@ SpectableFile SpectableParser::parse(const QString& filePath)
         InAttrDef,      // reading the field-definition pipe table
         InDefineTable,
         InBackground,
+        InCleanup,
         InScenario,
         AwaitStepTable,
         InStepTable,
@@ -149,9 +150,13 @@ SpectableFile SpectableParser::parse(const QString& filePath)
         result.messages.push_back({ ln, msg, warn });
     };
 
+    bool inCleanupBlock = false; // true while collecting cleanup steps
+
     auto endStepTable = [&]() {
         curStep = nullptr;
-        state   = (curScen ? State::InScenario : State::InBackground);
+        if (curScen)          state = State::InScenario;
+        else if (inCleanupBlock) state = State::InCleanup;
+        else                  state = State::InBackground;
     };
 
     auto endAttrDef = [&]() {
@@ -360,7 +365,17 @@ SpectableFile SpectableParser::parse(const QString& filePath)
         if (firstWord.compare("Background", Qt::CaseInsensitive) == 0 ||
             trimmed.startsWith("Background:", Qt::CaseInsensitive)) {
             curScen = nullptr; curStep = nullptr; lastKw = {};
-            state   = State::InBackground;
+            inCleanupBlock = false;
+            state = State::InBackground;
+            continue;
+        }
+
+        // Cleanup
+        if (firstWord.compare("Cleanup", Qt::CaseInsensitive) == 0 ||
+            trimmed.startsWith("Cleanup:", Qt::CaseInsensitive)) {
+            curScen = nullptr; curStep = nullptr; lastKw = {};
+            inCleanupBlock = true;
+            state = State::InCleanup;
             continue;
         }
 
@@ -377,7 +392,8 @@ SpectableFile SpectableParser::parse(const QString& filePath)
         }
 
         // Steps (Given / When / Then / And / But)
-        if (state == State::InScenario || state == State::InBackground) {
+        if (state == State::InScenario || state == State::InBackground
+                                       || state == State::InCleanup) {
             QString kw, text, attrSet;
             bool    trans = false;
             if (isStepLine(trimmed, kw, text, attrSet, trans)) {
@@ -392,13 +408,19 @@ SpectableFile SpectableParser::parse(const QString& filePath)
                 if (state == State::InScenario && curScen) {
                     curScen->steps.push_back(st);
                     curStep = &curScen->steps.last();
+                } else if (inCleanupBlock) {
+                    result.cleanupSteps.push_back(st);
+                    curStep = &result.cleanupSteps.last();
                 } else {
                     result.backgroundSteps.push_back(st);
                     curStep = &result.backgroundSteps.last();
                 }
 
-                state = attrSet.isEmpty() ? (curScen ? State::InScenario : State::InBackground)
-                                          : State::AwaitStepTable;
+                State nextState = attrSet.isEmpty()
+                    ? (curScen ? State::InScenario
+                               : (inCleanupBlock ? State::InCleanup : State::InBackground))
+                    : State::AwaitStepTable;
+                state = nextState;
                 continue;
             }
         }
@@ -408,6 +430,7 @@ SpectableFile SpectableParser::parse(const QString& filePath)
             QString defName;
             if (isDefineLine(trimmed, defName)) {
                 if (curStep && (state == State::InScenario || state == State::InBackground
+                                || state == State::InCleanup
                                 || state == State::AwaitStepTable)) {
                     curStep->defineRef = defName;
                     curStep->hasTable  = false;
