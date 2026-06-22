@@ -9,3 +9,4 @@ set(CMAKE_AUTORCC ON)
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui PrintSupport)
 
 add_subdirectory(src)
+add_subdirectory(converter)

@@ -1,0 +1,424 @@
+#include "SpectableParser.h"
+
+#include <QFile>
+#include <QTextStream>
+#include <QRegularExpression>
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+QStringList SpectableParser::splitPipeRow(const QString& line)
+{
+    QStringList parts = line.split('|');
+    QStringList result;
+    for (int i = 1; i < parts.size() - 1; ++i)
+        result << parts[i].trimmed();
+    return result;
+}
+
+bool SpectableParser::isPipeRow(const QString& trimmed)
+{
+    return trimmed.startsWith('|');
+}
+
+QString SpectableParser::normalizeKeyword(const QString& kw, const QString& last)
+{
+    const QString kwLow = kw.toLower();
+    if (kwLow == "and" || kwLow == "but")
+        return last.isEmpty() ? "Given" : last;
+    return kw[0].toUpper() + kw.mid(1).toLower();
+}
+
+QString SpectableParser::toMethodName(const QString& stepText)
+{
+    QString s = stepText;
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+    s = s.trimmed().remove(QRegularExpression("^_+|_+$"));
+    return s;
+}
+
+bool SpectableParser::isDefineLine(const QString& trimmed, QString& defineName)
+{
+    static QRegularExpression re(R"(^=(\w+)\s*$)");
+    auto m = re.match(trimmed);
+    if (!m.hasMatch()) return false;
+    defineName = m.captured(1);
+    return true;
+}
+
+bool SpectableParser::isStepLine(const QString& trimmed,
+                                  QString& kw, QString& text,
+                                  QString& attrSet, bool& transposed)
+{
+    static QRegularExpression reStep(
+        R"(^\s*(Given|When|Then|And|But)\s+(.+)$)",
+        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reAttr(
+        R"(\s*:\s*(\w+)(?:\s+(Transposed))?\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+
+    auto m = reStep.match(trimmed);
+    if (!m.hasMatch()) return false;
+
+    kw           = m.captured(1);
+    QString rest = m.captured(2).trimmed();
+
+    auto ma = reAttr.match(rest);
+    if (ma.hasMatch()) {
+        attrSet    = ma.captured(1);
+        transposed = !ma.captured(2).isEmpty();
+        text       = rest.left(ma.capturedStart()).trimmed();
+    } else {
+        attrSet    = {};
+        transposed = false;
+        text       = rest;
+    }
+    return true;
+}
+
+bool SpectableParser::isContinuation(const QString& line)
+{
+    return line.endsWith('\\') || line.endsWith("\\ ");
+}
+
+// Lines that appear inside any block and should be silently skipped
+// WITHOUT changing the current parser state
+bool SpectableParser::isSkipKeyword(const QString& firstWord)
+{
+    static const QStringList words = {
+        "Description", "Details", "Constraint", "Notes",
+        "Import", "Insert", "Cleanup"
+    };
+    for (const QString& k : words)
+        if (firstWord.startsWith(k, Qt::CaseInsensitive))
+            return true;
+    return false;
+}
+
+// Block-start keywords that end any open Attributes/Define/Step table
+static bool isBlockStartKeyword(const QString& firstWord)
+{
+    static const QStringList words = {
+        "BusinessRule", "Calculation", "DataType", "DomainTerm", "ScenarioGroup"
+    };
+    for (const QString& k : words)
+        if (firstWord.startsWith(k, Qt::CaseInsensitive))
+            return true;
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Parse
+// ---------------------------------------------------------------------------
+
+SpectableFile SpectableParser::parse(const QString& filePath)
+{
+    SpectableFile result;
+    result.filePath = filePath;
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        result.messages.push_back({ 0, "Cannot open file: " + filePath, false });
+        return result;
+    }
+    QTextStream in(&f);
+    const QStringList lines = in.readAll().split('\n');
+
+    enum class State {
+        Top,
+        InAttrDef,      // reading the field-definition pipe table
+        InDefineTable,
+        InBackground,
+        InScenario,
+        AwaitStepTable,
+        InStepTable,
+        SkipTable       // discard until blank or non-pipe line
+    };
+
+    State   state   = State::Top;
+    QString lastKw;
+
+    AttrSet*  curAttr   = nullptr;
+    Define*   curDefine = nullptr;
+    Scenario* curScen   = nullptr;
+    Step*     curStep   = nullptr;
+    QStringList attrHeaders;
+
+    auto emitMsg = [&](int ln, const QString& msg, bool warn = false) {
+        result.messages.push_back({ ln, msg, warn });
+    };
+
+    auto endStepTable = [&]() {
+        curStep = nullptr;
+        state   = (curScen ? State::InScenario : State::InBackground);
+    };
+
+    auto endAttrDef = [&]() {
+        attrHeaders.clear();
+        curAttr = nullptr;
+        state   = State::Top;
+    };
+
+    auto endDefineDef = [&]() {
+        curDefine = nullptr;
+        state     = State::Top;
+    };
+
+    for (int idx = 0; idx < lines.size(); ++idx) {
+        const int    lineNum  = idx + 1;
+        const QString raw     = lines[idx];
+        const QString trimmed = raw.trimmed();
+
+        // ── Blank lines ──────────────────────────────────────────────────────
+        if (trimmed.isEmpty()) {
+            if (state == State::InStepTable || state == State::AwaitStepTable)
+                endStepTable();
+            if (state == State::SkipTable)
+                state = State::Top;
+            continue;
+        }
+
+        // ── Comments ─────────────────────────────────────────────────────────
+        if (trimmed.startsWith('#'))
+            continue;
+
+        // ── Continuation / indented text ─────────────────────────────────────
+        // Lines starting with whitespace that are not pipe rows are continuations
+        // of Description/Details/etc. — always skip them.
+        if ((raw.startsWith(' ') || raw.startsWith('\t')) && !isPipeRow(trimmed))
+            continue;
+
+        // ── Pipe rows ─────────────────────────────────────────────────────────
+        if (isPipeRow(trimmed)) {
+            QStringList cells = splitPipeRow(trimmed);
+
+            switch (state) {
+            case State::SkipTable:
+                break; // discard
+
+            case State::InAttrDef:
+                if (attrHeaders.isEmpty()) {
+                    attrHeaders = cells;
+                } else if (curAttr) {
+                    // Map cells to fields using header positions
+                    Field fd;
+                    for (int ci = 0; ci < attrHeaders.size(); ++ci) {
+                        const QString h = attrHeaders[ci].toLower();
+                        const QString v = (ci < cells.size()) ? cells[ci] : QString();
+                        if (h == "attribute" || h == "name") fd.name         = v;
+                        else if (h == "type")                fd.type         = v;
+                        else if (h == "default")             fd.defaultValue = v;
+                        else if (h == "notes")               fd.notes        = v;
+                        else if (h == "in-out" || h == "in/out") fd.inOut   = v;
+                    }
+                    if (!fd.name.isEmpty() && !fd.name.startsWith('#'))
+                        curAttr->fields.push_back(fd);
+                }
+                break;
+
+            case State::InDefineTable:
+                if (curDefine) {
+                    curDefine->tableRows.push_back(cells);
+                    if (curDefine->tableRows.size() == 1) {
+                        QString h0 = cells.isEmpty() ? "" : cells[0].toLower();
+                        curDefine->transposed = (h0 == "attribute" || h0 == "name");
+                    }
+                }
+                break;
+
+            case State::AwaitStepTable: {
+                if (!curStep) break;
+                curStep->hasTable = true;
+                state = State::InStepTable;
+                // Detect format
+                if (!curStep->transposed && cells.size() >= 2) {
+                    QString h0 = cells[0].toLower();
+                    if (h0 == "attribute" || h0 == "name") {
+                        // Implicit transposed: | Attribute | Value | header
+                        curStep->transposed       = true;
+                        curStep->table.transposed = true;
+                        curStep->table.hasHeader  = true;
+                        // This row is the header — don't add to rows
+                    } else {
+                        // Normal: first row = column headers
+                        curStep->table.hasHeader = true;
+                        curStep->table.rows.push_back(cells);
+                    }
+                } else if (curStep->transposed) {
+                    // Explicit Transposed: no header row
+                    curStep->table.transposed = true;
+                    curStep->table.hasHeader  = false;
+                    curStep->table.rows.push_back(cells);
+                } else {
+                    curStep->table.hasHeader = true;
+                    curStep->table.rows.push_back(cells);
+                }
+                break;
+            }
+
+            case State::InStepTable:
+                if (curStep)
+                    curStep->table.rows.push_back(cells);
+                break;
+
+            default:
+                emitMsg(lineNum, "Unexpected table row (no active block)", true);
+                break;
+            }
+            continue;
+        }
+
+        // ── Non-pipe, non-blank lines ─────────────────────────────────────────
+
+        // End open step table
+        if (state == State::InStepTable || state == State::AwaitStepTable)
+            endStepTable();
+        if (state == State::SkipTable)
+            state = State::Top;
+
+        // Keyword dispatch
+        const QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
+
+        // ── Inline skips (Description, Details, etc.) — transparent to state ──
+        if (isSkipKeyword(firstWord))
+            continue;
+
+        // ── Examples: — the following table should be discarded ───────────────
+        if (firstWord.startsWith("Examples", Qt::CaseInsensitive)) {
+            // End attr def if open (Examples under a BusinessRule aren't fields)
+            if (state == State::InAttrDef) endAttrDef();
+            state = State::SkipTable;
+            continue;
+        }
+
+        // ── Block-start keywords (BusinessRule, Calculation, etc.) ─────────────
+        if (isBlockStartKeyword(firstWord)) {
+            if (state == State::InAttrDef)    endAttrDef();
+            if (state == State::InDefineTable) endDefineDef();
+            curScen = nullptr;
+            curStep = nullptr;
+            state   = State::Top;
+            continue;
+        }
+
+        // ── Terminate open Attributes/Define table on any other keyword ────────
+        if (state == State::InAttrDef)    endAttrDef();
+        if (state == State::InDefineTable) endDefineDef();
+
+        // ── Parsed keywords ───────────────────────────────────────────────────
+
+        // Specification
+        if (firstWord.compare("Specification", Qt::CaseInsensitive) == 0) {
+            result.specName = trimmed.mid(firstWord.length()).trimmed();
+            continue;
+        }
+
+        // Attributes / Entity
+        if (firstWord.compare("Attributes", Qt::CaseInsensitive) == 0 ||
+            firstWord.compare("Entity",     Qt::CaseInsensitive) == 0) {
+            curScen = nullptr; curStep = nullptr;
+            AttrSet as;
+            as.kind = firstWord[0].toUpper() + firstWord.mid(1).toLower();
+            as.name = trimmed.mid(firstWord.length()).trimmed();
+            as.line = lineNum;
+            result.attrSets.push_back(as);
+            curAttr = &result.attrSets.last();
+            attrHeaders.clear();
+            state = State::InAttrDef;
+            continue;
+        }
+
+        // Define
+        if (firstWord.compare("Define", Qt::CaseInsensitive) == 0) {
+            curScen = nullptr; curStep = nullptr;
+            static QRegularExpression reDef(R"(^Define\s+(\w+)\s*(?:=\s*(.*))?$)",
+                QRegularExpression::CaseInsensitiveOption);
+            auto dm = reDef.match(trimmed);
+            if (dm.hasMatch()) {
+                Define def;
+                def.name = dm.captured(1);
+                def.line = lineNum;
+                QString afterEq = dm.captured(2).trimmed();
+                if (!afterEq.isEmpty()) {
+                    def.scalarValue = afterEq;
+                    def.isTable     = false;
+                    result.defines.push_back(def);
+                    curDefine = nullptr;
+                    state     = State::Top;
+                } else {
+                    def.isTable = true;
+                    result.defines.push_back(def);
+                    curDefine = &result.defines.last();
+                    state     = State::InDefineTable;
+                }
+            }
+            continue;
+        }
+
+        // Background
+        if (firstWord.compare("Background", Qt::CaseInsensitive) == 0 ||
+            trimmed.startsWith("Background:", Qt::CaseInsensitive)) {
+            curScen = nullptr; curStep = nullptr; lastKw = {};
+            state   = State::InBackground;
+            continue;
+        }
+
+        // Scenario
+        if (firstWord.compare("Scenario", Qt::CaseInsensitive) == 0) {
+            curStep = nullptr; lastKw = {};
+            Scenario sc;
+            sc.name = trimmed.mid(firstWord.length()).trimmed();
+            sc.line = lineNum;
+            result.scenarios.push_back(sc);
+            curScen = &result.scenarios.last();
+            state   = State::InScenario;
+            continue;
+        }
+
+        // Steps (Given / When / Then / And / But)
+        if (state == State::InScenario || state == State::InBackground) {
+            QString kw, text, attrSet;
+            bool    trans = false;
+            if (isStepLine(trimmed, kw, text, attrSet, trans)) {
+                lastKw = normalizeKeyword(kw, lastKw);
+                Step st;
+                st.keyword     = lastKw;
+                st.text        = text;
+                st.attrSetName = attrSet;
+                st.transposed  = trans;
+                st.line        = lineNum;
+
+                if (state == State::InScenario && curScen) {
+                    curScen->steps.push_back(st);
+                    curStep = &curScen->steps.last();
+                } else {
+                    result.backgroundSteps.push_back(st);
+                    curStep = &result.backgroundSteps.last();
+                }
+
+                state = attrSet.isEmpty() ? (curScen ? State::InScenario : State::InBackground)
+                                          : State::AwaitStepTable;
+                continue;
+            }
+        }
+
+        // Define reference =DefineName
+        {
+            QString defName;
+            if (isDefineLine(trimmed, defName)) {
+                if (curStep && (state == State::InScenario || state == State::InBackground
+                                || state == State::AwaitStepTable)) {
+                    curStep->defineRef = defName;
+                    curStep->hasTable  = false;
+                    endStepTable();
+                }
+                continue;
+            }
+        }
+
+        // Everything else: silently skip
+    }
+
+    return result;
+}
