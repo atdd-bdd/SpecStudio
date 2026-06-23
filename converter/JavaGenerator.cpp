@@ -404,10 +404,8 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg
 // Glue file
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& pkg,
-                                    const QString& className) const
+QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFile& file)
 {
-    struct GlueSig { QString method; QString paramType; };
     QVector<GlueSig> sigs;
     QSet<QString> seen;
 
@@ -425,9 +423,71 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& pkg
     };
 
     collectSteps(file.backgroundSteps);
+    collectSteps(file.cleanupSteps);
     for (const Scenario& sc : file.scenarios)
         collectSteps(sc.steps);
 
+    return sigs;
+}
+
+QString JavaGenerator::genStubMethod(const GlueSig& sig)
+{
+    const QString paramType = sig.paramType.contains('<')
+        ? sig.paramType
+        : QString("List<%1>").arg(sig.paramType);
+    const QString iterType = sig.paramType.contains('<') ? "List<String>" : sig.paramType;
+
+    QString out;
+    QTextStream s(&out);
+    s << "    public void " << sig.method << "(" << paramType << " values) {\n";
+    s << "        System.out.println(\"---  \" + \"" << sig.method << "\");\n";
+    s << "        for (" << iterType << " value : values) {\n";
+    s << "            System.out.println(value);\n";
+    s << "            // TODO: implement\n";
+    s << "        }\n";
+    s << "    }\n";
+    return out;
+}
+
+bool JavaGenerator::appendMissingStubs(const QString& gluePath,
+                                        const QVector<GlueSig>& sigs,
+                                        QStringList& msgs)
+{
+    QFile f(gluePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    QString content = QTextStream(&f).readAll();
+    f.close();
+
+    QString stubs;
+    for (const GlueSig& sig : sigs) {
+        const QString signature = QStringLiteral("public void %1(").arg(sig.method);
+        if (!content.contains(signature))
+            stubs += "\n" + genStubMethod(sig);
+    }
+    if (stubs.isEmpty()) return false;
+
+    // Insert before the final closing "}\n" of the class
+    const int closingClass = content.lastIndexOf("\n}");
+    if (closingClass < 0) {
+        msgs << QString("WARNING:0:Could not locate class closing brace in %1 — stubs not added")
+                .arg(gluePath);
+        return false;
+    }
+
+    content.insert(closingClass, "\n" + stubs);
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        msgs << QString("ERROR:0:Cannot update glue file: %1").arg(gluePath);
+        return false;
+    }
+    QTextStream(&f) << content;
+    return true;
+}
+
+QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& pkg,
+                                    const QString& className) const
+{
+    const QVector<GlueSig> sigs = collectGlueSigs(file);
     const QString glueClass = className + "_glue";
     QString out;
     QTextStream s(&out);
@@ -438,19 +498,8 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& pkg
     s << "public class " << glueClass << " {\n";
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
-    for (const GlueSig& sig : sigs) {
-        const QString paramType = sig.paramType.contains('<')
-            ? sig.paramType
-            : QString("List<%1>").arg(sig.paramType);
-        s << "    public void " << sig.method << "(" << paramType << " values) {\n";
-        s << "        System.out.println(\"---  \" + \"" << sig.method << "\");\n";
-        s << "        for (" << (sig.paramType.contains('<') ? "List<String>" : sig.paramType)
-          << " value : values) {\n";
-        s << "            System.out.println(value);\n";
-        s << "            // TODO: implement\n";
-        s << "        }\n";
-        s << "    }\n\n";
-    }
+    for (const GlueSig& sig : sigs)
+        s << genStubMethod(sig) << "\n";
 
     s << "}\n";
     return out;
@@ -514,8 +563,13 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
 
     {
         const QString gluePath = dir.filePath(className + "_glue.java");
-        if (opts.overwriteGlue || !QFile::exists(gluePath))
+        if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(file, pkg, className), msgs);
+        } else {
+            const QVector<GlueSig> sigs = collectGlueSigs(file);
+            if (appendMissingStubs(gluePath, sigs, msgs))
+                msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+        }
     }
 
     return msgs;

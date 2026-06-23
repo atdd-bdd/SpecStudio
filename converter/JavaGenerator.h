@@ -40,5 +40,12 @@ private:
     QString genGlueFile(const SpectableFile& file, const QString& pkg,
                         const QString& className) const;
 
+    struct GlueSig { QString method; QString paramType; };
+    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
+    static QString genStubMethod(const GlueSig& sig);
+    static bool appendMissingStubs(const QString& gluePath,
+                                   const QVector<GlueSig>& sigs,
+                                   QStringList& msgs);
+
     static bool writeFile(const QString& path, const QString& content, QStringList& msgs);
 };

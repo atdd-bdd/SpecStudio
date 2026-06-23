@@ -406,11 +406,8 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 // Glue file generator
 // ---------------------------------------------------------------------------
 
-QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& ns,
-                                     const QString& className) const
+QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const SpectableFile& file)
 {
-    // Collect unique step signatures: method name → parameter type
-    struct GlueSig { QString method; QString paramType; bool isList; };
     QVector<GlueSig> sigs;
     QSet<QString> seen;
 
@@ -420,19 +417,79 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
             const QString meth = toMethodName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-
-            if (!step.attrSetName.isEmpty()) {
+            if (!step.attrSetName.isEmpty())
                 sigs.push_back({ meth, step.attrSetName + "String", true });
-            } else {
+            else
                 sigs.push_back({ meth, "List<string>", true });
-            }
         }
     };
 
     collectSteps(file.backgroundSteps);
+    collectSteps(file.cleanupSteps);
     for (const Scenario& sc : file.scenarios)
         collectSteps(sc.steps);
 
+    return sigs;
+}
+
+QString CSharpGenerator::genStubMethod(const GlueSig& sig)
+{
+    const QString paramType = sig.isList
+        ? QString("List<%1>").arg(sig.paramType)
+        : sig.paramType;
+    QString out;
+    QTextStream s(&out);
+    s << "        public void " << sig.method << "(" << paramType << " values)\n";
+    s << "        {\n";
+    s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
+    s << "            foreach (var value in values)\n";
+    s << "            {\n";
+    s << "                Console.WriteLine(value);\n";
+    s << "                // TODO: implement\n";
+    s << "            }\n";
+    s << "        }\n";
+    return out;
+}
+
+bool CSharpGenerator::appendMissingStubs(const QString& gluePath,
+                                          const QVector<GlueSig>& sigs,
+                                          QStringList& msgs)
+{
+    QFile f(gluePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    QString content = QTextStream(&f).readAll();
+    f.close();
+
+    QString stubs;
+    for (const GlueSig& sig : sigs) {
+        const QString signature = QStringLiteral("public void %1(").arg(sig.method);
+        if (!content.contains(signature))
+            stubs += "\n" + genStubMethod(sig);
+    }
+    if (stubs.isEmpty()) return false;
+
+    // Insert before the closing "    }\n}\n" of the class
+    const int closingClass = content.lastIndexOf("    }\n}");
+    if (closingClass < 0) {
+        msgs << QString("WARNING:0:Could not locate class closing brace in %1 — stubs not added")
+                .arg(gluePath);
+        return false;
+    }
+
+    content.insert(closingClass, stubs + "\n");
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        msgs << QString("ERROR:0:Cannot update glue file: %1").arg(gluePath);
+        return false;
+    }
+    QTextStream(&f) << content;
+    return true;
+}
+
+QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& ns,
+                                     const QString& className) const
+{
+    const QVector<GlueSig> sigs = collectGlueSigs(file);
     const QString glueClass = className + "_glue";
     QString out;
     QTextStream s(&out);
@@ -444,20 +501,8 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
     s << "    public class " << glueClass << "\n    {\n";
     s << "        const string DNCString = \"?DNC?\";\n\n";
 
-    for (const GlueSig& sig : sigs) {
-        const QString paramType = sig.isList
-            ? QString("List<%1>").arg(sig.paramType)
-            : sig.paramType;
-        s << "        public void " << sig.method << "(" << paramType << " values)\n";
-        s << "        {\n";
-        s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
-        s << "            foreach (var value in values)\n";
-        s << "            {\n";
-        s << "                Console.WriteLine(value);\n";
-        s << "                // TODO: implement\n";
-        s << "            }\n";
-        s << "        }\n\n";
-    }
+    for (const GlueSig& sig : sigs)
+        s << genStubMethod(sig) << "\n";
 
     s << "    }\n}\n";
     return out;
@@ -524,11 +569,15 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         writeFile(dir.filePath(className + "_Tests.cs"), testContent, msgs);
     }
 
-    // 3. Glue file (only written if it doesn't already exist)
+    // 3. Glue file: write fresh if absent/overwrite; otherwise append any missing stubs
     {
         const QString gluePath = dir.filePath(className + "_glue.cs");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(file, ns, className), msgs);
+        } else {
+            const QVector<GlueSig> sigs = collectGlueSigs(file);
+            if (appendMissingStubs(gluePath, sigs, msgs))
+                msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }
 
