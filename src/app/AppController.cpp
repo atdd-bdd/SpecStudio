@@ -37,6 +37,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileDialog>
 #include <QInputDialog>
@@ -979,6 +980,54 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
         }
     }
 
+    // Update glue files — replace OldNameString/OldNameTyped with NewName variants
+    // and the bare symbol name where it appears as a class identifier
+    int glueFilesChanged = 0;
+    {
+        // Build replacements: order matters — longer strings first
+        struct Rep { QRegularExpression re; QString replacement; };
+        const QList<Rep> reps = {
+            { QRegularExpression(QStringLiteral("\\b%1String\\b").arg(QRegularExpression::escape(oldName))),
+              newName + "String" },
+            { QRegularExpression(QStringLiteral("\\b%1Typed\\b").arg(QRegularExpression::escape(oldName))),
+              newName + "Typed" },
+            { QRegularExpression(QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(oldName))),
+              newName },
+        };
+
+        for (auto* proj : m_solution->projects()) {
+            QDirIterator it(proj->rootPath(),
+                            { "*_glue.cs", "*_glue.java" },
+                            QDir::Files,
+                            QDirIterator::Subdirectories);
+            while (it.hasNext()) {
+                const QString gluePath = it.next();
+                QFile gf(gluePath);
+                if (!gf.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+                QString content = QTextStream(&gf).readAll();
+                gf.close();
+
+                bool changed = false;
+                for (const Rep& rep : reps) {
+                    if (content.contains(rep.re)) {
+                        content.replace(rep.re, rep.replacement);
+                        changed = true;
+                    }
+                }
+                if (!changed) continue;
+
+                if (!gf.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) continue;
+                QTextStream(&gf) << content;
+                gf.close();
+                ++glueFilesChanged;
+
+                if (auto* pte = qobject_cast<PlainTextEditor*>(
+                        m_mainWindow->editorForPath(gluePath)))
+                    pte->suppressNextExternalChange();
+            }
+        }
+    }
+
     // Rebuild index and refresh completions
     if (filesChanged > 0) {
         QStringList stFiles;
@@ -992,9 +1041,11 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
                 ste->refreshDynamicCompletions();
     }
 
-    QMessageBox::information(m_mainWindow, tr("Rename Complete"),
-        tr("Renamed '%1' to '%2': %3 occurrence(s) in %4 file(s).")
-            .arg(oldName, newName).arg(totalReplaced).arg(filesChanged));
+    QString msg = tr("Renamed '%1' to '%2': %3 occurrence(s) in %4 .spectable file(s).")
+                    .arg(oldName, newName).arg(totalReplaced).arg(filesChanged);
+    if (glueFilesChanged > 0)
+        msg += tr("\nAlso updated %1 glue file(s).").arg(glueFilesChanged);
+    QMessageBox::information(m_mainWindow, tr("Rename Complete"), msg);
 }
 
 void AppController::onSymbolAtCursor(const QString& name)
