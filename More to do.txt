@@ -13,6 +13,18 @@ If create, then just below, create the Attributes  If the attributes (or entity)
 and there is no table beneath the step, create a header line with all the attributes. 
 
 
+When changing a step name (or anything else with a name), change the corresponding calls and definition in the implementation file 
+(if it exists). 
+When translating a file, and the step function does not exist in the glue code, add it with
+a default implementation.  Default fails or at least produces warning messages (for given,when) 
+  
+
+Try to have AI fill in the glue code so that it works.  This will be the standard thing to do.  
+
+
+
+Some of this may already be done.   
+
 When an Attributes or Entity first line is finished, then add the table headers if a 
 table does not yet exist.     
 
@@ -24,7 +36,7 @@ Add the ~ for a space character in tables.
 Do the lookup of Given/When/Then matches.   Use the entire project as the match plus any 
 import statements from other projects.   
 
-On import - start with the Solution name as the root.   
+On import - start with the Project name as the root.  (or Solution, if it exists) 
 
 The attribute set should be checked - to find attribute or entity that matches 
 When it does - put a header in there. 

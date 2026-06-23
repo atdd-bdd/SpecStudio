@@ -1,0 +1,100 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+
+struct ParseError {
+    int lineNumber;
+    int errorCode;
+    std::string message;
+};
+
+enum ErrorCode {
+    ERR_OK = 0,
+    ERR_INVALID_IDENTIFIER,
+    ERR_INVALID_DETAILS_TRAILING_SLASH,
+    ERR_DATATYPE_MISSING_EXAMPLES,
+    ERR_ENUM_WITH_EXAMPLES,
+    ERR_TABLE_WITHOUT_STEP,
+    ERR_STEP_WITH_COLON_NO_TABLE,
+    ERR_BACKGROUND_INVALID_STEP,
+    ERR_NESTED_SCENARIOGROUP,
+    ERR_IMPORT_MISSING_QUOTES,
+    ERR_BUSINESSRULE_MISSING_EXAMPLES,
+    ERR_CALCULATION_MISSING_ATTRSET,
+    // ... add more as needed
+};
+
+ErrorCode parseLine(const std::string& line, int lineNumber, std::string& msg) {
+    // This is a stub. You plug in your real parser logic here.
+    // For illustration, we’ll just detect a few obvious patterns.
+
+    // Invalid identifier: starts with digit after "DataType "
+    if (line.rfind("DataType ", 0) == 0) {
+        std::string name = line.substr(9);
+        if (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) {
+            msg = "Identifier must start with _ or letter";
+            return ERR_INVALID_IDENTIFIER;
+        }
+    }
+
+    // Details trailing slash on last line (simple heuristic)
+    if (line.find("Details \\ final line \\") != std::string::npos) {
+        msg = "Details last line must not end with \\";
+        return ERR_INVALID_DETAILS_TRAILING_SLASH;
+    }
+
+    // Import missing quotes
+    if (line.rfind("Import ", 0) == 0 && line.find('"') == std::string::npos) {
+        msg = "Import file must be in quotes";
+        return ERR_IMPORT_MISSING_QUOTES;
+    }
+
+    // You would add more checks here, or delegate to a full parser.
+
+    return ERR_OK;
+}
+
+int main() {
+    const std::string filename = "spec_table_v2_5_tests.featurex"; // your test file name
+    std::ifstream in(filename);
+    if (!in) {
+        std::cerr << "Cannot open test file: " << filename << "\n";
+        return 1;
+    }
+
+    std::vector<ParseError> errors;
+    std::string line;
+    int lineNumber = 0;
+
+    while (std::getline(in, line)) {
+        ++lineNumber;
+
+        // Skip pure comment lines
+        std::string trimmed = line;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+        if (trimmed.empty() || trimmed[0] == '#') {
+            continue;
+        }
+
+        std::string msg;
+        ErrorCode code = parseLine(line, lineNumber, msg);
+        if (code != ERR_OK) {
+            errors.push_back({ lineNumber, static_cast<int>(code), msg });
+        }
+    }
+
+    // Report results
+    if (errors.empty()) {
+        std::cout << "All tests passed. No parse errors detected.\n";
+    } else {
+        std::cout << "Parse errors detected:\n";
+        for (const auto& e : errors) {
+            std::cout << "Line " << e.lineNumber
+                      << " Error " << e.errorCode
+                      << ": " << e.message << "\n";
+        }
+    }
+
+    return 0;
+}

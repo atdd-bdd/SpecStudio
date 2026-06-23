@@ -1,0 +1,47 @@
+
+Now create a separate program that takes the spectable file and creates unit tests in various languages.
+
+A project should have a configuration file that specifies the language, the unit tests, and 
+the base folder where the tests are to be placed. 
+
+There is a space character (default ~) that should be replaced by a space for data in any table.  
+
+The package for all files should be the name of the project folder (with _ as necessary).  
+
+For all languages there will be two files created:
+ Test_<Specification name>.<language suffix>
+Test<Specification name>_glue.<language suffix> 
+
+For languages where multiple public classes can be in the same file, there will be an 
+additional file:
+Test<Specifcation name>_data.<language suffix> 
+
+For languages where there can only be one public class in a file, then there will be a folder
+named <Project Folder Name> and each class will be in a separate file in this folder. 
+
+Each Entity and Attributes will be converted into two classes, one with the suffix "String" 
+and the other with suffix "Typed".  In the Typed class should be method that converts the String class
+to the Typed class.    
+
+Each Scenario will be converted into a unit test with the name Scenario<text of scenario>.  It will call methods in the glue code that have
+the names of the steps (e.g. Given_something).  For "And" steps, the method should be named
+"Given","When", or "Then" as appropriate.   
+
+Each Business Rule or Calculation, the unit test will be called BusinessRule<name of business rule>
+or Calculation<name of calculation>.   The glue code method will be called by Examples<name of busines rule or calculation>
+
+Each DataType will have a unit test called DataType<name of data type> and the glue code method 
+called Examples<name of data type> 
+
+The glue code should be passed an array (created in the unit test file) of the String objects. 
+The default code should be a loop through the array with each element converted to the DataType in the 
+typed mode.   It should call an assertion that fails (or prints/continues and then fails at the end)
+
+Additional options that will be added later will be adding logging, a do-not-compare, and 
+lines that should be added to all files, 
+
+
+
+      
+      
+      
