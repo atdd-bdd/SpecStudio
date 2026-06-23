@@ -1041,6 +1041,25 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         });
     }
 
+    if (isKnown && syms.defines.contains(word)) {
+        auto* showAct = menu->addAction(tr("Show Define: %1").arg(word));
+        connect(showAct, &QAction::triggered, this, [this, word] {
+            const auto info = m_index->defineInfo(word);
+            if (!info.first.isEmpty()) {
+                // Scalar define — show in a two-row table
+                QVector<QStringList> rows;
+                rows << QStringList{"Name", "Value"};
+                rows << QStringList{word, info.first};
+                auto* dlg = new AttributeTableDialog(word, rows, this);
+                dlg->show();
+            } else if (!info.second.isEmpty()) {
+                // Table define
+                auto* dlg = new AttributeTableDialog(word, info.second, this);
+                dlg->show();
+            }
+        });
+    }
+
     if (isKnown) {
         auto* defAct = menu->addAction(tr("Go to Definition: %1").arg(word));
         connect(defAct, &QAction::triggered, this, [this, loc] {

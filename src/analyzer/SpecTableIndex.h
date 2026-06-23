@@ -99,6 +99,11 @@ public:
     // Returns the pipe-table rows defined under "Attributes <name>" (first row = headers).
     QVector<QStringList> attributeRows(const QString& name) const;
 
+    // Returns the content of a Define declaration.
+    // scalar: first == value string, second is empty.
+    // table:  first is empty, second holds the pipe-table rows.
+    QPair<QString, QVector<QStringList>> defineInfo(const QString& name) const;
+
     // Returns all DomainTerm names declared in more than one file, with all their locations.
     QMap<QString, QVector<SymbolLocation>> duplicateDomainTerms() const;
 

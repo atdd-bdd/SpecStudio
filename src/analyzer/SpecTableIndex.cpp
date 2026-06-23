@@ -123,6 +123,51 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
     return {};
 }
 
+QPair<QString, QVector<QStringList>> SpecTableIndex::defineInfo(const QString& name) const
+{
+    const QString filePath = m_project.defines.value(name).filePath;
+    if (filePath.isEmpty()) return {};
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+
+    static QRegularExpression reDecl(R"(^\s*Define\s+(\w+)\s*(?:=\s*(.*))?$)",
+                                     QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow2(R"(^\s*\|)");
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines << in.readLine();
+
+    for (int i = 0; i < lines.size(); ++i) {
+        auto m = reDecl.match(lines[i]);
+        if (!m.hasMatch() || m.captured(1).compare(name, Qt::CaseInsensitive) != 0)
+            continue;
+
+        const QString afterEq = m.captured(2).trimmed();
+        if (!afterEq.isEmpty())
+            return { afterEq, {} };
+
+        // Table define — collect rows
+        QVector<QStringList> rows;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            const QString& ln = lines[j];
+            if (!reRow2.match(ln).hasMatch()) {
+                if (ln.trimmed().isEmpty()) continue;
+                break;
+            }
+            QStringList parts = ln.split('|');
+            QStringList cells;
+            for (int p = 1; p < parts.size() - 1; ++p)
+                cells << parts[p].trimmed();
+            if (!cells.isEmpty())
+                rows << cells;
+        }
+        return { {}, rows };
+    }
+    return {};
+}
+
 void SpecTableIndex::parseFile(const QString& filePath,
                                SpecTableSymbols& out,
                                QSet<QString>& visited) const
@@ -143,7 +188,7 @@ void SpecTableIndex::parseFile(const QString& filePath,
     static QRegularExpression reScenario     (R"(^\s*Scenario\s+(.+)$)",        QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reScenarioGrp  (R"(^\s*ScenarioGroup\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reSpecification(R"(^\s*Specification\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDefine       (R"(^\s*Define\s+(\w+)\s*=)",      QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reDefine       (R"(^\s*Define\s+(\w+))",           QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reImport       ("^\\s*Import\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reInsert       ("^\\s*Insert\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
 
