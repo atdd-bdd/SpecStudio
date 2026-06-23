@@ -95,13 +95,23 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
         if (!m.hasMatch() || m.captured(2).compare(name, Qt::CaseInsensitive) != 0)
             continue;
 
+        static QRegularExpression reSkipLine(
+            R"(^\s*(Description|Details|Notes|Constraint|In-Out)\b)",
+            QRegularExpression::CaseInsensitiveOption);
+        static QRegularExpression reTopLevel(
+            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+            QRegularExpression::CaseInsensitiveOption);
+
         QVector<QStringList> result;
         for (int j = i + 1; j < lines.size(); ++j) {
-            if (!reRow.match(lines[j]).hasMatch()) {
-                if (lines[j].trimmed().isEmpty()) continue;
-                break;
+            const QString& ln = lines[j];
+            if (!reRow.match(ln).hasMatch()) {
+                if (ln.trimmed().isEmpty()) continue;
+                if (!ln.isEmpty() && ln[0].isSpace()) continue; // indented continuation
+                if (reSkipLine.match(ln).hasMatch()) continue;  // metadata keyword
+                break; // new top-level block or unrecognised non-pipe line
             }
-            const QStringList parts = lines[j].split('|');
+            const QStringList parts = ln.split('|');
             QStringList cells;
             for (int p = 1; p < parts.size() - 1; ++p)
                 cells << parts[p].trimmed();

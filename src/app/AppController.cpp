@@ -294,6 +294,22 @@ void AppController::onSave()
     if (!ed) return;
 
     if (tabs->saveCurrentFile()) {
+        // Rebuild spec table index so context menu reflects the saved content immediately
+        if (fileTypeFromPath(ed->filePath()) == FileType::SpecTable) {
+            QStringList stFiles;
+            if (m_solution)
+                for (auto* proj : m_solution->projects())
+                    for (auto* file : proj->files())
+                        if (file->type() == FileType::SpecTable)
+                            stFiles.append(file->absolutePath());
+            if (!stFiles.contains(ed->filePath()))
+                stFiles.append(ed->filePath());
+            m_specTableIndex->rebuildProject(stFiles);
+            if (auto* ste = qobject_cast<SpecTableEditor*>(
+                    m_mainWindow->editorForPath(ed->filePath())))
+                ste->refreshDynamicCompletions();
+        }
+
         if (m_solution) {
             Project* proj = m_solution->projectForFile(ed->filePath());
             if (proj) {
