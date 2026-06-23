@@ -7,6 +7,17 @@
 #include <QMap>
 
 // ---------------------------------------------------------------------------
+// Cell value helpers
+// ---------------------------------------------------------------------------
+
+// Replace ~ with space (tilde is the space placeholder in table cells)
+static QString resolveCell(const QString& cell)
+{
+    QString s = cell;
+    return s.replace('~', ' ');
+}
+
+// ---------------------------------------------------------------------------
 // Type mapping
 // ---------------------------------------------------------------------------
 
@@ -146,7 +157,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
                 if (r.size() < 2) continue;
                 QString key = r[0].toLower();
                 if (fieldIdx.contains(key))
-                    row[fieldIdx[key]] = r[1];
+                    row[fieldIdx[key]] = resolveCell(r[1]);
             }
             result << row;
         } else {
@@ -160,7 +171,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
                 QStringList row(fieldCount);
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
-                    if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                    if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
                 result << row;
             }
         }
@@ -359,7 +370,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     const QStringList& r = tbl.rows[ri];
                     for (int ci = 0; ci < r.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << r[ci] << "\"";
+                        s << "\"" << resolveCell(r[ci]) << "\"";
                     }
                     s << " },\n";
                 }

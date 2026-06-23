@@ -635,7 +635,8 @@ void AppController::onAnalyze()
         return;
     }
 
-    QList<Diagnostic> all;
+    QList<Diagnostic>  all;
+    QList<CoverageEntry> coverageEntries;
     QStringList allTags;
     for (auto* proj : m_solution->projects()) {
         // FeatureX analysis
@@ -655,8 +656,50 @@ void AppController::onAnalyze()
             for (const QString& f : specTableFiles)
                 all.append(m_specAnalyzer->analyzeFile(f));
         }
+
+        // Coverage data — per .spectable file
+        for (const QString& fp : specTableFiles) {
+            const SpecTableSymbols fileSym = m_specTableIndex->buildFor(fp);
+
+            CoverageEntry entry;
+            entry.filePath = fp;
+
+            // Specification name (first one declared in this file)
+            if (!fileSym.specifications.isEmpty())
+                entry.specName = fileSym.specifications.begin().key();
+
+            // Symbol counts scoped to this file
+            for (auto it = fileSym.scenarios.cbegin(); it != fileSym.scenarios.cend(); ++it)
+                if (it.value().filePath == fp) ++entry.scenarios;
+            for (auto it = fileSym.businessRules.cbegin(); it != fileSym.businessRules.cend(); ++it)
+                if (it.value().filePath == fp) ++entry.businessRules;
+            for (auto it = fileSym.calculations.cbegin(); it != fileSym.calculations.cend(); ++it)
+                if (it.value().filePath == fp) ++entry.calculations;
+            for (auto it = fileSym.attributes.cbegin(); it != fileSym.attributes.cend(); ++it)
+                if (it.value().filePath == fp) ++entry.attrSets;
+            for (auto it = fileSym.entities.cbegin(); it != fileSym.entities.cend(); ++it)
+                if (it.value().filePath == fp) ++entry.attrSets;
+
+            // Check if _Tests file has been generated
+            if (!entry.specName.isEmpty()) {
+                const QString cfgPath = findSpecConfig(
+                    QFileInfo(fp).dir().absolutePath(), proj->rootPath());
+                const SpecConfig cfg = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
+                const QString outDir = resolveOutputDir(cfg, cfgPath, fp);
+                const QString ext = (cfg.language.compare("Java", Qt::CaseInsensitive) == 0)
+                    ? ".java" : ".cs";
+                QString className = entry.specName;
+                className.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+                className.remove(QRegularExpression("^_+|_+$"));
+                const QString testsFile = QDir(outDir).filePath(className + "_Tests" + ext);
+                entry.testsGenerated = QFile::exists(testsFile);
+            }
+
+            coverageEntries << entry;
+        }
     }
 
+    m_mainWindow->outputPanel()->setCoverageData(coverageEntries);
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
 

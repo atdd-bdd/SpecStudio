@@ -95,6 +95,12 @@ void SpecTableHighlighter::buildRules()
     validFmt.setForeground(QColor("#4EC9B0"));
     addRule(R"(\b(Valid|Yes|No|True|False|true|false)\b)", validFmt);
 
+    // --- ~ space placeholder in table cells ---
+    QTextCharFormat tildeFmt;
+    tildeFmt.setForeground(QColor("#C586C0")); // VS purple
+    tildeFmt.setFontWeight(QFont::Bold);
+    addRule(R"(~)", tildeFmt);
+
     // --- Unnamed comments # ... (inline or full-line) — must be last ---
     QTextCharFormat commentFmt;
     commentFmt.setForeground(QColor("#6A9955")); // VS green

@@ -315,16 +315,19 @@ QString BackgroundCleanupDialog::renderTable(const QVector<QStringList>& rows,
     html += "<table border='1' cellspacing='0' cellpadding='4' "
             "style='border-collapse:collapse; margin:4px 0 8px 0;'>\n";
 
+    auto cellVal = [](const QString& raw) {
+        return QString(raw).replace('~', ' ').toHtmlEscaped();
+    };
+
     if (transposed) {
-        // Key/value pairs: each row = [Key, Value]
         for (const QStringList& row : rows) {
             html += "<tr>";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci == 0)
                     html += "<th style='background:#3C3C3C; color:#DCDCDC; text-align:left; "
-                            "padding:3px 6px;'>" + row[ci].toHtmlEscaped() + "</th>";
+                            "padding:3px 6px;'>" + cellVal(row[ci]) + "</th>";
                 else
-                    html += "<td style='padding:3px 6px;'>" + row[ci].toHtmlEscaped() + "</td>";
+                    html += "<td style='padding:3px 6px;'>" + cellVal(row[ci]) + "</td>";
             }
             html += "</tr>\n";
         }
@@ -335,10 +338,9 @@ QString BackgroundCleanupDialog::renderTable(const QVector<QStringList>& rows,
             for (const QString& cell : rows[ri]) {
                 if (isHdr)
                     html += "<th style='background:#3C3C3C; color:#DCDCDC; padding:3px 6px;'>"
-                            + cell.toHtmlEscaped() + "</th>";
+                            + cellVal(cell) + "</th>";
                 else
-                    html += "<td style='padding:3px 6px;'>"
-                            + cell.toHtmlEscaped() + "</td>";
+                    html += "<td style='padding:3px 6px;'>" + cellVal(cell) + "</td>";
             }
             html += "</tr>\n";
         }
