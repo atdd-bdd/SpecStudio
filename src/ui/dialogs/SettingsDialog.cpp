@@ -73,6 +73,11 @@ void SettingsDialog::buildGeneralTab(QTabWidget* tabs)
 
     form->addRow(tr("Default project location:"), row);
 
+    m_autoReloadCheck = new QCheckBox(tr("Automatically reload files changed outside the editor"), widget);
+    if (m_settings)
+        m_autoReloadCheck->setChecked(m_settings->autoReloadFiles());
+    form->addRow(m_autoReloadCheck);
+
     tabs->addTab(widget, tr("General"));
 }
 
@@ -289,6 +294,9 @@ void SettingsDialog::saveValues()
 
     if (m_defaultLocEdit)
         m_settings->setDefaultProjectLocation(m_defaultLocEdit->text().trimmed());
+
+    if (m_autoReloadCheck)
+        m_settings->setAutoReloadFiles(m_autoReloadCheck->isChecked());
 
     if (m_darkTheme)
         m_settings->setDarkTheme(m_darkTheme->isChecked());

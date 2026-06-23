@@ -24,15 +24,16 @@ public:
     QVariant      data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
 
 private:
-    enum class NodeType { Root, Solution, Project, File };
+    enum class NodeType { Root, Solution, Project, Folder, File };
 
     struct Node {
-        NodeType    type   = NodeType::Root;
-        Solution*   solution = nullptr;
-        Project*    project  = nullptr;
-        ProjectFile* file    = nullptr;
-        Node*       parent   = nullptr;
-        int         row      = 0;
+        NodeType     type     = NodeType::Root;
+        Solution*    solution = nullptr;
+        Project*     project  = nullptr;   // set on Project and Folder nodes
+        ProjectFile* file     = nullptr;
+        QString      name;                 // display name for Folder nodes
+        Node*        parent   = nullptr;
+        int          row      = 0;
     };
 
     void buildNodes();

@@ -31,6 +31,7 @@ public:
     void editString() override;
 
     void suppressNextExternalChange() { m_ignoreNextChange = true; }
+    void setAutoReload(bool autoReload) { m_autoReload = autoReload; }
 
     bool findNext(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
     bool findPrev(const QString& text, bool caseSensitive, bool wrapAround, bool useRegex = false);
@@ -57,8 +58,9 @@ private:
     bool isInStringContext() const;
     void showEditorContextMenu(const QPoint& globalPos);
 
-    LineNumberEdit*     m_edit            = nullptr;
-    QSyntaxHighlighter* m_highlighter    = nullptr;
-    QFileSystemWatcher* m_watcher        = nullptr;
+    LineNumberEdit*     m_edit             = nullptr;
+    QSyntaxHighlighter* m_highlighter     = nullptr;
+    QFileSystemWatcher* m_watcher         = nullptr;
     bool                m_ignoreNextChange = false;
+    bool                m_autoReload       = false;
 };

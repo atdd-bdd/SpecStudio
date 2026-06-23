@@ -54,6 +54,10 @@ public:
     QString defaultProjectLocation() const;
     void    setDefaultProjectLocation(const QString& path);
 
+    // Automatically reload files changed on disk without prompting
+    bool autoReloadFiles() const;
+    void setAutoReloadFiles(bool value);
+
     // Appearance
     bool darkTheme() const;
     void setDarkTheme(bool dark);

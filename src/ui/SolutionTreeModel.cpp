@@ -3,6 +3,10 @@
 #include "../model/Project.h"
 #include "../model/ProjectFile.h"
 
+#include <QFileInfo>
+#include <QMap>
+#include <functional>
+
 SolutionTreeModel::SolutionTreeModel(QObject* parent)
     : QAbstractItemModel(parent)
 {
@@ -54,13 +58,43 @@ void SolutionTreeModel::buildNodes()
         projNode->row     = projRow++;
         m_allNodes.append(projNode);
 
-        int fileRow = 0;
+        // Map from relative folder path → folder node; tracks next child row per parent.
+        QMap<QString, Node*> folderMap;
+        QMap<Node*, int>     nextChildRow;
+
+        // Returns the node that should parent a file/folder at relFolderPath.
+        // "." or "" means the project node itself.
+        std::function<Node*(const QString&)> getOrCreateFolder =
+            [&](const QString& relPath) -> Node* {
+            if (relPath.isEmpty() || relPath == ".")
+                return projNode;
+            if (folderMap.contains(relPath))
+                return folderMap[relPath];
+
+            // Ensure the parent folder exists first
+            QString parentPath = QFileInfo(relPath).path();
+            Node* parentNode = getOrCreateFolder(parentPath);
+
+            auto* folderNode = new Node();
+            folderNode->type    = NodeType::Folder;
+            folderNode->project = proj;
+            folderNode->name    = QFileInfo(relPath).fileName();
+            folderNode->parent  = parentNode;
+            folderNode->row     = nextChildRow[parentNode]++;
+            m_allNodes.append(folderNode);
+            folderMap.insert(relPath, folderNode);
+            return folderNode;
+        };
+
         for (auto* file : proj->files()) {
+            QString dir = QFileInfo(file->relativePath()).path();
+            Node* parentNode = getOrCreateFolder(dir);
+
             auto* fileNode = new Node();
             fileNode->type   = NodeType::File;
             fileNode->file   = file;
-            fileNode->parent = projNode;
-            fileNode->row    = fileRow++;
+            fileNode->parent = parentNode;
+            fileNode->row    = nextChildRow[parentNode]++;
             m_allNodes.append(fileNode);
         }
     }
@@ -76,7 +110,7 @@ QModelIndex SolutionTreeModel::index(int row, int column, const QModelIndex& par
 {
     Node* parentNode = nodeFromIndex(parent);
 
-    // Collect children of parentNode
+    // Collect children of parentNode in m_allNodes insertion order
     QList<Node*> children;
     for (auto* n : m_allNodes)
         if (n->parent == parentNode)
@@ -118,6 +152,7 @@ QVariant SolutionTreeModel::data(const QModelIndex& index, int role) const
         switch (node->type) {
         case NodeType::Solution: return node->solution->name();
         case NodeType::Project:  return node->project->name();
+        case NodeType::Folder:   return node->name;
         case NodeType::File:     return node->file->fileName();
         default: return {};
         }
@@ -130,7 +165,7 @@ QVariant SolutionTreeModel::data(const QModelIndex& index, int role) const
 
     case Qt::UserRole + 1:
         // Project root path — used by context menu to scope "New File" to a project
-        if (node->type == NodeType::Project)
+        if (node->type == NodeType::Project || node->type == NodeType::Folder)
             return node->project->rootPath();
         if (node->type == NodeType::File)
             return node->file->absolutePath().left(

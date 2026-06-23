@@ -48,7 +48,8 @@ private:
     QComboBox*    m_stepScope      = nullptr;
 
     // General
-    QLineEdit*    m_defaultLocEdit = nullptr;
+    QLineEdit*    m_defaultLocEdit   = nullptr;
+    QCheckBox*    m_autoReloadCheck  = nullptr;
 
     // Editor association table
     QTableWidget* m_editorTable    = nullptr;

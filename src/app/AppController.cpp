@@ -1160,10 +1160,12 @@ void AppController::onOpenFile(const QString& absolutePath)
     if (absolutePath.isEmpty()) return;
     m_mainWindow->editorTabs()->openFile(absolutePath);
 
-    // Apply editor font to newly opened editor
+    // Apply editor font and auto-reload setting to newly opened editor
     if (auto* pte = qobject_cast<PlainTextEditor*>(
-            m_mainWindow->editorForPath(absolutePath)))
+            m_mainWindow->editorForPath(absolutePath))) {
         pte->textEdit()->setFont(m_settings->editorFont());
+        pte->setAutoReload(m_settings->autoReloadFiles());
+    }
 
     // Give SpecTableEditor access to the project index for context menu features
     if (auto* ste = qobject_cast<SpecTableEditor*>(

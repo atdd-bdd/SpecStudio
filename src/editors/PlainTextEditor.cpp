@@ -82,6 +82,11 @@ void PlainTextEditor::onFileChangedOnDisk(const QString& path)
         return;
     }
 
+    if (m_autoReload) {
+        load(path);
+        return;
+    }
+
     auto btn = QMessageBox::question(this, tr("File Changed"),
         tr("'%1' was modified outside the editor. Reload?")
             .arg(QFileInfo(path).fileName()),

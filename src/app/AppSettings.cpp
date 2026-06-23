@@ -234,6 +234,18 @@ void AppSettings::setDefaultProjectLocation(const QString& path)
     m_settings.setValue("General/defaultProjectLocation", path);
 }
 
+// ---- Auto-reload ----
+
+bool AppSettings::autoReloadFiles() const
+{
+    return m_settings.value("General/autoReloadFiles", false).toBool();
+}
+
+void AppSettings::setAutoReloadFiles(bool value)
+{
+    m_settings.setValue("General/autoReloadFiles", value);
+}
+
 // ---- Appearance ----
 
 bool AppSettings::darkTheme() const
