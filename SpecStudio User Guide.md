@@ -41,14 +41,14 @@ Recent solutions appear under **File > Recent Solutions**.
 
 ## 2. The IDE Layout
 
-| Area | Description |
-|------|-------------|
-| **Solution Explorer** (left) | Tree of projects and files. Double-click to open a file. |
-| **Symbol Tree** (left, tabbed) | Hierarchy of all symbols across the project after Analyze. |
-| **Editor** (center) | Tabbed editor for open files. |
-| **Attribute Inspector** (right) | Shows attribute details when the cursor is on a symbol. |
-| **Output Panel** (bottom) | Build, Analysis, Find Results, Diff, and Git tabs. |
-| **Status Bar** | Line/column, file type, git branch. |
+| Area                            | Description                                                |
+| ------------------------------- | ---------------------------------------------------------- |
+| **Solution Explorer** (left)    | Tree of projects and files. Double-click to open a file.   |
+| **Symbol Tree** (left, tabbed)  | Hierarchy of all symbols across the project after Analyze. |
+| **Editor** (center)             | Tabbed editor for open files.                              |
+| **Attribute Inspector** (right) | Shows attribute details when the cursor is on a symbol.    |
+| **Output Panel** (bottom)       | Build, Analysis, Find Results, Diff, and Git tabs.         |
+| **Status Bar**                  | Line/column, file type, git branch.                        |
 
 ---
 
@@ -175,12 +175,12 @@ Then balance is zero: BalanceCheck
 
 **Step table formats:**
 
-| Format | When to use |
-|--------|-------------|
-| Normal `\| Col1 \| Col2 \|` (header row + data rows) | Multiple instances |
-| Transposed `\| Attribute \| Value \|` (header + key/value rows) | Single instance, many fields |
-| `Account Transposed` (explicit, no header row) | Single instance without header |
-| `=DefineName` | Substitute a pre-defined table |
+| Format                                                          | When to use                    |
+| --------------------------------------------------------------- | ------------------------------ |
+| Normal `\| Col1 \| Col2 \|` (header row + data rows)            | Multiple instances             |
+| Transposed `\| Attribute \| Value \|` (header + key/value rows) | Single instance, many fields   |
+| `Account Transposed` (explicit, no header row)                  | Single instance without header |
+| `=DefineName`                                                   | Substitute a pre-defined table |
 
 ### Multi-line Text Fields
 
@@ -200,29 +200,29 @@ The last line must **not** end with `\`. SpecStudio's Save command enforces this
 
 ### Syntax Highlighting
 
-| Color | Elements |
-|-------|----------|
-| Blue | `Specification`, `Entity`, `Attributes`, `BusinessRule`, `Calculation`, `Scenario`, etc. |
-| Green italic | `Description`, `Details`, `Constraint`, `Notes` |
-| Purple | `Transposed` |
-| Orange | `=DefineName` references |
-| Grey | Attribute set references in steps |
-| Teal | Built-in DataType names |
+| Color        | Elements                                                                                 |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| Blue         | `Specification`, `Entity`, `Attributes`, `BusinessRule`, `Calculation`, `Scenario`, etc. |
+| Green italic | `Description`, `Details`, `Constraint`, `Notes`                                          |
+| Purple       | `Transposed`                                                                             |
+| Orange       | `=DefineName` references                                                                 |
+| Grey         | Attribute set references in steps                                                        |
+| Teal         | Built-in DataType names                                                                  |
 
 ### Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| **Tab** in a pipe table | Move to next cell; add row at end of table |
-| **Ctrl+S** | Save (also strips trailing `\` from last continuation line) |
-| **F12** | Go to Definition of symbol under cursor |
-| **Shift+F12** | Find All References |
-| **F2** | Rename Symbol (project-wide) |
-| **Ctrl+Alt+F** | Format/align all pipe tables |
-| **Ctrl+Shift+T** | Open table in Grid Dialog |
-| **Ctrl+G** | Go to line |
-| **Ctrl+F** / **Ctrl+H** | Find / Replace |
-| **F7** | Analyze project |
+| Key                     | Action                                                      |
+| ----------------------- | ----------------------------------------------------------- |
+| **Tab** in a pipe table | Move to next cell; add row at end of table                  |
+| **Ctrl+S**              | Save (also strips trailing `\` from last continuation line) |
+| **F12**                 | Go to Definition of symbol under cursor                     |
+| **Shift+F12**           | Find All References                                         |
+| **F2**                  | Rename Symbol (project-wide)                                |
+| **Ctrl+Alt+F**          | Format/align all pipe tables                                |
+| **Ctrl+Shift+T**        | Open table in Grid Dialog                                   |
+| **Ctrl+G**              | Go to line                                                  |
+| **Ctrl+F** / **Ctrl+H** | Find / Replace                                              |
+| **F7**                  | Analyze project                                             |
 
 ### Context Menu (Right-click)
 
@@ -260,18 +260,22 @@ Or create it manually in the project folder — any file ending in `.specconfig`
 Opening a `.specconfig` file shows a form with these sections:
 
 **Output**
+
 - **Output directory** — where generated `.cs` files go. Relative paths are resolved from the `.specconfig` file's location. Examples: `generated`, `../tests/generated`, `C:/absolute/path`.
 - **Browse…** — pick a folder.
 
 **Target Language**
+
 - **Language** — `CSharp` (default), `Java`, `Python` (for future converter versions).
 - **Test framework** — for C#: `MSTest` (default), `NUnit`, `xUnit`. For Java: `JUnit`, `TestNG`.
-- **Namespace prefix** — C# namespace prefix for generated classes. Default: `gherkinexecutor`.
+- **Namespace prefix** — C# namespace prefix for generated classes. Default: `specstudio`.
 
 **Glue File**
+
 - **Regenerate glue stubs even if the file already exists** — by default the glue file is never overwritten so your hand-written test logic is preserved. Enable this only when you want to reset the stubs.
 
 **Converter**
+
 - **SpecTableConverter path** — leave blank to auto-detect. SpecStudio searches next to its own executable, then in the Visual Studio dev-build location.
 
 ### Config File Format (JSON)
@@ -313,12 +317,12 @@ The Output panel shows progress and any errors or warnings from the converter.
 
 The converter (`SpecTableConverter.exe`) reads the `.spectable` file and writes to the configured output directory:
 
-| Generated file | Overwritten? | Purpose |
-|---------------|--------------|---------|
-| `<AttrSet>String.cs` | Yes | External-facing data class with all-string fields |
-| `<AttrSet>Typed.cs` | Yes | Internal typed class with correct C# types |
-| `<SpecName>_Tests.cs` | Yes | Unit test class, one `[TestMethod]` per Scenario |
-| `<SpecName>_glue.cs` | **No** (unless overwriteGlue=true) | Stub methods — you fill these in |
+| Generated file        | Overwritten?                       | Purpose                                           |
+| --------------------- | ---------------------------------- | ------------------------------------------------- |
+| `<AttrSet>String.cs`  | Yes                                | External-facing data class with all-string fields |
+| `<AttrSet>Typed.cs`   | Yes                                | Internal typed class with correct C# types        |
+| `<SpecName>_Tests.cs` | Yes                                | Unit test class, one `[TestMethod]` per Scenario  |
+| `<SpecName>_glue.cs`  | **No** (unless overwriteGlue=true) | Stub methods — you fill these in                  |
 
 ---
 
@@ -401,15 +405,15 @@ public class Account_Withdrawal_Rules
 
 ### Type Mapping
 
-| SpecTable type | C# typed field | Conversion in ToTyped() |
-|---------------|----------------|------------------------|
-| `String`, `Text`, `Character` | `string` | `this.Field` |
-| `Integer` | `int` | `int.Parse(this.Field)` |
-| `Float` | `double` | `double.Parse(this.Field)` |
-| `Boolean`, `YesNo` | `bool` | `bool.Parse(this.Field)` |
-| `Date`, `Time`, `DateTime` | `DateTime` | `DateTime.Parse(this.Field)` |
-| `Duration` | `TimeSpan` | `TimeSpan.Parse(this.Field)` |
-| Custom (e.g. `Dollar`, `AccountType`) | `TypeName` | `new TypeName(this.Field)` |
+| SpecTable type                        | C# typed field | Conversion in ToTyped()      |
+| ------------------------------------- | -------------- | ---------------------------- |
+| `String`, `Text`, `Character`         | `string`       | `this.Field`                 |
+| `Integer`                             | `int`          | `int.Parse(this.Field)`      |
+| `Float`                               | `double`       | `double.Parse(this.Field)`   |
+| `Boolean`, `YesNo`                    | `bool`         | `bool.Parse(this.Field)`     |
+| `Date`, `Time`, `DateTime`            | `DateTime`     | `DateTime.Parse(this.Field)` |
+| `Duration`                            | `TimeSpan`     | `TimeSpan.Parse(this.Field)` |
+| Custom (e.g. `Dollar`, `AccountType`) | `TypeName`     | `new TypeName(this.Field)`   |
 
 ---
 
@@ -466,13 +470,13 @@ Error squiggles appear in the editor after analysis. The **Symbol Tree** panel (
 
 Each project has its own git repository. SpecStudio provides:
 
-| Action | Menu |
-|--------|------|
-| Commit + Push | **Git > Commit and Push** — prompts for a change reason |
-| Auto-commit on save | Happens automatically after every **Ctrl+S** |
-| Fetch | **Git > Fetch** |
-| Pull (with conflict resolution) | **Git > Pull** |
-| Diff current file | **Git > Diff Current File** (Ctrl+D) — shown in Output panel |
+| Action                          | Menu                                                         |
+| ------------------------------- | ------------------------------------------------------------ |
+| Commit + Push                   | **Git > Commit and Push** — prompts for a change reason      |
+| Auto-commit on save             | Happens automatically after every **Ctrl+S**                 |
+| Fetch                           | **Git > Fetch**                                              |
+| Pull (with conflict resolution) | **Git > Pull**                                               |
+| Diff current file               | **Git > Diff Current File** (Ctrl+D) — shown in Output panel |
 
 ---
 
@@ -481,17 +485,21 @@ Each project has its own git repository. SpecStudio provides:
 Open **Edit > Settings** (or **Tools > Settings**).
 
 ### General
+
 - Default project location — base folder used when creating new projects.
 
 ### Appearance
+
 - Font family and size for the editor, output panel, and UI.
 - Dark theme toggle.
 
 ### Editors
+
 - Associate file extensions with external programs (e.g. open `.xlsx` in Excel).
 - "Use OS Defaults" fills in the system-registered applications.
 
 ### FeatureX
+
 - Implicit folder import, unique scenario/step name enforcement, step suggestion scope.
 
 ---
