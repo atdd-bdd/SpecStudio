@@ -91,6 +91,8 @@ set(SOURCES
     ui/dialogs/AttributeTableDialog.cpp
     ui/dialogs/BackgroundCleanupDialog.h
     ui/dialogs/BackgroundCleanupDialog.cpp
+    ui/dialogs/ExampleRunnerDialog.h
+    ui/dialogs/ExampleRunnerDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp

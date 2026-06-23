@@ -3,6 +3,7 @@
 #include "../analyzer/SpecTableIndex.h"
 #include "../ui/dialogs/AttributeTableDialog.h"
 #include "../ui/dialogs/BackgroundCleanupDialog.h"
+#include "../ui/dialogs/ExampleRunnerDialog.h"
 
 #include <QApplication>
 #include <QDialog>
@@ -786,6 +787,35 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
             dlg->show();
         });
         menu->addSeparator();
+    }
+
+    // Run Examples (shown when cursor is inside a BusinessRule or Calculation block)
+    if (m_index) {
+        static QRegularExpression reTopLevel(
+            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+            QRegularExpression::CaseInsensitiveOption);
+        static QRegularExpression reBRCalc(
+            R"(^\s*(BusinessRule|Calculation)\b)",
+            QRegularExpression::CaseInsensitiveOption);
+
+        const QTextBlock cur = textEdit()->textCursor().block();
+        bool inBRCalc = false;
+        for (QTextBlock b = cur; b.isValid(); b = b.previous()) {
+            if (reBRCalc.match(b.text()).hasMatch())    { inBRCalc = true; break; }
+            if (reTopLevel.match(b.text()).hasMatch())  break;
+        }
+
+        if (inBRCalc) {
+            const QString fp   = filePath();
+            const int     line = cur.blockNumber() + 1;
+            const SpecTableIndex* idx = m_index;
+            auto* runAct = menu->addAction(tr("Run Examples..."));
+            connect(runAct, &QAction::triggered, this, [fp, line, idx, this] {
+                auto* dlg = new ExampleRunnerDialog(fp, line, idx, window());
+                dlg->show();
+            });
+            menu->addSeparator();
+        }
     }
 
     if (!m_index) return;
