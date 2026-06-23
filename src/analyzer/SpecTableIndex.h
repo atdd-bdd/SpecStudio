@@ -99,6 +99,9 @@ public:
     // Returns the pipe-table rows defined under "Attributes <name>" (first row = headers).
     QVector<QStringList> attributeRows(const QString& name) const;
 
+    // Returns all DomainTerm names declared in more than one file, with all their locations.
+    QMap<QString, QVector<SymbolLocation>> duplicateDomainTerms() const;
+
 private:
     void parseFile(const QString& filePath, SpecTableSymbols& out,
                    QSet<QString>& visited) const;

@@ -56,6 +56,21 @@ QStringList SpecTableIndex::insertsFor(const QString& filePath) const
     return m_fileInserts.value(QFileInfo(filePath).absoluteFilePath());
 }
 
+QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicateDomainTerms() const
+{
+    QMap<QString, QVector<SymbolLocation>> all;
+    for (auto fit = m_fileSymbols.cbegin(); fit != m_fileSymbols.cend(); ++fit) {
+        for (auto it = fit.value().domainTerms.cbegin(); it != fit.value().domainTerms.cend(); ++it)
+            all[it.key()].append(it.value());
+    }
+
+    QMap<QString, QVector<SymbolLocation>> dupes;
+    for (auto it = all.cbegin(); it != all.cend(); ++it)
+        if (it.value().size() > 1)
+            dupes.insert(it.key(), it.value());
+    return dupes;
+}
+
 QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
 {
     // Look up in Attributes declarations first, then Entity declarations

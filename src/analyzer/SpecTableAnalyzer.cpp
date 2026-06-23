@@ -47,6 +47,7 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkCleanup               (filePath, diags);
     checkTableColumnConsistency(filePath, diags);
     checkStepTableContents     (filePath, visible, diags);
+    checkDomainTermDuplicates  (filePath, diags);
 
     return diags;
 }
@@ -573,3 +574,28 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
     }
 }
 
+// ---------------------------------------------------------------------------
+// Check — DomainTerm name declared in more than one file
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkDomainTermDuplicates(const QString& filePath,
+                                                   QList<Diagnostic>& out) const
+{
+    const auto dupes = m_index->duplicateDomainTerms();
+    for (auto it = dupes.cbegin(); it != dupes.cend(); ++it) {
+        for (const SymbolLocation& loc : it.value()) {
+            if (loc.filePath != filePath) continue;
+
+            QStringList others;
+            for (const SymbolLocation& other : it.value()) {
+                if (other.filePath == filePath) continue;
+                others << QFileInfo(other.filePath).fileName()
+                          + ":" + QString::number(other.line);
+            }
+            out.append(makeDiag(filePath, loc.line,
+                QString("DomainTerm '%1' already declared in %2")
+                    .arg(it.key(), others.join(", ")),
+                Diagnostic::Severity::Warning));
+        }
+    }
+}
