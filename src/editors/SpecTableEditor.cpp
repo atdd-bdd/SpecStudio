@@ -958,10 +958,73 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
             menu->addSeparator();
             auto* createAct = menu->addAction(tr("Create Attributes '%1'").arg(word));
             connect(createAct, &QAction::triggered, this, [this, word] {
+                // Collect column headers from the table immediately below the step line
+                QStringList attrNames;
+                {
+                    static QRegularExpression reRow(R"(^\s*\|)");
+                    const QTextBlock stepBlock = textEdit()->textCursor().block();
+                    const bool transposed = stepBlock.text().contains(
+                        QRegularExpression(R"(\bTransposed\b)", QRegularExpression::CaseInsensitiveOption));
+                    bool foundFirstRow = false;
+                    for (QTextBlock b = stepBlock.next(); b.isValid(); b = b.next()) {
+                        if (b.text().trimmed().isEmpty()) continue;
+                        if (!reRow.match(b.text()).hasMatch()) break;
+                        QStringList parts = b.text().split('|');
+                        QStringList cells;
+                        for (int i = 1; i < parts.size() - 1; ++i) {
+                            const QString c = parts[i].trimmed();
+                            if (!c.isEmpty()) cells << c;
+                        }
+                        if (transposed) {
+                            // Each row: | AttrName | Value | — take col 0
+                            if (!cells.isEmpty()) attrNames << cells[0];
+                        } else {
+                            // First row = column headers
+                            attrNames = cells;
+                            foundFirstRow = true;
+                        }
+                        if (!transposed && foundFirstRow) break;
+                    }
+                }
+
+                // Build block
+                QString block = QString("\n\nAttributes %1\n").arg(word);
+                block += "| Attribute | Type | Default | Notes |\n";
+                if (attrNames.isEmpty()) {
+                    block += "|           |      |         |       |";
+                } else {
+                    for (const QString& attr : attrNames)
+                        block += QString("| %1 |      |         |       |\n").arg(attr);
+                    block.chop(1);
+                }
+
                 QTextCursor end = textEdit()->textCursor();
                 end.movePosition(QTextCursor::End);
-                end.insertText(QString("\n\nAttributes %1\n| Attribute | Type | Default | Notes |\n|           |      |         |       |")
-                               .arg(word));
+                const int insertPos = end.position() + 3; // after "\n\nAttributes "
+                end.insertText(block);
+
+                // Move cursor to the first attribute data cell
+                QTextCursor nav = textEdit()->textCursor();
+                nav.movePosition(QTextCursor::End);
+                // Walk back to the "Attributes <word>" line we just inserted
+                QTextDocument* doc = textEdit()->document();
+                QTextCursor found = doc->find(
+                    QRegularExpression(R"(^\s*Attributes\s+)" + QRegularExpression::escape(word) + R"(\s*$)",
+                                       QRegularExpression::CaseInsensitiveOption),
+                    insertPos - 3,
+                    QTextDocument::FindBackward);
+                if (!found.isNull()) {
+                    // Move to the line after the header row (first data row)
+                    QTextBlock attrBlock = found.block().next().next(); // skip header row
+                    if (attrBlock.isValid()) {
+                        QTextCursor tc(attrBlock);
+                        tc.movePosition(QTextCursor::StartOfBlock);
+                        // Position inside the first cell (after "| ")
+                        tc.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, 2);
+                        textEdit()->setTextCursor(tc);
+                        textEdit()->ensureCursorVisible();
+                    }
+                }
             });
         }
         return;
