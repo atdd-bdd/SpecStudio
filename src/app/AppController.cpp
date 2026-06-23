@@ -1105,6 +1105,46 @@ void AppController::findReferencesForSymbol(const QString& symbolName)
     m_mainWindow->outputPanel()->showFindResultsTab();
 }
 
+void AppController::findStepUsages(const QString& keyword, const QString& stepText)
+{
+    if (!m_solution || m_solution->projects().isEmpty()) return;
+
+    // Match lines where the step keyword (or And/But) is followed by the same text,
+    // optionally trailed by : AttrSetName. Search is case-insensitive for keyword.
+    const QString escapedText = QRegularExpression::escape(stepText);
+    const QRegularExpression re(
+        QStringLiteral(R"(^\s*(?:Given|When|Then|And|But)\s+%1\s*(?::.*)?$)").arg(escapedText),
+        QRegularExpression::CaseInsensitiveOption);
+
+    const QString termLabel = keyword + " " + stepText;
+    QList<Diagnostic> results;
+
+    for (auto* proj : m_solution->projects()) {
+        for (auto* file : proj->files()) {
+            if (file->type() != FileType::SpecTable) continue;
+            QFile f(file->absolutePath());
+            if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+            QTextStream in(&f);
+            int lineNum = 1;
+            while (!in.atEnd()) {
+                const QString line = in.readLine();
+                if (re.match(line).hasMatch()) {
+                    Diagnostic d;
+                    d.filePath = file->absolutePath();
+                    d.line     = lineNum;
+                    d.message  = line.trimmed();
+                    d.severity = Diagnostic::Severity::Info;
+                    results.append(d);
+                }
+                ++lineNum;
+            }
+        }
+    }
+
+    m_mainWindow->outputPanel()->setFindResults(results, termLabel);
+    m_mainWindow->outputPanel()->showFindResultsTab();
+}
+
 void AppController::applyFonts()
 {
     qApp->setFont(m_settings->uiFont());
@@ -1149,6 +1189,8 @@ void AppController::onOpenFile(const QString& absolutePath)
                 this, &AppController::navigateToLine, Qt::UniqueConnection);
         connect(ste, &SpecTableEditor::findReferencesRequested,
                 this, &AppController::findReferencesForSymbol, Qt::UniqueConnection);
+        connect(ste, &SpecTableEditor::findStepUsagesRequested,
+                this, &AppController::findStepUsages, Qt::UniqueConnection);
         connect(ste, &SpecTableEditor::renameSymbolRequested,
                 this, &AppController::renameSpecTableSymbol, Qt::UniqueConnection);
 

@@ -830,6 +830,25 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         });
     }
 
+    // Find Step Usages (shown when cursor is on a Given/When/Then/And/But line)
+    {
+        static QRegularExpression reStep(
+            R"(^\s*(Given|When|Then|And|But)\s+(.+?)(?:\s*:.*)?$)",
+            QRegularExpression::CaseInsensitiveOption);
+        const QString lineText = textEdit()->textCursor().block().text();
+        auto sm = reStep.match(lineText);
+        if (sm.hasMatch()) {
+            QString kw   = sm.captured(1);
+            QString text = sm.captured(2).trimmed();
+            // Normalise And/But to the last real keyword (best effort: just keep as-is for search)
+            menu->addSeparator();
+            auto* stepAct = menu->addAction(tr("Find Step Usages: %1 %2...").arg(kw, text));
+            connect(stepAct, &QAction::triggered, this, [this, kw, text] {
+                emit findStepUsagesRequested(kw, text);
+            });
+        }
+    }
+
     // Edit Comment (shown when cursor is on a Description/Details/Constraint line or continuation)
     {
         static QRegularExpression reField(

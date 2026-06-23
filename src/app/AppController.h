@@ -55,6 +55,7 @@ private:
     void setupBuildConnections();
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);
+    void findStepUsages(const QString& keyword, const QString& stepText);
     void renameSpecTableSymbol(const QString& symbolName);
     void onSymbolAtCursor(const QString& name);
 
