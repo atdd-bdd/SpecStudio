@@ -52,6 +52,7 @@ private:
     void loadSolution(const QString& sspecPath);
     void setSolution(Solution* solution);
     void applyFonts();
+    void applyAutoReload();
     void setupBuildConnections();
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);

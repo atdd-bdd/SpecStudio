@@ -343,6 +343,7 @@ void AppController::onSettings()
     SettingsDialog dlg(m_settings, proj, m_mainWindow);
     dlg.exec();
     applyFonts();
+    applyAutoReload();
 }
 
 void AppController::onCommitAndPush()
@@ -1153,6 +1154,14 @@ void AppController::applyFonts()
     for (auto* ed : m_mainWindow->allOpenEditors())
         if (auto* pte = qobject_cast<PlainTextEditor*>(ed))
             pte->textEdit()->setFont(edFont);
+}
+
+void AppController::applyAutoReload()
+{
+    const bool autoReload = m_settings->autoReloadFiles();
+    for (auto* ed : m_mainWindow->allOpenEditors())
+        if (auto* pte = qobject_cast<PlainTextEditor*>(ed))
+            pte->setAutoReload(autoReload);
 }
 
 void AppController::onOpenFile(const QString& absolutePath)
