@@ -947,7 +947,25 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     const bool isKnown   = !loc.filePath.isEmpty();
     const bool isAttrSet = syms.hasAttributeSet(word);
 
-    if (!isKnown && !isAttrSet) return;
+    if (!isKnown && !isAttrSet) {
+        // Suggest creating an AttributeSet when the word is used as one in the current step
+        static QRegularExpression reStepAttr(
+            R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            QRegularExpression::CaseInsensitiveOption);
+        const QString lineText = textEdit()->textCursor().block().text();
+        auto sm = reStepAttr.match(lineText);
+        if (sm.hasMatch() && sm.captured(1).compare(word, Qt::CaseInsensitive) == 0) {
+            menu->addSeparator();
+            auto* createAct = menu->addAction(tr("Create Attributes '%1'").arg(word));
+            connect(createAct, &QAction::triggered, this, [this, word] {
+                QTextCursor end = textEdit()->textCursor();
+                end.movePosition(QTextCursor::End);
+                end.insertText(QString("\n\nAttributes %1\n| Attribute | Type | Default | Notes |\n|           |      |         |       |")
+                               .arg(word));
+            });
+        }
+        return;
+    }
 
     menu->addSeparator();
 

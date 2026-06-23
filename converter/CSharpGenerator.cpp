@@ -5,6 +5,7 @@
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QMap>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // Cell value helpers
@@ -329,6 +330,12 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 
             const AttrSet* as = findAttrSet(step.attrSetName, file);
 
+            if (!step.attrSetName.isEmpty() && as == nullptr) {
+                errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
+                          .arg(step.line).arg(step.attrSetName);
+                continue;
+            }
+
             if (!step.attrSetName.isEmpty() && as) {
                 // Typed list
                 ++objectCounter;
@@ -561,12 +568,15 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         writeFile(typedPath,  genTypedClass(as, ns),  msgs);
     }
 
-    // 2. Unit test file (always overwritten)
+    // 2. Unit test file (always overwritten, but only if no errors)
     {
         QStringList testErrs;
         const QString testContent = genTestFile(file, ns, className, testErrs);
         msgs << testErrs;
-        writeFile(dir.filePath(className + "_Tests.cs"), testContent, msgs);
+        const bool testHasErrors = std::any_of(testErrs.begin(), testErrs.end(),
+            [](const QString& m){ return m.startsWith("ERROR"); });
+        if (!testHasErrors)
+            writeFile(dir.filePath(className + "_Tests.cs"), testContent, msgs);
     }
 
     // 3. Glue file: write fresh if absent/overwrite; otherwise append any missing stubs

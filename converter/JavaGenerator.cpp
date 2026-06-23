@@ -5,6 +5,7 @@
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QMap>
+#include <algorithm>
 
 static QString resolveCell(const QString& cell)
 {
@@ -335,6 +336,12 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg
 
             const AttrSet* as = findAttrSet(step.attrSetName, file);
 
+            if (!step.attrSetName.isEmpty() && as == nullptr) {
+                errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
+                          .arg(step.line).arg(step.attrSetName);
+                continue;
+            }
+
             if (!step.attrSetName.isEmpty() && as) {
                 ++objectCounter;
                 const QString listType = step.attrSetName + "String";
@@ -558,7 +565,10 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         QStringList testErrs;
         const QString testContent = genTestFile(file, pkg, className, testErrs);
         msgs << testErrs;
-        writeFile(dir.filePath(className + "_Tests.java"), testContent, msgs);
+        const bool testHasErrors = std::any_of(testErrs.begin(), testErrs.end(),
+            [](const QString& m){ return m.startsWith("ERROR"); });
+        if (!testHasErrors)
+            writeFile(dir.filePath(className + "_Tests.java"), testContent, msgs);
     }
 
     {
