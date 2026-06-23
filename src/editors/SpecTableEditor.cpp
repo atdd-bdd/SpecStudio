@@ -278,7 +278,10 @@ bool SpecTableEditor::tryExpandSnippet()
         { "dtype", {
             "DataType Name\n"
             "Details \n"
-            "| Value1 | Value2 |",
+            "Examples: EnumerationValues\n"
+            "| Value  |\n"
+            "| Value1 |\n"
+            "| Value2 |",
             "Name" } },
         { "import", {
             "Import \"filename.spectable\"",
