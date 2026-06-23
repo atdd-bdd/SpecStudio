@@ -31,6 +31,7 @@ protected:
 
 private:
     bool handleTableTabKey();
+    bool tryExpandSnippet();
     void formatAllTables();
     void fixTrailingContinuations();
     void insertTableRow();

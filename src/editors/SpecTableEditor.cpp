@@ -126,6 +126,8 @@ bool SpecTableEditor::eventFilter(QObject* obj, QEvent* event)
         {
             if (handleTableTabKey())
                 return true;
+            if (tryExpandSnippet())
+                return true;
         }
         if ((ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter)
             && ke->modifiers() == Qt::NoModifier)
@@ -202,6 +204,110 @@ void SpecTableEditor::showHoverPreview(const QPoint& viewportPos, const QPoint& 
 
 // ---------------------------------------------------------------------------
 // Tab navigation between pipe-table cells
+// ---------------------------------------------------------------------------
+// Snippet expansion — trigger word + Tab → multi-line block template
+// ---------------------------------------------------------------------------
+
+bool SpecTableEditor::tryExpandSnippet()
+{
+    QTextCursor tc = textEdit()->textCursor();
+    const QString lineText = tc.block().text();
+
+    // Only expand when the entire trimmed line equals a trigger (no partial lines)
+    const QString trigger = lineText.trimmed().toLower();
+    if (trigger.isEmpty()) return false;
+
+    // Map: trigger → { template text, offset within first line to select "Name" }
+    struct Snippet {
+        QString text;
+        QString placeholder; // text to select after insertion (first occurrence)
+    };
+
+    static const QMap<QString, Snippet> snippets = {
+        { "brule", {
+            "BusinessRule Name\n"
+            "Details \n"
+            "Examples: AttrSetName\n"
+            "| Attribute | Expected |\n"
+            "|           |          |",
+            "Name" } },
+        { "calc", {
+            "Calculation Name\n"
+            "Details \n"
+            "Examples: AttrSetName\n"
+            "| Input | Expected |\n"
+            "|       |          |",
+            "Name" } },
+        { "scenario", {
+            "Scenario Name\n"
+            "  Given initial condition: AttrSetName\n"
+            "  When action is taken: AttrSetName\n"
+            "  Then result is verified: AttrSetName",
+            "Name" } },
+        { "sgroup", {
+            "ScenarioGroup Name\n"
+            "  Given initial condition: AttrSetName\n"
+            "  When action is taken: AttrSetName\n"
+            "  Then result is verified: AttrSetName",
+            "Name" } },
+        { "bgd", {
+            "Background\n"
+            "  Given initial condition: AttrSetName",
+            "AttrSetName" } },
+        { "attrs", {
+            "Attributes Name\n"
+            "| Attribute | Type | Default | Notes | In-Out |\n"
+            "|           |      |         |       | In     |",
+            "Name" } },
+        { "entity", {
+            "Entity Name\n"
+            "| Attribute | Type | Default | Notes | In-Out |\n"
+            "|           |      |         |       | In     |",
+            "Name" } },
+        { "define", {
+            "Define Name = ",
+            "Name" } },
+        { "spec", {
+            "Specification Name\n"
+            "Description ",
+            "Name" } },
+        { "dterm", {
+            "DomainTerm Name\n"
+            "Description ",
+            "Name" } },
+        { "dtype", {
+            "DataType Name\n"
+            "Details \n"
+            "| Value1 | Value2 |",
+            "Name" } },
+        { "import", {
+            "Import \"filename.spectable\"",
+            "filename.spectable" } },
+    };
+
+    if (!snippets.contains(trigger)) return false;
+
+    const Snippet& sn = snippets[trigger];
+
+    // Replace the entire current line with the expanded template
+    tc.select(QTextCursor::LineUnderCursor);
+    tc.removeSelectedText();
+    const int insertPos = tc.position();
+    tc.insertText(sn.text);
+
+    // Select the first occurrence of the placeholder so the user can type the name
+    if (!sn.placeholder.isEmpty()) {
+        QTextCursor search = textEdit()->document()->find(
+            sn.placeholder,
+            insertPos,
+            QTextDocument::FindCaseSensitively);
+        if (!search.isNull())
+            textEdit()->setTextCursor(search);
+    }
+
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 
 bool SpecTableEditor::handleTableTabKey()
