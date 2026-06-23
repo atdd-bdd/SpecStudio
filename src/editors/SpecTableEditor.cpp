@@ -4,6 +4,7 @@
 #include "../ui/dialogs/AttributeTableDialog.h"
 #include "../ui/dialogs/BackgroundCleanupDialog.h"
 #include "../ui/dialogs/ExampleRunnerDialog.h"
+#include "../ui/dialogs/ScenarioSimulatorDialog.h"
 
 #include <QApplication>
 #include <QDialog>
@@ -784,6 +785,13 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         connect(clAct, &QAction::triggered, this, [fp, this] {
             auto* dlg = new BackgroundCleanupDialog(
                 fp, BackgroundCleanupDialog::Mode::Cleanup, window());
+            dlg->show();
+        });
+
+        const int line = textEdit()->textCursor().block().blockNumber() + 1;
+        auto* simAct = menu->addAction(tr("Simulate Scenario..."));
+        connect(simAct, &QAction::triggered, this, [fp, line, this] {
+            auto* dlg = new ScenarioSimulatorDialog(fp, line, window());
             dlg->show();
         });
         menu->addSeparator();

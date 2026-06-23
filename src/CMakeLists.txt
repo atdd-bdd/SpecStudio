@@ -93,6 +93,8 @@ set(SOURCES
     ui/dialogs/BackgroundCleanupDialog.cpp
     ui/dialogs/ExampleRunnerDialog.h
     ui/dialogs/ExampleRunnerDialog.cpp
+    ui/dialogs/ScenarioSimulatorDialog.h
+    ui/dialogs/ScenarioSimulatorDialog.cpp
 
     app/AppSettings.h
     app/AppSettings.cpp
