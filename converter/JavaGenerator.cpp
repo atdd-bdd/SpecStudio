@@ -331,8 +331,12 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg
 
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
-            if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable)
+            if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
+                // Bare step — call with no arguments
+                const QString meth = toMethodName(step.keyword, step.text);
+                s << "        " << glueVar << "." << meth << "();\n\n";
                 continue;
+            }
 
             const AttrSet* as = findAttrSet(step.attrSetName, file);
 
@@ -418,11 +422,12 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            if (step.attrSetName.isEmpty() && !step.hasTable) continue;
             const QString meth = toMethodName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-            if (!step.attrSetName.isEmpty())
+            if (step.attrSetName.isEmpty() && !step.hasTable)
+                sigs.push_back({ meth, "" });                  // void / no parameter
+            else if (!step.attrSetName.isEmpty())
                 sigs.push_back({ meth, step.attrSetName + "String" });
             else
                 sigs.push_back({ meth, "List<String>" });
@@ -439,13 +444,19 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
 
 QString JavaGenerator::genStubMethod(const GlueSig& sig)
 {
+    QString out;
+    QTextStream s(&out);
+    if (sig.paramType.isEmpty()) {
+        s << "    public void " << sig.method << "() {\n";
+        s << "        System.out.println(\"---  \" + \"" << sig.method << "\");\n";
+        s << "        // TODO: implement\n";
+        s << "    }\n";
+        return out;
+    }
     const QString paramType = sig.paramType.contains('<')
         ? sig.paramType
         : QString("List<%1>").arg(sig.paramType);
     const QString iterType = sig.paramType.contains('<') ? "List<String>" : sig.paramType;
-
-    QString out;
-    QTextStream s(&out);
     s << "    public void " << sig.method << "(" << paramType << " values) {\n";
     s << "        System.out.println(\"---  \" + \"" << sig.method << "\");\n";
     s << "        for (" << iterType << " value : values) {\n";

@@ -325,8 +325,12 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
-            if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable)
-                continue; // bare step — no data object generated
+            if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
+                // Bare step — call with no arguments
+                const QString meth = toMethodName(step.keyword, step.text);
+                s << "         " << glueVar << "." << meth << "();\n\n";
+                continue;
+            }
 
             const AttrSet* as = findAttrSet(step.attrSetName, file);
 
@@ -420,11 +424,12 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            if (step.attrSetName.isEmpty() && !step.hasTable) continue;
             const QString meth = toMethodName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-            if (!step.attrSetName.isEmpty())
+            if (step.attrSetName.isEmpty() && !step.hasTable)
+                sigs.push_back({ meth, "", false });           // void / no parameter
+            else if (!step.attrSetName.isEmpty())
                 sigs.push_back({ meth, step.attrSetName + "String", true });
             else
                 sigs.push_back({ meth, "List<string>", true });
@@ -441,11 +446,19 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
 
 QString CSharpGenerator::genStubMethod(const GlueSig& sig)
 {
+    QString out;
+    QTextStream s(&out);
+    if (sig.paramType.isEmpty()) {
+        s << "        public void " << sig.method << "()\n";
+        s << "        {\n";
+        s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
+        s << "            // TODO: implement\n";
+        s << "        }\n";
+        return out;
+    }
     const QString paramType = sig.isList
         ? QString("List<%1>").arg(sig.paramType)
         : sig.paramType;
-    QString out;
-    QTextStream s(&out);
     s << "        public void " << sig.method << "(" << paramType << " values)\n";
     s << "        {\n";
     s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
