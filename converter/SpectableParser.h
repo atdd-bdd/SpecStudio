@@ -2,14 +2,17 @@
 
 #include "SpectableModel.h"
 #include <QString>
+#include <QSet>
 
 class SpectableParser
 {
 public:
-    // Parse a .spectable file by path; errors are embedded in SpectableFile::messages
+    // Parse a .spectable file by path; errors are embedded in SpectableFile::messages.
+    // Import statements are followed and their AttrSets/Defines are merged in.
     SpectableFile parse(const QString& filePath);
 
 private:
+    SpectableFile parseImpl(const QString& filePath, QSet<QString>& visited);
     // Helpers
     static QStringList splitPipeRow(const QString& line);
     static QString     normalizeKeyword(const QString& kw, const QString& last);

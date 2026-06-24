@@ -548,8 +548,10 @@ void AppController::setupBuildConnections()
     connect(m_builder, &BuildController::buildFinished,
             this, [this](bool success) {
                 const auto diags = BuildOutputParser::parse(m_buildAccum);
-                if (!diags.isEmpty())
+                if (!diags.isEmpty()) {
                     m_mainWindow->outputPanel()->setDiagnostics(diags);
+                    m_mainWindow->outputPanel()->showAnalysisTab();
+                }
                 m_mainWindow->outputPanel()->appendBuildOutput(
                     success ? tr("Done.") : tr("Build failed."));
             });
@@ -605,6 +607,14 @@ void AppController::onBuildCurrentFile()
     if (!cfg.framework.isEmpty())       args << "--framework" << cfg.framework;
     if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
     if (cfg.overwriteGlue)              args << "--overwrite-glue";
+    // Pass all other project .spectable files as global context
+    if (m_solution) {
+        for (auto* proj : m_solution->projects())
+            for (auto* pf : proj->files())
+                if (pf->type() == FileType::SpecTable && pf->absolutePath() != ed->filePath())
+                    args << "--context" << pf->absolutePath();
+    }
+    m_buildAccum += "FILE:" + ed->filePath() + "\n";
     m_builder->run(converter, args);
 }
 
@@ -639,6 +649,11 @@ void AppController::onBuildProject()
                 if (!cfg.framework.isEmpty())       args << "--framework" << cfg.framework;
                 if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
                 if (cfg.overwriteGlue)              args << "--overwrite-glue";
+                // Pass all other .spectable files in this project as global context
+                for (auto* other : proj->files())
+                    if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
+                        args << "--context" << other->absolutePath();
+                m_buildAccum += "FILE:" + pf->absolutePath() + "\n";
                 m_builder->run(converter, args);
             }
         }

@@ -563,6 +563,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     }
 
     for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
         if (as.fields.isEmpty()) {
             msgs << QString("WARNING:%1:AttrSet '%2' has no fields — skipped")
                     .arg(as.line).arg(as.name);

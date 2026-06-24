@@ -1,6 +1,7 @@
 #include "SpectableParser.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QRegularExpression>
 
@@ -88,7 +89,7 @@ bool SpectableParser::isSkipKeyword(const QString& firstWord)
 {
     static const QStringList words = {
         "Description", "Details", "Constraint", "Notes",
-        "Import", "Insert"
+        "Insert"
     };
     for (const QString& k : words)
         if (firstWord.startsWith(k, Qt::CaseInsensitive))
@@ -114,6 +115,16 @@ static bool isBlockStartKeyword(const QString& firstWord)
 
 SpectableFile SpectableParser::parse(const QString& filePath)
 {
+    QSet<QString> visited;
+    return parseImpl(filePath, visited);
+}
+
+SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>& visited)
+{
+    const QString absPath = QFileInfo(filePath).absoluteFilePath();
+    if (visited.contains(absPath)) return {};
+    visited.insert(absPath);
+
     SpectableFile result;
     result.filePath = filePath;
 
@@ -284,6 +295,23 @@ SpectableFile SpectableParser::parse(const QString& filePath)
 
         // Keyword dispatch
         const QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
+
+        // ── Import — follow and merge AttrSets / Defines ─────────────────────
+        if (firstWord.compare("Import", Qt::CaseInsensitive) == 0) {
+            static QRegularExpression reImp("Import\\s+\"([^\"]+)\"",
+                                            QRegularExpression::CaseInsensitiveOption);
+            auto im = reImp.match(trimmed);
+            if (im.hasMatch()) {
+                const QString imported = QFileInfo(
+                    QFileInfo(absPath).absolutePath() + "/" + im.captured(1)).absoluteFilePath();
+                SpectableFile imp = parseImpl(imported, visited);
+                for (const AttrSet& as : imp.attrSets)
+                    result.attrSets.push_back(as);
+                for (const Define& def : imp.defines)
+                    result.defines.push_back(def);
+            }
+            continue;
+        }
 
         // ── Inline skips (Description, Details, etc.) — transparent to state ──
         if (isSkipKeyword(firstWord))

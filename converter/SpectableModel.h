@@ -18,7 +18,8 @@ struct AttrSet {
     QString        name;
     QString        kind;   // "Attributes" or "Entity"
     QVector<Field> fields;
-    int            line = 0;
+    int            line      = 0;
+    bool           isContext = false;  // from a context file — symbols only, no class generation
 };
 
 // A Define block (constant value or table)
@@ -26,9 +27,10 @@ struct Define {
     QString              name;
     QString              scalarValue;  // for "Define Name = scalar"
     QVector<QStringList> tableRows;    // for table-form Define (raw cell lists)
-    bool                 isTable   = false;
+    bool                 isTable    = false;
     bool                 transposed = false;  // vertical key/value Define table
-    int                  line = 0;
+    int                  line       = 0;
+    bool                 isContext  = false;  // from a context file
 };
 
 // A table attached to a step

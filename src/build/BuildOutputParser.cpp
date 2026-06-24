@@ -27,25 +27,28 @@ QList<Diagnostic> BuildOutputParser::parse(const QString& output)
         diags.append(d);
     }
 
-    // Format 2 — SpecTableConverter: ERROR|WARNING|INFO:LINE:message
-    static QRegularExpression reConverter(
-        R"(^(ERROR|WARNING|INFO):(\d+):(.+)$)",
-        QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
-
-    auto it2 = reConverter.globalMatch(output);
-    while (it2.hasNext()) {
-        auto m = it2.next();
-        Diagnostic d;
-        d.filePath = {};           // no file path in this format
-        d.line     = m.captured(2).toInt();
-        d.column   = 0;
-        d.message  = m.captured(3).trimmed();
-
-        QString sev = m.captured(1).toUpper();
-        d.severity = (sev == "ERROR")   ? Diagnostic::Severity::Error
-                   : (sev == "WARNING") ? Diagnostic::Severity::Warning
-                                        : Diagnostic::Severity::Info;
-        diags.append(d);
+    // Format 2 — SpecTableConverter: FILE:<path> markers + ERROR|WARNING|INFO:LINE:message
+    {
+        static QRegularExpression reFile(R"(^FILE:(.+)$)");
+        static QRegularExpression reMsg(R"(^(ERROR|WARNING|INFO):(\d+):(.+)$)",
+                                        QRegularExpression::CaseInsensitiveOption);
+        QString currentFile;
+        for (const QString& line : output.split('\n')) {
+            auto fm = reFile.match(line.trimmed());
+            if (fm.hasMatch()) { currentFile = fm.captured(1).trimmed(); continue; }
+            auto m = reMsg.match(line.trimmed());
+            if (!m.hasMatch()) continue;
+            Diagnostic d;
+            d.filePath = currentFile;
+            d.line     = m.captured(2).toInt();
+            d.column   = 0;
+            d.message  = m.captured(3).trimmed();
+            const QString sev = m.captured(1).toUpper();
+            d.severity = (sev == "ERROR")   ? Diagnostic::Severity::Error
+                       : (sev == "WARNING") ? Diagnostic::Severity::Warning
+                                            : Diagnostic::Severity::Info;
+            diags.append(d);
+        }
     }
 
     return diags;

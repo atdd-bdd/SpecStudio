@@ -566,8 +566,9 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         return msgs;
     }
 
-    // 1. String + Typed classes for each AttrSet
+    // 1. String + Typed classes for each AttrSet declared in THIS file (not context imports)
     for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
         if (as.fields.isEmpty()) {
             msgs << QString("WARNING:%1:AttrSet '%2' has no fields — skipped")
                     .arg(as.line).arg(as.name);

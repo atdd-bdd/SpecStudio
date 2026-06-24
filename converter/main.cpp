@@ -41,6 +41,11 @@ int main(int argc, char* argv[])
         "Overwrite the glue file even if it exists");
     cli.addOption(overwriteGlueOpt);
 
+    QCommandLineOption ctxOpt("context",
+        "Additional .spectable files whose Attributes/Entities/Defines are globally visible "
+        "(no code generated for them). May be specified multiple times.", "file");
+    cli.addOption(ctxOpt);
+
     cli.process(app);
 
     const QStringList pos = cli.positionalArguments();
@@ -59,9 +64,17 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Parse
+    // Parse primary file
     SpectableParser parser;
     SpectableFile   file = parser.parse(inputPath);
+
+    // Merge global context: Attributes/Entities/Defines from other project files
+    for (const QString& ctxPath : cli.values(ctxOpt)) {
+        if (!QFileInfo::exists(ctxPath)) continue;
+        SpectableFile ctx = parser.parse(ctxPath);
+        for (AttrSet& as : ctx.attrSets) { as.isContext = true; file.attrSets.push_back(as); }
+        for (Define& def : ctx.defines)   { def.isContext = true; file.defines.push_back(def); }
+    }
 
     bool hasError = false;
     for (const ParseMessage& m : file.messages) {
