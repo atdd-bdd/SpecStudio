@@ -100,6 +100,16 @@ void SolutionTreeModel::buildNodes()
     }
 }
 
+Project* SolutionTreeModel::projectForIndex(const QModelIndex& idx) const
+{
+    Node* node = nodeFromIndex(idx);
+    if (!node) return nullptr;
+    // Solution and Root nodes have no project
+    if (node->type == NodeType::Solution || node->type == NodeType::Root)
+        return nullptr;
+    return node->project;
+}
+
 SolutionTreeModel::Node* SolutionTreeModel::nodeFromIndex(const QModelIndex& index) const
 {
     if (!index.isValid()) return m_root;

@@ -4,6 +4,7 @@
 
 class MainWindow;
 class Solution;
+class Project;
 class AppSettings;
 class SolutionTreeModel;
 class ProjectIndex;
@@ -54,6 +55,7 @@ private:
     void applyFonts();
     void applyAutoReload();
     void setupBuildConnections();
+    Project* activeProject() const;  // project in Explorer selection, or current editor's project
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);
     void findStepUsages(const QString& keyword, const QString& stepText);

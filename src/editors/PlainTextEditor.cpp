@@ -9,6 +9,7 @@
 #include <QFileSystemWatcher>
 #include <QMenu>
 #include <QMessageBox>
+#include <QTimer>
 #include <QRegularExpression>
 #include <QSyntaxHighlighter>
 #include <QTextBlock>
@@ -76,6 +77,12 @@ void PlainTextEditor::onFileChangedOnDisk(const QString& path)
     if (QFile::exists(path) && !m_watcher->files().contains(path))
         m_watcher->addPath(path);
 
+    // Ignore notifications triggered by our own save()
+    if (m_savingNow) {
+        m_savingNow = false;
+        return;
+    }
+
     if (m_ignoreNextChange) {
         m_ignoreNextChange = false;
         load(path);
@@ -99,12 +106,14 @@ bool PlainTextEditor::save()
 {
     const QString path = filePath();
 
-    // Unwatch before writing so our own save doesn't trigger the external-change prompt
-    m_watcher->removePath(path);
+    // Flag our own write so onFileChangedOnDisk ignores it.
+    // Use a timer to clear it after 500 ms in case fileChanged never fires.
+    m_savingNow = true;
+    QTimer::singleShot(500, this, [this]{ m_savingNow = false; });
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        m_watcher->addPath(path);
+        m_savingNow = false;
         QMessageBox::critical(this, tr("Save Failed"),
             tr("Cannot write '%1': %2").arg(path, file.errorString()));
         return false;
@@ -114,7 +123,6 @@ bool PlainTextEditor::save()
     out << m_edit->toPlainText();
     file.close();
 
-    m_watcher->addPath(path);
     m_edit->document()->setModified(false);
     setDirty(false);
     return true;

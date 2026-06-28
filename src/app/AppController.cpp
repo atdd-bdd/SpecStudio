@@ -536,6 +536,20 @@ static QString resolveOutputDir(const SpecConfig& cfg, const QString& configFile
     return QDir(base).absoluteFilePath(out);
 }
 
+// Returns the project for the currently selected Solution Explorer node,
+// or the project that owns the current editor's file, or nullptr (→ all projects).
+Project* AppController::activeProject() const
+{
+    if (!m_solution) return nullptr;
+    // Check Solution Explorer selection first
+    Project* p = m_mainWindow->solutionExplorer()->selectedProject(m_treeModel);
+    if (p) return p;
+    // Fall back to the current editor's file
+    auto* ed = m_mainWindow->editorTabs()->currentEditor();
+    if (ed) return m_solution->projectForFile(ed->filePath());
+    return nullptr;
+}
+
 // Set up build signal connections (call after disconnect)
 void AppController::setupBuildConnections()
 {
@@ -633,7 +647,12 @@ void AppController::onBuildProject()
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
     setupBuildConnections();
 
-    for (auto* proj : m_solution->projects()) {
+    // Scope to the active project; fall back to all projects if none is identified
+    Project* active = activeProject();
+    const QList<Project*> targets = active ? QList<Project*>{ active }
+                                           : m_solution->projects();
+
+    for (auto* proj : targets) {
         const QString cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
         const SpecConfig cfg  = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
         const QString converter = cfg.converterPath.isEmpty() ? autoDetectConverter()
@@ -671,7 +690,13 @@ void AppController::onAnalyze()
     QList<Diagnostic>  all;
     QList<CoverageEntry> coverageEntries;
     QStringList allTags;
-    for (auto* proj : m_solution->projects()) {
+
+    // Scope to the active project; fall back to all projects
+    Project* active = activeProject();
+    const QList<Project*> targets = active ? QList<Project*>{ active }
+                                           : m_solution->projects();
+
+    for (auto* proj : targets) {
         // FeatureX analysis
         m_index->rebuild(proj);
         all.append(m_analyzer->analyzeProject(proj));

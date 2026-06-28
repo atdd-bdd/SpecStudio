@@ -16,6 +16,10 @@ public:
     void setSolution(Solution* solution);
     void refresh();
 
+    // Returns the Project for the given index (Project/Folder/File nodes),
+    // or nullptr if the index represents the Solution or is invalid.
+    Project* projectForIndex(const QModelIndex& idx) const;
+
     // QAbstractItemModel interface
     QModelIndex   index(int row, int column, const QModelIndex& parent = {}) const override;
     QModelIndex   parent(const QModelIndex& child) const override;

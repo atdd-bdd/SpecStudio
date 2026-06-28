@@ -1,4 +1,6 @@
 #include "SolutionExplorer.h"
+#include "SolutionTreeModel.h"
+#include "../model/Project.h"
 
 #include <QAction>
 #include <QMenu>
@@ -57,4 +59,11 @@ SolutionExplorer::SolutionExplorer(QWidget* parent)
 void SolutionExplorer::setModel(QAbstractItemModel* model)
 {
     m_tree->setModel(model);
+}
+
+Project* SolutionExplorer::selectedProject(SolutionTreeModel* model) const
+{
+    if (!model) return nullptr;
+    const QModelIndex idx = m_tree->currentIndex();
+    return model->projectForIndex(idx);
 }

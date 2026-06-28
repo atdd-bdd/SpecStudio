@@ -63,4 +63,5 @@ private:
     QFileSystemWatcher* m_watcher         = nullptr;
     bool                m_ignoreNextChange = false;
     bool                m_autoReload       = false;
+    bool                m_savingNow        = false;
 };

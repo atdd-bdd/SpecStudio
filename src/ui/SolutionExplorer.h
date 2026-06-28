@@ -4,6 +4,8 @@
 
 class QTreeView;
 class QAbstractItemModel;
+class Project;
+class SolutionTreeModel;
 
 class SolutionExplorer : public QDockWidget
 {
@@ -14,6 +16,10 @@ public:
 
     void setModel(QAbstractItemModel* model);
     QTreeView* treeView() const { return m_tree; }
+
+    // Returns the Project that owns the currently selected node,
+    // or nullptr if the Solution root (or nothing) is selected.
+    Project* selectedProject(SolutionTreeModel* model) const;
 
 signals:
     void fileDoubleClicked(const QString& absolutePath);
