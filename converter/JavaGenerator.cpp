@@ -70,10 +70,16 @@ QString JavaGenerator::toMethodName(const QString& keyword, const QString& stepT
     return s;
 }
 
-QString JavaGenerator::paramName(const QString& fieldName)
+QString JavaGenerator::toCamelCase(const QString& fieldName)
 {
-    if (fieldName.isEmpty()) return fieldName;
-    return fieldName[0].toLower() + fieldName.mid(1);
+    // "Transfer Amount" → "transferAmount", "FirstName" → "firstName"
+    const QStringList parts = fieldName.split(QRegularExpression(R"([\s_]+)"),
+                                               Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return fieldName;
+    QString result = parts[0][0].toLower() + parts[0].mid(1);
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,35 +226,35 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg) con
     s << "public class " << cn << " {\n";
 
     for (const Field& f : as.fields)
-        s << "    public String " << f.name << ";\n";
+        s << "    public String " << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     // Constructor
     s << "    public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << "String " << paramName(as.fields[i].name);
+        s << "String " << toCamelCase(as.fields[i].name);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
-        s << "        this." << f.name << " = " << paramName(f.name) << ";\n";
+        s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "    }\n\n";
 
     // toTyped()
     s << "    public " << tn << " to" << tn << "() {\n";
     s << "        return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        s << "            " << parseExpr(as.fields[i].name, as.fields[i].type);
+        s << "            " << parseExpr(toCamelCase(as.fields[i].name), as.fields[i].type);
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
     s << "        );\n    }\n\n";
 
-    // toString()
+    // toString() — label uses original name, value reference uses camelCase identifier
     s << "    @Override\n    public String toString() {\n        return ";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << " + \", \" + ";
-        s << "\"" << as.fields[i].name << "=\" + " << as.fields[i].name;
+        s << "\"" << as.fields[i].name << "=\" + " << toCamelCase(as.fields[i].name);
     }
     s << ";\n    }\n}\n";
 
@@ -284,17 +290,17 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg) cons
     s << "public class " << cn << " {\n";
 
     for (const Field& f : as.fields)
-        s << "    public " << javaType(f.type) << " " << f.name << ";\n";
+        s << "    public " << javaType(f.type) << " " << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     s << "    public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << javaType(as.fields[i].type) << " " << paramName(as.fields[i].name);
+        s << javaType(as.fields[i].type) << " " << toCamelCase(as.fields[i].name);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
-        s << "        this." << f.name << " = " << paramName(f.name) << ";\n";
+        s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "    }\n}\n";
 
     return out;

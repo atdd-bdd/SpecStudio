@@ -78,11 +78,16 @@ QString CSharpGenerator::toMethodName(const QString& keyword, const QString& ste
     return s;
 }
 
-QString CSharpGenerator::paramName(const QString& fieldName)
+QString CSharpGenerator::toCamelCase(const QString& fieldName)
 {
-    // Lowercase first letter to make a constructor parameter name
-    if (fieldName.isEmpty()) return fieldName;
-    return fieldName[0].toLower() + fieldName.mid(1);
+    // "Transfer Amount" → "transferAmount", "FirstName" → "firstName"
+    const QStringList parts = fieldName.split(QRegularExpression(R"([\s_]+)"),
+                                               Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return fieldName;
+    QString result = parts[0][0].toLower() + parts[0].mid(1);
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,18 +238,18 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
 
     // Fields
     for (const Field& f : as.fields)
-        s << "        public string " << f.name << ";\n";
+        s << "        public string " << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     // Constructor
     s << "        public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << "string " << paramName(as.fields[i].name);
+        s << "string " << toCamelCase(as.fields[i].name);
     }
     s << ")\n        {\n";
     for (const Field& f : as.fields)
-        s << "            this." << f.name << " = " << paramName(f.name) << ";\n";
+        s << "            this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "        }\n\n";
 
     // To<Name>Typed()
@@ -252,7 +257,7 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     s << "        public " << tn << " To" << tn << "()\n        {\n";
     s << "            return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        s << "                " << parseExpr(as.fields[i].name, as.fields[i].type);
+        s << "                " << parseExpr(toCamelCase(as.fields[i].name), as.fields[i].type);
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -263,7 +268,7 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     s << "            return $\"";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << as.fields[i].name << "={" << as.fields[i].name << "}";
+        s << as.fields[i].name << "={" << toCamelCase(as.fields[i].name) << "}";
     }
     s << "\";\n        }\n";
 
@@ -286,18 +291,18 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
 
     // Fields
     for (const Field& f : as.fields)
-        s << "        public " << csharpType(f.type) << " " << f.name << ";\n";
+        s << "        public " << csharpType(f.type) << " " << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     // Constructor
     s << "        public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << csharpType(as.fields[i].type) << " " << paramName(as.fields[i].name);
+        s << csharpType(as.fields[i].type) << " " << toCamelCase(as.fields[i].name);
     }
     s << ")\n        {\n";
     for (const Field& f : as.fields)
-        s << "            this." << f.name << " = " << paramName(f.name) << ";\n";
+        s << "            this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "        }\n";
 
     s << "    }\n}\n";

@@ -24,7 +24,7 @@ private:
     // Identifier helpers
     static QString toClassName(const QString& name);
     static QString toMethodName(const QString& keyword, const QString& stepText);
-    static QString paramName(const QString& fieldName);
+    static QString toCamelCase(const QString& fieldName);
 
     // Table resolution: given a step and the file context,
     // returns a list of rows (each row = ordered values matching the AttrSet fields)

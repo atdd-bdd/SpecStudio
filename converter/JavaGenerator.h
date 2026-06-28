@@ -24,7 +24,7 @@ private:
 
     static QString toClassName(const QString& name);
     static QString toMethodName(const QString& keyword, const QString& stepText);
-    static QString paramName(const QString& fieldName);
+    static QString toCamelCase(const QString& fieldName);
 
     static QVector<QStringList> resolveStepRows(
         const Step& step, const AttrSet* attrSet,
