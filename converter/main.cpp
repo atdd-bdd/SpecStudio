@@ -68,12 +68,14 @@ int main(int argc, char* argv[])
     SpectableParser parser;
     SpectableFile   file = parser.parse(inputPath);
 
-    // Merge global context: Attributes/Entities/Defines from other project files
+    // Merge global context: Attributes/Entities/Defines/DataTypes from other project files
     for (const QString& ctxPath : cli.values(ctxOpt)) {
         if (!QFileInfo::exists(ctxPath)) continue;
         SpectableFile ctx = parser.parse(ctxPath);
-        for (AttrSet& as : ctx.attrSets) { as.isContext = true; file.attrSets.push_back(as); }
-        for (Define& def : ctx.defines)   { def.isContext = true; file.defines.push_back(def); }
+        for (AttrSet& as : ctx.attrSets)         { as.isContext = true; file.attrSets.push_back(as); }
+        for (Define& def : ctx.defines)           { def.isContext = true; file.defines.push_back(def); }
+        for (const QString& dt : ctx.dataTypeNames)
+            if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
     }
 
     bool hasError = false;

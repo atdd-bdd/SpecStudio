@@ -39,6 +39,11 @@ struct SpecTableSymbols
                || k_builtinAttributeSets.contains(name);
     }
 
+    bool hasDataType(const QString& name) const
+    {
+        return dataTypes.contains(name) || k_builtinDataTypes.contains(name);
+    }
+
     bool hasBusinessRule(const QString& name) const
     {
         return businessRules.contains(name);

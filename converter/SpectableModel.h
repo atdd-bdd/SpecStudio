@@ -72,6 +72,7 @@ struct SpectableFile {
     QString                filePath;
     QVector<AttrSet>       attrSets;
     QVector<Define>        defines;
+    QStringList            dataTypeNames;  // user-declared DataType names
     QVector<Step>          backgroundSteps;
     QVector<Step>          cleanupSteps;
     QVector<Scenario>      scenarios;

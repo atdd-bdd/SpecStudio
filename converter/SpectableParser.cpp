@@ -325,6 +325,14 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             continue;
         }
 
+        // DataType — capture the name before the block-start sweep discards it
+        if (firstWord.compare("DataType", Qt::CaseInsensitive) == 0) {
+            const QString dtName = trimmed.mid(firstWord.length()).trimmed();
+            if (!dtName.isEmpty())
+                result.dataTypeNames.push_back(dtName);
+            // fall through to isBlockStartKeyword for state reset
+        }
+
         // ── Block-start keywords (BusinessRule, Calculation, etc.) ─────────────
         if (isBlockStartKeyword(firstWord)) {
             if (state == State::InAttrDef)    endAttrDef();

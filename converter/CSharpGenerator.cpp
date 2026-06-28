@@ -91,6 +91,23 @@ QString CSharpGenerator::toCamelCase(const QString& fieldName)
 }
 
 // ---------------------------------------------------------------------------
+// DataType detection (built-in names + user-declared)
+// ---------------------------------------------------------------------------
+
+static bool isDataType(const QString& name, const SpectableFile& file)
+{
+    static const QStringList builtins = {
+        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Date", "Time", "DateTime", "Duration", "YesNo"
+    };
+    for (const QString& b : builtins)
+        if (b.compare(name, Qt::CaseInsensitive) == 0) return true;
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 // AttrSet / Define lookup
 // ---------------------------------------------------------------------------
 
@@ -340,9 +357,12 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
             const AttrSet* as = findAttrSet(step.attrSetName, file);
 
             if (!step.attrSetName.isEmpty() && as == nullptr) {
-                errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
-                          .arg(step.line).arg(step.attrSetName);
-                continue;
+                if (!isDataType(step.attrSetName, file)) {
+                    errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
+                              .arg(step.line).arg(step.attrSetName);
+                    continue;
+                }
+                // DataType grid step — fall through to the List<List<string>> branch below
             }
 
             if (!step.attrSetName.isEmpty() && as) {
@@ -434,8 +454,10 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
             seen.insert(meth);
             if (step.attrSetName.isEmpty() && !step.hasTable)
                 sigs.push_back({ meth, "", false });           // void / no parameter
-            else if (!step.attrSetName.isEmpty())
+            else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file))
                 sigs.push_back({ meth, step.attrSetName + "String", true });
+            else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file))
+                sigs.push_back({ meth, "List<List<string>>", false });  // grid
             else
                 sigs.push_back({ meth, "List<string>", true });
         }
@@ -467,11 +489,19 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig)
     s << "        public void " << sig.method << "(" << paramType << " values)\n";
     s << "        {\n";
     s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
-    s << "            foreach (var value in values)\n";
-    s << "            {\n";
-    s << "                Console.WriteLine(value);\n";
-    s << "                // TODO: implement\n";
-    s << "            }\n";
+    if (sig.paramType == "List<List<string>>") {
+        s << "            foreach (var row in values)\n";
+        s << "            {\n";
+        s << "                Console.WriteLine(string.Join(\", \", row));\n";
+        s << "                // TODO: implement\n";
+        s << "            }\n";
+    } else {
+        s << "            foreach (var value in values)\n";
+        s << "            {\n";
+        s << "                Console.WriteLine(value);\n";
+        s << "                // TODO: implement\n";
+        s << "            }\n";
+    }
     s << "        }\n";
     return out;
 }

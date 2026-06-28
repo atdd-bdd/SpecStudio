@@ -177,13 +177,13 @@ void SpecTableAnalyzer::checkStepRefs(const QString& filePath,
             continue;
         }
 
-        // Generic step with AttributeSet reference
+        // Generic step with AttributeSet or DataType reference
         m = reStepAttr.match(line);
         if (m.hasMatch()) {
             const QString attrName = m.captured(1);
-            if (!visible.hasAttributeSet(attrName))
+            if (!visible.hasAttributeSet(attrName) && !visible.hasDataType(attrName))
                 out.append(makeDiag(filePath, lineNum,
-                    QStringLiteral("Unknown AttributeSet or Entity '%1'").arg(attrName)));
+                    QStringLiteral("Unknown AttributeSet, Entity, or DataType '%1'").arg(attrName)));
         }
     }
 }

@@ -83,6 +83,23 @@ QString JavaGenerator::toCamelCase(const QString& fieldName)
 }
 
 // ---------------------------------------------------------------------------
+// DataType detection (built-in names + user-declared)
+// ---------------------------------------------------------------------------
+
+static bool isDataType(const QString& name, const SpectableFile& file)
+{
+    static const QStringList builtins = {
+        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Date", "Time", "DateTime", "Duration", "YesNo"
+    };
+    for (const QString& b : builtins)
+        if (b.compare(name, Qt::CaseInsensitive) == 0) return true;
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 // AttrSet / Define lookup (identical logic to CSharpGenerator)
 // ---------------------------------------------------------------------------
 
@@ -347,9 +364,12 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg
             const AttrSet* as = findAttrSet(step.attrSetName, file);
 
             if (!step.attrSetName.isEmpty() && as == nullptr) {
-                errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
-                          .arg(step.line).arg(step.attrSetName);
-                continue;
+                if (!isDataType(step.attrSetName, file)) {
+                    errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
+                              .arg(step.line).arg(step.attrSetName);
+                    continue;
+                }
+                // DataType grid step — fall through to the List<List<String>> branch below
             }
 
             if (!step.attrSetName.isEmpty() && as) {
@@ -433,8 +453,10 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             seen.insert(meth);
             if (step.attrSetName.isEmpty() && !step.hasTable)
                 sigs.push_back({ meth, "" });                  // void / no parameter
-            else if (!step.attrSetName.isEmpty())
+            else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file))
                 sigs.push_back({ meth, step.attrSetName + "String" });
+            else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file))
+                sigs.push_back({ meth, "List<List<String>>" });  // grid
             else
                 sigs.push_back({ meth, "List<String>" });
         }
