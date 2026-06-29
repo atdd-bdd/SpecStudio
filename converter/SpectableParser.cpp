@@ -98,11 +98,10 @@ bool SpectableParser::isSkipKeyword(const QString& firstWord)
 }
 
 // Block-start keywords that end any open Attributes/Define/Step table
+// BusinessRule / Calculation / DataType are handled explicitly now — not here
 static bool isBlockStartKeyword(const QString& firstWord)
 {
-    static const QStringList words = {
-        "BusinessRule", "Calculation", "DataType", "DomainTerm", "ScenarioGroup"
-    };
+    static const QStringList words = { "DomainTerm", "ScenarioGroup" };
     for (const QString& k : words)
         if (firstWord.startsWith(k, Qt::CaseInsensitive))
             return true;
@@ -145,16 +144,19 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         InScenario,
         AwaitStepTable,
         InStepTable,
-        SkipTable       // discard until blank or non-pipe line
+        SkipTable,      // discard until blank or non-pipe line
+        InNamedBlock,   // inside BusinessRule / Calculation / DataType header
+        InExamplesTable // reading the Examples table for a named block
     };
 
     State   state   = State::Top;
     QString lastKw;
 
-    AttrSet*  curAttr   = nullptr;
-    Define*   curDefine = nullptr;
-    Scenario* curScen   = nullptr;
-    Step*     curStep   = nullptr;
+    AttrSet*    curAttr       = nullptr;
+    Define*     curDefine     = nullptr;
+    Scenario*   curScen       = nullptr;
+    Step*       curStep       = nullptr;
+    NamedBlock* curNamedBlock = nullptr;
     QStringList attrHeaders;
 
     auto emitMsg = [&](int ln, const QString& msg, bool warn = false) {
@@ -181,6 +183,11 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         state     = State::Top;
     };
 
+    auto endNamedBlock = [&]() {
+        curNamedBlock = nullptr;
+        state         = State::Top;
+    };
+
     for (int idx = 0; idx < lines.size(); ++idx) {
         const int    lineNum  = idx + 1;
         const QString raw     = lines[idx];
@@ -192,6 +199,12 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 endStepTable();
             if (state == State::SkipTable)
                 state = State::Top;
+            if (state == State::InExamplesTable) {
+                if (curNamedBlock && !curNamedBlock->examples.rows.isEmpty())
+                    curNamedBlock->hasExamples = true;
+                endNamedBlock();
+            }
+            // InNamedBlock stays alive through blank lines (Description may precede Examples)
             continue;
         }
 
@@ -278,6 +291,15 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     curStep->table.rows.push_back(cells);
                 break;
 
+            case State::InExamplesTable:
+                if (curNamedBlock) {
+                    if (curNamedBlock->examples.header.isEmpty())
+                        curNamedBlock->examples.header = cells;  // first row = column headers
+                    else
+                        curNamedBlock->examples.rows.push_back(cells);
+                }
+                break;
+
             default:
                 emitMsg(lineNum, "Unexpected table row (no active block)", true);
                 break;
@@ -317,23 +339,54 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         if (isSkipKeyword(firstWord))
             continue;
 
-        // ── Examples: — the following table should be discarded ───────────────
+        // ── Examples: — captured if inside a named block; otherwise discarded ──
         if (firstWord.startsWith("Examples", Qt::CaseInsensitive)) {
-            // End attr def if open (Examples under a BusinessRule aren't fields)
             if (state == State::InAttrDef) endAttrDef();
-            state = State::SkipTable;
+            if (state == State::InNamedBlock && curNamedBlock) {
+                QString rest = trimmed.mid(firstWord.length()).trimmed();
+                if (rest.startsWith(':')) rest = rest.mid(1).trimmed();
+                curNamedBlock->examples.attrSetName = rest;
+                curNamedBlock->examples.line        = lineNum;
+                state = State::InExamplesTable;
+            } else {
+                state = State::SkipTable;
+            }
             continue;
         }
 
-        // DataType — capture the name before the block-start sweep discards it
-        if (firstWord.compare("DataType", Qt::CaseInsensitive) == 0) {
-            const QString dtName = trimmed.mid(firstWord.length()).trimmed();
-            if (!dtName.isEmpty())
-                result.dataTypeNames.push_back(dtName);
-            // fall through to isBlockStartKeyword for state reset
+        // ── End InNamedBlock / InExamplesTable on any other non-skip keyword ──
+        if (state == State::InNamedBlock || state == State::InExamplesTable) {
+            if (state == State::InExamplesTable && curNamedBlock
+                    && !curNamedBlock->examples.rows.isEmpty())
+                curNamedBlock->hasExamples = true;
+            endNamedBlock();
+            // state is now Top — continue processing this keyword normally
         }
 
-        // ── Block-start keywords (BusinessRule, Calculation, etc.) ─────────────
+        // ── BusinessRule / Calculation / DataType — create a named block ───────
+        if (firstWord.compare("BusinessRule", Qt::CaseInsensitive) == 0 ||
+            firstWord.compare("Calculation",  Qt::CaseInsensitive) == 0 ||
+            firstWord.compare("DataType",     Qt::CaseInsensitive) == 0) {
+            if (state == State::InAttrDef)    endAttrDef();
+            if (state == State::InDefineTable) endDefineDef();
+            curScen = nullptr; curStep = nullptr;
+            QString kind;
+            if      (firstWord.compare("BusinessRule", Qt::CaseInsensitive) == 0) kind = "BusinessRule";
+            else if (firstWord.compare("Calculation",  Qt::CaseInsensitive) == 0) kind = "Calculation";
+            else                                                                    kind = "DataType";
+            NamedBlock nb;
+            nb.kind = kind;
+            nb.name = trimmed.mid(firstWord.length()).trimmed();
+            nb.line = lineNum;
+            if (kind == "DataType" && !nb.name.isEmpty())
+                result.dataTypeNames.push_back(nb.name);
+            result.namedBlocks.push_back(nb);
+            curNamedBlock = &result.namedBlocks.last();
+            state = State::InNamedBlock;
+            continue;
+        }
+
+        // ── Block-start keywords (DomainTerm, ScenarioGroup) ──────────────────
         if (isBlockStartKeyword(firstWord)) {
             if (state == State::InAttrDef)    endAttrDef();
             if (state == State::InDefineTable) endDefineDef();

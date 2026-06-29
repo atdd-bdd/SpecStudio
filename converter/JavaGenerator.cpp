@@ -100,6 +100,39 @@ static bool isDataType(const QString& name, const SpectableFile& file)
 }
 
 // ---------------------------------------------------------------------------
+// Examples-table row resolution for NamedBlock (BusinessRule / Calc / DataType)
+// ---------------------------------------------------------------------------
+
+static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const AttrSet* as)
+{
+    QVector<QStringList> result;
+    if (block.examples.header.isEmpty() && block.examples.rows.isEmpty())
+        return result;
+
+    if (!as) {
+        result = block.examples.rows;
+        return result;
+    }
+
+    const int fieldCount = as->fields.size();
+    QMap<QString, int> fieldIdx;
+    for (int i = 0; i < as->fields.size(); ++i)
+        fieldIdx[as->fields[i].name.toLower()] = i;
+
+    QVector<int> colMap;
+    for (const QString& h : block.examples.header)
+        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+
+    for (const QStringList& dr : block.examples.rows) {
+        QStringList row(fieldCount);
+        for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+            if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
+        result << row;
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // AttrSet / Define lookup (identical logic to CSharpGenerator)
 // ---------------------------------------------------------------------------
 
@@ -420,6 +453,12 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         }
     };
 
+    // ── Scenario tests ──────────────────────────────────────────────────────
+    if (!file.scenarios.isEmpty()) {
+        s << "    // -------------------------\n";
+        s << "    // Scenario Tests\n";
+        s << "    // -------------------------\n";
+    }
     for (const Scenario& sc : file.scenarios) {
         const QString meth      = "Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
@@ -432,6 +471,67 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         emitSteps(sc.steps, "glue");
 
         s << "    }\n\n";
+    }
+
+    // ── BusinessRule / Calculation / DataType tests ──────────────────────────
+    static const QStringList namedKinds = { "BusinessRule", "Calculation", "DataType" };
+    for (const QString& kind : namedKinds) {
+        bool hasKind = false;
+        for (const NamedBlock& nb : file.namedBlocks)
+            if (nb.hasExamples && nb.kind == kind) { hasKind = true; break; }
+        if (!hasKind) continue;
+
+        s << "    // -------------------------\n";
+        s << "    // " << kind << " Tests\n";
+        s << "    // -------------------------\n";
+
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (!nb.hasExamples || nb.kind != kind) continue;
+
+            const QString meth      = kind + "_" + toClassName(nb.name);
+            const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);
+            const QString glueClass = className + "_glue";
+            const AttrSet* as = nb.examples.attrSetName.isEmpty()
+                ? nullptr
+                : findAttrSet(nb.examples.attrSetName, file);
+
+            s << "    @Test\n";
+            s << "    public void " << meth << "() {\n";
+            s << "        " << glueClass << " glue = new " << glueClass << "();\n";
+
+            if (as) {
+                ++objectCounter;
+                const QString listType = nb.examples.attrSetName + "String";
+                const QString listVar  = QString("objectList%1").arg(objectCounter);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, as);
+                s << "        List<" << listType << "> " << listVar
+                  << " = new ArrayList<>();\n";
+                for (const QStringList& row : rows) {
+                    s << "        " << listVar << ".add(new " << listType << "(";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << row[ci] << "\"";
+                    }
+                    s << "));\n";
+                }
+                s << "        glue." << glueMeth << "(" << listVar << ");\n";
+            } else {
+                ++objectCounter;
+                const QString listVar = QString("stringListList%1").arg(objectCounter);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
+                s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";
+                for (const QStringList& row : rows) {
+                    s << "        " << listVar << ".add(List.of(";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << resolveCell(row[ci]) << "\"";
+                    }
+                    s << "));\n";
+                }
+                s << "        glue." << glueMeth << "(" << listVar << ");\n";
+            }
+            s << "    }\n\n";
+        }
     }
 
     s << "}\n";
@@ -467,6 +567,18 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
     collectSteps(file.cleanupSteps);
     for (const Scenario& sc : file.scenarios)
         collectSteps(sc.steps);
+
+    // Named blocks — emit ExamplesBusinessRule_*, ExamplesCalculation_*, ExamplesDataType_*
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (!nb.hasExamples) continue;
+        const QString meth = "Examples" + nb.kind + "_" + toClassName(nb.name);
+        if (seen.contains(meth)) continue;
+        seen.insert(meth);
+        if (!nb.examples.attrSetName.isEmpty())
+            sigs.push_back({ meth, nb.examples.attrSetName + "String" });
+        else
+            sigs.push_back({ meth, "List<List<String>>" });
+    }
 
     return sigs;
 }

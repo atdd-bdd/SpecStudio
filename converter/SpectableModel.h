@@ -66,6 +66,23 @@ struct ParseMessage {
     bool    warning = false;
 };
 
+// Examples table attached to a BusinessRule / Calculation / DataType block
+struct ExamplesBlock {
+    QString              attrSetName;   // optional — from "Examples: AttrSetName"
+    QStringList          header;        // first pipe row (column headers)
+    QVector<QStringList> rows;          // data rows (header excluded)
+    int                  line = 0;
+};
+
+// A named spec block (BusinessRule, Calculation, or DataType)
+struct NamedBlock {
+    QString      kind;          // "BusinessRule", "Calculation", or "DataType"
+    QString      name;
+    ExamplesBlock examples;
+    bool         hasExamples = false;
+    int          line        = 0;
+};
+
 // Top-level result of parsing one .spectable file
 struct SpectableFile {
     QString                specName;
@@ -73,6 +90,7 @@ struct SpectableFile {
     QVector<AttrSet>       attrSets;
     QVector<Define>        defines;
     QStringList            dataTypeNames;  // user-declared DataType names
+    QVector<NamedBlock>    namedBlocks;    // BusinessRule / Calculation / DataType with Examples
     QVector<Step>          backgroundSteps;
     QVector<Step>          cleanupSteps;
     QVector<Scenario>      scenarios;
