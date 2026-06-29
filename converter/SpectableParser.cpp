@@ -236,7 +236,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         const QString h = attrHeaders[ci].toLower();
                         const QString v = (ci < cells.size()) ? cells[ci] : QString();
                         if (h == "attribute" || h == "name") fd.name         = v;
-                        else if (h == "type")                fd.type         = v;
+                        else if (h == "type" || h == "datatype") fd.type     = v;
                         else if (h == "default")             fd.defaultValue = v;
                         else if (h == "notes")               fd.notes        = v;
                         else if (h == "in-out" || h == "in/out") fd.inOut   = v;
