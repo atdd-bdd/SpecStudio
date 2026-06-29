@@ -45,7 +45,12 @@ QString CSharpGenerator::parseExpr(const QString& field, const QString& specType
     if (t == "integer" || t == "int")     return QString("int.Parse(this.%1)").arg(field);
     if (t == "float"   || t == "decimal") return QString("double.Parse(this.%1)").arg(field);
     if (t == "boolean" || t == "yesno"
-     || t == "bool")                      return QString("bool.Parse(this.%1)").arg(field);
+     || t == "bool")                      return QString(
+        "(this.%1.Equals(\"true\", System.StringComparison.OrdinalIgnoreCase) "
+        "|| this.%1.Equals(\"t\", System.StringComparison.OrdinalIgnoreCase) "
+        "|| this.%1.Equals(\"yes\", System.StringComparison.OrdinalIgnoreCase) "
+        "|| this.%1.Equals(\"y\", System.StringComparison.OrdinalIgnoreCase) "
+        "|| this.%1 == \"1\")").arg(field);
     if (t == "date" || t == "time"
      || t == "datetime")                  return QString("DateTime.Parse(this.%1)").arg(field);
     if (t == "duration")                  return QString("TimeSpan.Parse(this.%1)").arg(field);
@@ -730,10 +735,13 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
 
             AttrSet sa;
             sa.name = asName;
+            const bool isValidValues = asName.compare("ValidValues", Qt::CaseInsensitive) == 0;
             for (const QString& col : nb.examples.header) {
                 const QString c = col.trimmed();
                 if (!c.isEmpty()) {
-                    Field f; f.name = c; f.type = "String";
+                    Field f; f.name = c;
+                    f.type = (isValidValues && c.compare("valid", Qt::CaseInsensitive) == 0)
+                             ? "Boolean" : "String";
                     sa.fields.push_back(f);
                 }
             }

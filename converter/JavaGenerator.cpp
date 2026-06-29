@@ -39,7 +39,10 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType)
     if (t == "integer" || t == "int")     return QString("Integer.parseInt(this.%1)").arg(field);
     if (t == "float"   || t == "decimal") return QString("Double.parseDouble(this.%1)").arg(field);
     if (t == "boolean" || t == "yesno"
-     || t == "bool")                      return QString("Boolean.parseBoolean(this.%1)").arg(field);
+     || t == "bool")                      return QString(
+        "(this.%1.equalsIgnoreCase(\"true\") || this.%1.equalsIgnoreCase(\"t\") "
+        "|| this.%1.equalsIgnoreCase(\"yes\") || this.%1.equalsIgnoreCase(\"y\") "
+        "|| this.%1.equals(\"1\"))").arg(field);
     if (t == "date")                      return QString("LocalDate.parse(this.%1)").arg(field);
     if (t == "time")                      return QString("LocalTime.parse(this.%1)").arg(field);
     if (t == "datetime")                  return QString("LocalDateTime.parse(this.%1)").arg(field);
@@ -734,10 +737,13 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
 
             AttrSet sa;
             sa.name = asName;
+            const bool isValidValues = asName.compare("ValidValues", Qt::CaseInsensitive) == 0;
             for (const QString& col : nb.examples.header) {
                 const QString c = col.trimmed();
                 if (!c.isEmpty()) {
-                    Field f; f.name = c; f.type = "String";
+                    Field f; f.name = c;
+                    f.type = (isValidValues && c.compare("valid", Qt::CaseInsensitive) == 0)
+                             ? "Boolean" : "String";
                     sa.fields.push_back(f);
                 }
             }
