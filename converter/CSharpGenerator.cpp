@@ -241,6 +241,39 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
 }
 
 // ---------------------------------------------------------------------------
+// Examples-table row resolution for NamedBlock (BusinessRule / Calc / DataType)
+// ---------------------------------------------------------------------------
+
+static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const AttrSet* as)
+{
+    QVector<QStringList> result;
+    if (block.examples.header.isEmpty() && block.examples.rows.isEmpty())
+        return result;
+
+    if (!as) {
+        result = block.examples.rows;
+        return result;
+    }
+
+    const int fieldCount = as->fields.size();
+    QMap<QString, int> fieldIdx;
+    for (int i = 0; i < as->fields.size(); ++i)
+        fieldIdx[as->fields[i].name.toLower()] = i;
+
+    QVector<int> colMap;
+    for (const QString& h : block.examples.header)
+        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+
+    for (const QStringList& dr : block.examples.rows) {
+        QStringList row(fieldCount);
+        for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+            if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
+        result << row;
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // String class generator
 // ---------------------------------------------------------------------------
 
@@ -434,6 +467,70 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
         s << "}\n\n";
     }
 
+    // ── BusinessRule / Calculation / DataType tests ──────────────────────────
+    static const QStringList namedKinds = { "BusinessRule", "Calculation", "DataType" };
+    for (const QString& kind : namedKinds) {
+        bool hasKind = false;
+        for (const NamedBlock& nb : file.namedBlocks)
+            if (nb.hasExamples && nb.kind == kind) { hasKind = true; break; }
+        if (!hasKind) continue;
+
+        s << "// -------------------------\n";
+        s << "// " << kind << " Tests\n";
+        s << "// -------------------------\n";
+
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (!nb.hasExamples || nb.kind != kind) continue;
+
+            const QString meth      = kind + "_" + toClassName(nb.name);
+            const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);
+            const QString glueClass = className + "_glue";
+            const AttrSet* as = nb.examples.attrSetName.isEmpty()
+                ? nullptr
+                : findAttrSet(nb.examples.attrSetName, file);
+
+            s << "[TestMethod]\n";
+            s << "public void " << meth << "(){\n";
+            s << "     " << glueClass << " glue = new " << glueClass << "();\n";
+
+            if (as) {
+                ++objectCounter;
+                const QString listType = nb.examples.attrSetName + "String";
+                const QString listVar  = QString("objectList%1").arg(objectCounter);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, as);
+                s << "     List<" << listType << "> " << listVar
+                  << " = new List<" << listType << ">{\n";
+                for (const QStringList& row : rows) {
+                    s << "         new " << listType << "(";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ",";
+                        s << "\"" << row[ci] << "\"";
+                    }
+                    s << "),\n";
+                }
+                s << "     };\n";
+                s << "     glue." << glueMeth << "(" << listVar << ");\n";
+            } else {
+                ++objectCounter;
+                const QString listVar = QString("stringListList%1").arg(objectCounter);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
+                s << "     List<List<string>> " << listVar
+                  << " = new List<List<string>>{\n";
+                for (const QStringList& row : rows) {
+                    s << "         new List<string>{ ";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << resolveCell(row[ci]) << "\"";
+                    }
+                    s << " },\n";
+                }
+                s << "     };\n";
+                s << "     glue." << glueMeth << "(" << listVar << ");\n";
+            }
+            s << "}\n\n";
+        }
+    }
+
     s << "}\n}\n";
     return out;
 }
@@ -467,6 +564,21 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
     collectSteps(file.cleanupSteps);
     for (const Scenario& sc : file.scenarios)
         collectSteps(sc.steps);
+
+    // Named blocks — emit ExamplesBusinessRule_*, ExamplesCalculation_*, ExamplesDataType_*
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (!nb.hasExamples) continue;
+        const QString meth = "Examples" + nb.kind + "_" + toClassName(nb.name);
+        if (seen.contains(meth)) continue;
+        seen.insert(meth);
+        const AttrSet* as = nb.examples.attrSetName.isEmpty()
+            ? nullptr
+            : findAttrSet(nb.examples.attrSetName, file);
+        if (as)
+            sigs.push_back({ meth, nb.examples.attrSetName + "String", true });
+        else
+            sigs.push_back({ meth, "List<List<string>>", false });
+    }
 
     return sigs;
 }
@@ -601,8 +713,37 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         return msgs;
     }
 
-    // 1. String + Typed classes for each AttrSet declared in THIS file (not context imports)
-    for (const AttrSet& as : file.attrSets) {
+    // Synthesize AttrSets for built-in Examples names (EnumerationValues, ValidValues, etc.)
+    // referenced in NamedBlocks but not declared with an explicit Attributes block.
+    SpectableFile augmented = file;
+    {
+        QSet<QString> knownNames;
+        for (const AttrSet& as : file.attrSets)
+            knownNames.insert(as.name.toLower());
+
+        for (const NamedBlock& nb : file.namedBlocks) {
+            const QString asName = nb.examples.attrSetName.trimmed();
+            if (asName.isEmpty() || nb.examples.header.isEmpty()) continue;
+            if (isDataType(asName, file)) continue;
+            if (knownNames.contains(asName.toLower())) continue;
+            knownNames.insert(asName.toLower());
+
+            AttrSet sa;
+            sa.name = asName;
+            for (const QString& col : nb.examples.header) {
+                const QString c = col.trimmed();
+                if (!c.isEmpty()) {
+                    Field f; f.name = c; f.type = "String";
+                    sa.fields.push_back(f);
+                }
+            }
+            if (!sa.fields.isEmpty())
+                augmented.attrSets.push_back(sa);
+        }
+    }
+
+    // 1. String + Typed classes for each AttrSet (declared + synthesized)
+    for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;
         if (as.fields.isEmpty()) {
             msgs << QString("WARNING:%1:AttrSet '%2' has no fields — skipped")
@@ -620,7 +761,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     // 2. Unit test file (always overwritten, but only if no errors)
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(file, ns, className, testErrs);
+        const QString testContent = genTestFile(augmented, ns, className, testErrs);
         msgs << testErrs;
         const bool testHasErrors = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
@@ -632,9 +773,9 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     {
         const QString gluePath = dir.filePath(className + "_glue.cs");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(file, ns, className), msgs);
+            writeFile(gluePath, genGlueFile(augmented, ns, className), msgs);
         } else {
-            const QVector<GlueSig> sigs = collectGlueSigs(file);
+            const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }

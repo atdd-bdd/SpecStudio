@@ -574,7 +574,10 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
         const QString meth = "Examples" + nb.kind + "_" + toClassName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
-        if (!nb.examples.attrSetName.isEmpty())
+        const AttrSet* as = nb.examples.attrSetName.isEmpty()
+            ? nullptr
+            : findAttrSet(nb.examples.attrSetName, file);
+        if (as)
             sigs.push_back({ meth, nb.examples.attrSetName + "String" });
         else
             sigs.push_back({ meth, "List<List<String>>" });
@@ -714,7 +717,36 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         return msgs;
     }
 
-    for (const AttrSet& as : file.attrSets) {
+    // Synthesize AttrSets for built-in Examples names (EnumerationValues, ValidValues, etc.)
+    // referenced in NamedBlocks but not declared with an explicit Attributes block.
+    SpectableFile augmented = file;
+    {
+        QSet<QString> knownNames;
+        for (const AttrSet& as : file.attrSets)
+            knownNames.insert(as.name.toLower());
+
+        for (const NamedBlock& nb : file.namedBlocks) {
+            const QString asName = nb.examples.attrSetName.trimmed();
+            if (asName.isEmpty() || nb.examples.header.isEmpty()) continue;
+            if (isDataType(asName, file)) continue;
+            if (knownNames.contains(asName.toLower())) continue;
+            knownNames.insert(asName.toLower());
+
+            AttrSet sa;
+            sa.name = asName;
+            for (const QString& col : nb.examples.header) {
+                const QString c = col.trimmed();
+                if (!c.isEmpty()) {
+                    Field f; f.name = c; f.type = "String";
+                    sa.fields.push_back(f);
+                }
+            }
+            if (!sa.fields.isEmpty())
+                augmented.attrSets.push_back(sa);
+        }
+    }
+
+    for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;
         if (as.fields.isEmpty()) {
             msgs << QString("WARNING:%1:AttrSet '%2' has no fields — skipped")
@@ -727,7 +759,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
 
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(file, testPkg, specPkg, domainPkg, className, testErrs);
+        const QString testContent = genTestFile(augmented, testPkg, specPkg, domainPkg, className, testErrs);
         msgs << testErrs;
         const bool testHasErrors = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
@@ -738,9 +770,9 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     {
         const QString gluePath = dir.filePath(className + "_glue.java");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(file, specPkg, domainPkg, className), msgs);
+            writeFile(gluePath, genGlueFile(augmented, specPkg, domainPkg, className), msgs);
         } else {
-            const QVector<GlueSig> sigs = collectGlueSigs(file);
+            const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
