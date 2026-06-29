@@ -197,6 +197,8 @@ void MainWindow::setupMenuBar()
     auto* actShowFiles     = viewMenu->addAction(tr("Files"));
     auto* actShowOutput    = viewMenu->addAction(tr("Output"));
     viewMenu->addSeparator();
+    auto* actRefresh     = viewMenu->addAction(tr("Refresh"),              QKeySequence(Qt::Key_F5));
+    viewMenu->addSeparator();
     auto* actSplitRight  = viewMenu->addAction(tr("Split Editor Right"), QKeySequence(Qt::CTRL | Qt::Key_Backslash));
     auto* actCloseSplit  = viewMenu->addAction(tr("Close Split"),         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Backslash));
 
@@ -205,6 +207,7 @@ void MainWindow::setupMenuBar()
     connect(actShowAttrInsp,  &QAction::triggered, m_attrInspector,     &QDockWidget::show);
     connect(actShowFiles,     &QAction::triggered, m_editorTabs,        &QWidget::show);
     connect(actShowOutput,    &QAction::triggered, m_outputPanel,       &QDockWidget::show);
+    connect(actRefresh,       &QAction::triggered, m_controller, &AppController::onRefreshSolution);
     connect(actSplitRight,    &QAction::triggered, this, &MainWindow::splitEditorRight);
     connect(actCloseSplit,    &QAction::triggered, this, &MainWindow::closeSplit);
 

@@ -45,6 +45,7 @@ public slots:
     void onDeleteFile(const QString& absolutePath);
     void onOpenFile(const QString& absolutePath);
     void openRecentSolution(const QString& sspecPath);
+    void onRefreshSolution();
 
 signals:
     void solutionLoaded(Solution* solution);

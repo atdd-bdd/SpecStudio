@@ -857,6 +857,15 @@ void AppController::onDeleteFile(const QString& absolutePath)
     }
 }
 
+void AppController::onRefreshSolution()
+{
+    if (!m_solution) return;
+    for (auto* proj : m_solution->projects())
+        proj->scanFiles();
+    m_treeModel->refresh();
+    m_mainWindow->solutionExplorer()->treeView()->expandAll();
+}
+
 void AppController::onFindAllUsages()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
