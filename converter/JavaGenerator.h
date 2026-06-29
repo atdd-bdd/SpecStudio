@@ -35,10 +35,11 @@ private:
 
     QString genStringClass(const AttrSet& as, const QString& pkg) const;
     QString genTypedClass(const AttrSet& as, const QString& pkg) const;
-    QString genTestFile(const SpectableFile& file, const QString& pkg,
+    QString genTestFile(const SpectableFile& file, const QString& testPkg,
+                        const QString& specPkg, const QString& domainPkg,
                         const QString& className, QStringList& errors) const;
-    QString genGlueFile(const SpectableFile& file, const QString& pkg,
-                        const QString& className) const;
+    QString genGlueFile(const SpectableFile& file, const QString& specPkg,
+                        const QString& domainPkg, const QString& className) const;
 
     struct GlueSig { QString method; QString paramType; };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);

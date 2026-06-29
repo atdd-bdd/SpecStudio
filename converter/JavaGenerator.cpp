@@ -327,15 +327,18 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg) cons
 // Test file
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg,
+QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& testPkg,
+                                    const QString& specPkg, const QString& domainPkg,
                                     const QString& className, QStringList& errors) const
 {
     QString out;
     QTextStream s(&out);
 
-    s << "package " << pkg << ";\n\n";
+    s << "package " << testPkg << ";\n\n";
     s << "import java.util.List;\n";
     s << "import java.util.ArrayList;\n";
+    s << "import " << domainPkg << ".*;\n";
+    s << "import " << specPkg << "." << className << "_glue;\n";
 
     if (m_framework.compare("TestNG", Qt::CaseInsensitive) == 0) {
         s << "import org.testng.annotations.Test;\n";
@@ -348,7 +351,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg
         s << "import org.junit.Test;\n";
     }
 
-    s << "\npublic class " << className << "_Tests {\n\n";
+    s << "\npublic class Test_" << className << " {\n\n";
 
     int objectCounter = 0;
 
@@ -418,17 +421,15 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& pkg
     };
 
     for (const Scenario& sc : file.scenarios) {
-        const QString meth      = "Test_Scenario_" + toClassName(sc.name);
+        const QString meth      = "Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
-        const QString glueVar   = glueClass[0].toLower() + glueClass.mid(1) + "_object";
 
         s << "    @Test\n";
         s << "    public void " << meth << "() {\n";
-        s << "        " << glueClass << " " << glueVar
-          << " = new " << glueClass << "();\n\n";
+        s << "        " << glueClass << " glue = new " << glueClass << "();\n\n";
 
-        emitSteps(file.backgroundSteps, glueVar);
-        emitSteps(sc.steps, glueVar);
+        emitSteps(file.backgroundSteps, "glue");
+        emitSteps(sc.steps, "glue");
 
         s << "    }\n\n";
     }
@@ -530,16 +531,17 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
     return true;
 }
 
-QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& pkg,
-                                    const QString& className) const
+QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& specPkg,
+                                    const QString& domainPkg, const QString& className) const
 {
     const QVector<GlueSig> sigs = collectGlueSigs(file);
     const QString glueClass = className + "_glue";
     QString out;
     QTextStream s(&out);
 
-    s << "package " << pkg << ";\n\n";
+    s << "package " << specPkg << ";\n\n";
     s << "import java.util.List;\n";
+    s << "import " << domainPkg << ".*;\n";
     s << "import static org.junit.Assert.assertEquals;\n\n";
     s << "public class " << glueClass << " {\n";
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
@@ -581,12 +583,22 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         return msgs;
     }
 
-    const QString className = toClassName(file.specName);
-    const QString pkg       = opts.packagePrefix + "." + className;
+    const QString className   = toClassName(file.specName);
+    const QString specSegment = className.toLower();
+    const QString domainPkg   = opts.packagePrefix + ".domain";
+    const QString specPkg     = opts.packagePrefix + ".specifications." + specSegment;
+    const QString testPkg     = specPkg + ".tests";
 
     QDir dir(opts.outputDir);
     if (!dir.exists() && !dir.mkpath(".")) {
         msgs << QString("ERROR:0:Cannot create output directory: %1").arg(opts.outputDir);
+        return msgs;
+    }
+
+    // Domain classes go into outputDir/domain/
+    QDir domainDir(opts.outputDir + "/domain");
+    if (!domainDir.exists() && !domainDir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create domain directory: %1").arg(domainDir.path());
         return msgs;
     }
 
@@ -597,24 +609,24 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(dir.filePath(as.name + "String.java"), genStringClass(as, pkg), msgs);
-        writeFile(dir.filePath(as.name + "Typed.java"),  genTypedClass(as, pkg),  msgs);
+        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg), msgs);
+        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg),  msgs);
     }
 
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(file, pkg, className, testErrs);
+        const QString testContent = genTestFile(file, testPkg, specPkg, domainPkg, className, testErrs);
         msgs << testErrs;
         const bool testHasErrors = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!testHasErrors)
-            writeFile(dir.filePath(className + "_Tests.java"), testContent, msgs);
+            writeFile(dir.filePath("Test_" + className + ".java"), testContent, msgs);
     }
 
     {
         const QString gluePath = dir.filePath(className + "_glue.java");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(file, pkg, className), msgs);
+            writeFile(gluePath, genGlueFile(file, specPkg, domainPkg, className), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(file);
             if (appendMissingStubs(gluePath, sigs, msgs))

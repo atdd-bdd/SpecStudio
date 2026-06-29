@@ -220,6 +220,14 @@ void AppController::onNewProject()
         }
     }
 
+    // Write a default .specconfig so the project is ready to build
+    {
+        SpecConfig cfg;
+        const QString cfgPath = projDir + QDir::separator() + ".specconfig";
+        if (!QFile::exists(cfgPath))
+            cfg.save(cfgPath);
+    }
+
     auto* project = new Project(projName, projDir);
     project->scanFiles();
     m_solution->addProject(project);
