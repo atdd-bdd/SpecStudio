@@ -185,8 +185,8 @@ void SpecTableIndex::parseFile(const QString& filePath,
     static QRegularExpression reAttributes   (R"(^\s*Attributes\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reBizRule      (R"(^\s*BusinessRule\s+(\w+))",    QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reCalc         (R"(^\s*Calculation\s+(\w+))",     QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reScenario     (R"(^\s*Scenario\s+(.+)$)",        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reScenarioGrp  (R"(^\s*ScenarioGroup\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reScenario     (R"(^\s*Scenario\s*:?\s*(.+)$)",      QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reScenarioGrp  (R"(^\s*ScenarioGroup\s*:?\s*(.+)$)", QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reSpecification(R"(^\s*Specification\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reDefine       (R"(^\s*Define\s+(\w+))",           QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reImport       ("^\\s*Import\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);

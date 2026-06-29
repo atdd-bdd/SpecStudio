@@ -415,11 +415,14 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             continue;
         }
 
-        // Scenario
-        if (firstWord.compare("Scenario", Qt::CaseInsensitive) == 0) {
+        // Scenario / Scenario: (Gherkin-style colon)
+        if (firstWord.compare("Scenario", Qt::CaseInsensitive) == 0 ||
+            firstWord.compare("Scenario:", Qt::CaseInsensitive) == 0) {
             curStep = nullptr; lastKw = {};
             Scenario sc;
-            sc.name = trimmed.mid(firstWord.length()).trimmed();
+            QString nameRaw = trimmed.mid(firstWord.length()).trimmed();
+            if (nameRaw.startsWith(':')) nameRaw = nameRaw.mid(1).trimmed();
+            sc.name = nameRaw;
             sc.line = lineNum;
             result.scenarios.push_back(sc);
             curScen = &result.scenarios.last();
