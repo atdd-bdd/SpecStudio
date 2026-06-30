@@ -376,16 +376,34 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     s << "import " << domainPkg << ".*;\n";
     s << "import " << specPkg << "." << className << "_glue;\n";
 
-    if (m_framework.compare("TestNG", Qt::CaseInsensitive) == 0) {
+    const bool isJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
+                       && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
+                           || m_framework.toLower().startsWith("junit5")
+                           || m_framework.toLower() == "junit 5");
+    const bool isTestNG = m_framework.compare("TestNG", Qt::CaseInsensitive) == 0;
+
+    if (isTestNG) {
         s << "import org.testng.annotations.Test;\n";
-    } else if (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
-            || m_framework.toLower().startsWith("junit5")
-            || m_framework.toLower() == "junit 5") {
+    } else if (isJUnit5) {
         s << "import org.junit.jupiter.api.Test;\n";
+        // Emit Tag import only if any block has tags
+        bool hasTags = false;
+        for (const Scenario& sc : file.scenarios) if (!sc.tags.isEmpty()) { hasTags = true; break; }
+        if (!hasTags)
+            for (const NamedBlock& nb : file.namedBlocks) if (!nb.tags.isEmpty()) { hasTags = true; break; }
+        if (hasTags) s << "import org.junit.jupiter.api.Tag;\n";
     } else {
         // JUnit 4
         s << "import org.junit.Test;\n";
     }
+
+    // Helper: emit tag annotations before @Test
+    auto emitTags = [&](const QStringList& tags) {
+        if (isJUnit5)
+            for (const QString& t : tags) s << "    @Tag(\"" << t << "\")\n";
+        else if (!tags.isEmpty())
+            s << "    // Tags: " << tags.join(", ") << "\n";
+    };
 
     s << "\npublic class Test_" << className << " {\n\n";
 
@@ -466,6 +484,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         const QString meth      = "Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
 
+        emitTags(sc.tags);
         s << "    @Test\n";
         s << "    public void " << meth << "() {\n";
         s << "        " << glueClass << " glue = new " << glueClass << "();\n\n";
@@ -498,6 +517,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 ? nullptr
                 : findAttrSet(nb.examples.attrSetName, file);
 
+            emitTags(nb.tags);
             s << "    @Test\n";
             s << "    public void " << meth << "() {\n";
             s << "        " << glueClass << " glue = new " << glueClass << "();\n";

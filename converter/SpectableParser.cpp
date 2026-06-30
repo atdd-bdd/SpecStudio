@@ -149,8 +149,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         InExamplesTable // reading the Examples table for a named block
     };
 
-    State   state   = State::Top;
-    QString lastKw;
+    State       state       = State::Top;
+    QString     lastKw;
+    QStringList pendingTags;  // @Tag lines accumulate here until consumed by next block
 
     AttrSet*    curAttr       = nullptr;
     Define*     curDefine     = nullptr;
@@ -205,12 +206,21 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 endNamedBlock();
             }
             // InNamedBlock stays alive through blank lines (Description may precede Examples)
+            pendingTags.clear();  // tags must immediately precede their block
             continue;
         }
 
         // ── Comments ─────────────────────────────────────────────────────────
         if (trimmed.startsWith('#'))
             continue;
+
+        // ── Tags (@TagName) — accumulate for the next block ──────────────────
+        if (trimmed.startsWith('@')) {
+            static QRegularExpression reTag(R"(@(\w+))");
+            auto it = reTag.globalMatch(trimmed);
+            while (it.hasNext()) pendingTags << it.next().captured(1);
+            continue;
+        }
 
         // ── Continuation / indented text ─────────────────────────────────────
         // Lines starting with whitespace that are not pipe rows are continuations
@@ -378,6 +388,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             nb.kind = kind;
             nb.name = trimmed.mid(firstWord.length()).trimmed();
             nb.line = lineNum;
+            nb.tags = pendingTags; pendingTags.clear();
             if (kind == "DataType" && !nb.name.isEmpty())
                 result.dataTypeNames.push_back(nb.name);
             result.namedBlocks.push_back(nb);
@@ -399,6 +410,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // ── Terminate open Attributes/Define table on any other keyword ────────
         if (state == State::InAttrDef)    endAttrDef();
         if (state == State::InDefineTable) endDefineDef();
+        pendingTags.clear();  // not consumed — discard
 
         // ── Parsed keywords ───────────────────────────────────────────────────
 
@@ -477,6 +489,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             if (nameRaw.startsWith(':')) nameRaw = nameRaw.mid(1).trimmed();
             sc.name = nameRaw;
             sc.line = lineNum;
+            sc.tags = pendingTags; pendingTags.clear();
             result.scenarios.push_back(sc);
             curScen = &result.scenarios.last();
             state   = State::InScenario;

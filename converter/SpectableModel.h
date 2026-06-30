@@ -55,6 +55,7 @@ struct Step {
 // One Scenario block
 struct Scenario {
     QString       name;
+    QStringList   tags;
     QVector<Step> steps;
     int           line = 0;
 };
@@ -78,6 +79,7 @@ struct ExamplesBlock {
 struct NamedBlock {
     QString      kind;          // "BusinessRule", "Calculation", or "DataType"
     QString      name;
+    QStringList  tags;
     ExamplesBlock examples;
     bool         hasExamples = false;
     int          line        = 0;

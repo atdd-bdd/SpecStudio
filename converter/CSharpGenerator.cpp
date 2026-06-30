@@ -455,11 +455,16 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
         }
     };
 
+    auto emitCsCategories = [&](const QStringList& tags) {
+        for (const QString& t : tags) s << "[TestCategory(\"" << t << "\")]\n";
+    };
+
     for (const Scenario& sc : file.scenarios) {
         const QString meth = "Test_Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
         const QString glueVar   = glueClass[0].toLower() + glueClass.mid(1) + "_object";
 
+        emitCsCategories(sc.tags);
         s << "[TestMethod]\n";
         s << "public void " << meth << "(){\n";
         s << "     " << glueClass << " " << glueVar << " = new " << glueClass << "();\n\n";
@@ -494,6 +499,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 ? nullptr
                 : findAttrSet(nb.examples.attrSetName, file);
 
+            emitCsCategories(nb.tags);
             s << "[TestMethod]\n";
             s << "public void " << meth << "(){\n";
             s << "     " << glueClass << " glue = new " << glueClass << "();\n";
