@@ -9,7 +9,8 @@ BuildController::BuildController(QObject* parent)
 void BuildController::run(const QString& program, const QStringList& args)
 {
     if (program.isEmpty()) {
-        emit errorOccurred(tr("No converter configured for this file type."));
+        emit outputReady(tr("ERROR: No converter found. Set the converter path in the .specconfig file,\n"
+                            "or place SpecTableConverter.exe next to SpecStudio.exe.\n"));
         emit buildFinished(false);
         return;
     }
@@ -27,12 +28,20 @@ void BuildController::run(const QString& program, const QStringList& args)
     connect(proc, &QProcess::errorOccurred, this, [this, proc](QProcess::ProcessError err) {
         QString msg;
         switch (err) {
-        case QProcess::FailedToStart: msg = tr("Failed to start converter: %1").arg(proc->program()); break;
-        case QProcess::Crashed:       msg = tr("Converter crashed.");   break;
-        case QProcess::Timedout:      msg = tr("Converter timed out."); break;
-        default:                      msg = tr("Process error (%1).").arg(static_cast<int>(err)); break;
+        case QProcess::FailedToStart:
+            msg = tr("ERROR: Failed to start converter: %1\n"
+                     "Check that the file exists and is executable.").arg(proc->program());
+            break;
+        case QProcess::Crashed:  msg = tr("ERROR: Converter process crashed.");   break;
+        case QProcess::Timedout: msg = tr("ERROR: Converter process timed out."); break;
+        default:                 msg = tr("ERROR: Process error (%1).").arg(static_cast<int>(err)); break;
         }
         emit outputReady(msg + "\n");
+        // FailedToStart never emits finished(), so we must signal completion here
+        if (err == QProcess::FailedToStart) {
+            proc->deleteLater();
+            emit buildFinished(false);
+        }
     });
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, proc](int exitCode, QProcess::ExitStatus) {

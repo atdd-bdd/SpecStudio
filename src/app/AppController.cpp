@@ -582,8 +582,6 @@ void AppController::setupBuildConnections()
                     QFile logFile(m_buildLogPath);
                     if (logFile.open(QIODevice::WriteOnly | QIODevice::Text))
                         QTextStream(&logFile) << m_buildAccum;
-                    m_mainWindow->outputPanel()->appendBuildOutput(
-                        tr("Log: %1").arg(m_buildLogPath));
                 }
                 m_mainWindow->outputPanel()->appendBuildOutput(
                     success ? tr("Done.") : tr("Build failed."));
@@ -634,6 +632,7 @@ void AppController::onBuildCurrentFile()
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
     m_buildLogPath = outDir + "/build.log";
+    m_mainWindow->outputPanel()->appendBuildOutput(tr("Log: %1").arg(m_buildLogPath));
     setupBuildConnections();
 
     QStringList args = { ed->filePath(), outDir };
