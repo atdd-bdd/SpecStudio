@@ -48,6 +48,7 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkTableColumnConsistency(filePath, diags);
     checkStepTableContents     (filePath, visible, diags);
     checkDomainTermDuplicates  (filePath, diags);
+    checkUnrecognizedLines     (filePath, diags);
 
     return diags;
 }
@@ -571,6 +572,53 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check — Lines whose first word is not a recognised keyword
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
+                                                QList<Diagnostic>& out) const
+{
+    static const QSet<QString> known = {
+        "specification",
+        "attributes", "entity",
+        "define",
+        "background", "cleanup",
+        "scenario",
+        "businessrule", "calculation", "datatype", "domainterm", "scenariogroup",
+        "import", "insert",
+        "examples",
+        "description", "details", "constraint", "notes",
+        "given", "when", "then", "and", "but"
+    };
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    QTextStream in(&f);
+    int lineNum = 0;
+    while (!in.atEnd()) {
+        const QString raw     = in.readLine();
+        ++lineNum;
+        const QString trimmed = raw.trimmed();
+
+        if (trimmed.isEmpty())           continue;   // blank
+        if (trimmed.startsWith('#'))     continue;   // comment
+        if (trimmed.startsWith('@'))     continue;   // tag
+        if (trimmed.startsWith('|'))     continue;   // pipe row
+        // indented non-pipe line = continuation of Description/Notes/etc.
+        if (raw.startsWith(' ') || raw.startsWith('\t')) continue;
+
+        QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
+        if (firstWord.endsWith(':')) firstWord.chop(1);  // handle "Scenario:", "Background:", etc.
+
+        if (!known.contains(firstWord.toLower()))
+            out.append(makeDiag(filePath, lineNum,
+                QStringLiteral("Unrecognized keyword '%1'").arg(firstWord),
+                Diagnostic::Severity::Warning));
     }
 }
 

@@ -24,6 +24,7 @@ private:
     void checkTableColumnConsistency (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepTableContents      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkDomainTermDuplicates   (const QString& filePath, QList<Diagnostic>& out) const;
+    void checkUnrecognizedLines      (const QString& filePath, QList<Diagnostic>& out) const;
 
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,
