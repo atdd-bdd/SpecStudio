@@ -10,6 +10,7 @@ public:
     struct Options {
         QString     nsPrefix     = "gherkinexecutor";  // namespace prefix
         QString     outputDir;                          // destination directory
+        QString     sourceRoot;                         // project root; used to derive subfolder from file path
         bool        overwriteGlue = false;              // force-overwrite the glue file
         QStringList extraImports;                       // injected after auto-usings in every generated file
     };
@@ -47,6 +48,7 @@ private:
                         const QString& className) const;
 
     QStringList m_extraImports;
+    QString     m_commonNs;
 
     struct GlueSig { QString method; QString paramType; bool isList; };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);

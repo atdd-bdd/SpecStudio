@@ -116,6 +116,7 @@ int main(int argc, char* argv[])
         CSharpGenerator::Options opts;
         opts.nsPrefix      = cli.value(nsOpt);
         opts.outputDir     = outputDir;
+        opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
         opts.extraImports  = cli.values(importOpt);
         CSharpGenerator gen;

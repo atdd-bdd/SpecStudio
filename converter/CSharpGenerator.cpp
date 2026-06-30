@@ -404,6 +404,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
     s << "namespace " << ns << "{\n";
     s << "using Microsoft.VisualStudio.TestTools.UnitTesting;\n";
     s << "using System.Collections.Generic;\n";
+    s << "using " << m_commonNs << ";\n";
     for (const QString& u : m_extraImports) s << u << "\n";
     s << "\n[TestClass]\n";
     s << "public class " << className << "{\n\n";
@@ -700,6 +701,7 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
     s << "namespace " << ns << "\n{\n";
     s << "    using System;\n";
     s << "    using System.Collections.Generic;\n";
+    s << "    using " << m_commonNs << ";\n";
     s << "    using static Microsoft.VisualStudio.TestTools.UnitTesting.Assert;\n";
     for (const QString& u : m_extraImports) s << "    " << u << "\n";
     s << "\n";
@@ -737,6 +739,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
 {
     QStringList msgs;
     m_extraImports = opts.extraImports;
+    m_commonNs     = opts.nsPrefix + ".common";
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -744,13 +747,36 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     }
 
     const QString className = toClassName(file.specName);
-    const QString ns        = opts.nsPrefix + "." + className;
 
-    QDir dir(opts.outputDir);
+    // Derive subfolder from the .spectable file's path relative to sourceRoot
+    QString specSubDir;
+    if (!opts.sourceRoot.isEmpty() && !file.filePath.isEmpty()) {
+        const QDir    srcDir(QFileInfo(opts.sourceRoot).absoluteFilePath());
+        const QString fileAbsDir = QFileInfo(file.filePath).absoluteDir().absolutePath();
+        const QString relPath = srcDir.relativeFilePath(fileAbsDir);
+        if (relPath != "." && !relPath.isEmpty()) {
+            QStringList parts;
+            for (const QString& p : relPath.split('/'))
+                if (!p.isEmpty() && p != "..") parts << p;
+            specSubDir = parts.join('/');
+        }
+    }
+
+    const QString ns = opts.nsPrefix + "." + className;
+
+    QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
     if (!dir.exists() && !dir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(opts.outputDir);
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(dir.path());
         return msgs;
     }
+
+    // Common classes go into outputDir/common/
+    QDir commonDir(opts.outputDir + "/common");
+    if (!commonDir.exists() && !commonDir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create common directory: %1").arg(commonDir.path());
+        return msgs;
+    }
+    const QString commonNs = opts.nsPrefix + ".common";
 
     // Synthesize AttrSets for built-in Examples names (EnumerationValues, ValidValues, etc.)
     // referenced in NamedBlocks but not declared with an explicit Attributes block.
@@ -784,7 +810,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         }
     }
 
-    // 1. String + Typed classes for each AttrSet (declared + synthesized)
+    // 1. String + Typed classes for each AttrSet → go into common/
     for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;
         if (as.fields.isEmpty()) {
@@ -793,11 +819,8 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
             continue;
         }
 
-        const QString stringPath = dir.filePath(as.name + "String.cs");
-        const QString typedPath  = dir.filePath(as.name + "Typed.cs");
-
-        writeFile(stringPath, genStringClass(as, ns), msgs);
-        writeFile(typedPath,  genTypedClass(as, ns),  msgs);
+        writeFile(commonDir.filePath(as.name + "String.cs"), genStringClass(as, commonNs), msgs);
+        writeFile(commonDir.filePath(as.name + "Typed.cs"),  genTypedClass(as, commonNs),  msgs);
     }
 
     // 2. Unit test file (always overwritten, but only if no errors)
