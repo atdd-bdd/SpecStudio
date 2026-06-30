@@ -11,6 +11,7 @@ struct Field {
     QString defaultValue;
     QString notes;
     QString inOut;
+    bool    multiples = false;  // Multiples=Y → List<Type> in generated code
 };
 
 // An Attributes or Entity declaration (defines a data class)

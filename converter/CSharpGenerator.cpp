@@ -288,7 +288,12 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     QString out;
     QTextStream s(&out);
 
+    bool needsList = false;
+    for (const Field& f : as.fields)
+        if (f.multiples) { needsList = true; break; }
+
     s << "namespace " << ns << "\n{\n";
+    if (needsList) s << "using System.Collections.Generic;\n\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
@@ -312,7 +317,12 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     s << "        public " << tn << " To" << tn << "()\n        {\n";
     s << "            return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        s << "                " << parseExpr(toCamelCase(as.fields[i].name), as.fields[i].type);
+        const Field& f = as.fields[i];
+        const QString expr = parseExpr(toCamelCase(f.name), f.type);
+        if (f.multiples)
+            s << "                new List<" << csharpType(f.type) << "> { " << expr << " }";
+        else
+            s << "                " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -341,19 +351,32 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
     QString out;
     QTextStream s(&out);
 
+    bool needsList = false;
+    for (const Field& f : as.fields)
+        if (f.multiples) { needsList = true; break; }
+
     s << "namespace " << ns << "\n{\n";
+    if (needsList) s << "using System.Collections.Generic;\n\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
-    for (const Field& f : as.fields)
-        s << "        public " << csharpType(f.type) << " " << toCamelCase(f.name) << ";\n";
+    for (const Field& f : as.fields) {
+        if (f.multiples)
+            s << "        public List<" << csharpType(f.type) << "> " << toCamelCase(f.name) << ";\n";
+        else
+            s << "        public " << csharpType(f.type) << " " << toCamelCase(f.name) << ";\n";
+    }
     s << "\n";
 
     // Constructor
     s << "        public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << csharpType(as.fields[i].type) << " " << toCamelCase(as.fields[i].name);
+        const Field& f = as.fields[i];
+        if (f.multiples)
+            s << "List<" << csharpType(f.type) << "> " << toCamelCase(f.name);
+        else
+            s << csharpType(f.type) << " " << toCamelCase(f.name);
     }
     s << ")\n        {\n";
     for (const Field& f : as.fields)

@@ -250,6 +250,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         else if (h == "default")             fd.defaultValue = v;
                         else if (h == "notes")               fd.notes        = v;
                         else if (h == "in-out" || h == "in/out") fd.inOut   = v;
+                        else if (h == "multiples")           fd.multiples    =
+                            !v.isEmpty() && (v[0].toLower() == 'y' ||
+                             v.compare("true", Qt::CaseInsensitive) == 0);
                     }
                     if (!fd.name.isEmpty() && !fd.name.startsWith('#'))
                         curAttr->fields.push_back(fd);

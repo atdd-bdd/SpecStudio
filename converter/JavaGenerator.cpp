@@ -33,6 +33,22 @@ QString JavaGenerator::javaType(const QString& specType)
     return specType.trimmed();
 }
 
+static QString javaBoxedType(const QString& specType)
+{
+    const QString t = specType.trimmed().toLower();
+    if (t == "integer" || t == "int")          return "Integer";
+    if (t == "float"   || t == "decimal")      return "Double";
+    if (t == "boolean" || t == "yesno"
+     || t == "bool")                           return "Boolean";
+    if (t == "date")                           return "LocalDate";
+    if (t == "time")                           return "LocalTime";
+    if (t == "datetime")                       return "LocalDateTime";
+    if (t == "duration")                       return "Duration";
+    if (t == "string" || t == "text"
+     || t == "character" || t == "char")       return "String";
+    return specType.trimmed();
+}
+
 QString JavaGenerator::parseExpr(const QString& field, const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
@@ -263,18 +279,21 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg) con
 
     // Check if we need time imports
     bool needsDate = false, needsTime = false, needsDt = false, needsDur = false;
+    bool needsCollections = false;
     for (const Field& f : as.fields) {
         const QString t = f.type.toLower();
         if (t == "date")     needsDate = true;
         if (t == "time")     needsTime = true;
         if (t == "datetime") needsDt   = true;
         if (t == "duration") needsDur  = true;
+        if (f.multiples)     needsCollections = true;
     }
     if (needsDate) s << "import java.time.LocalDate;\n";
     if (needsTime) s << "import java.time.LocalTime;\n";
     if (needsDt)   s << "import java.time.LocalDateTime;\n";
     if (needsDur)  s << "import java.time.Duration;\n";
-    if (needsDate || needsTime || needsDt || needsDur) s << "\n";
+    if (needsCollections) s << "import java.util.Collections;\n";
+    if (needsDate || needsTime || needsDt || needsDur || needsCollections) s << "\n";
 
     s << "public class " << cn << " {\n";
 
@@ -297,7 +316,12 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg) con
     s << "    public " << tn << " to" << tn << "() {\n";
     s << "        return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        s << "            " << parseExpr(toCamelCase(as.fields[i].name), as.fields[i].type);
+        const Field& f = as.fields[i];
+        const QString expr = parseExpr(toCamelCase(f.name), f.type);
+        if (f.multiples)
+            s << "            Collections.singletonList(" << expr << ")";
+        else
+            s << "            " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -327,29 +351,40 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg) cons
     s << "package " << pkg << ";\n\n";
 
     bool needsDate = false, needsTime = false, needsDt = false, needsDur = false;
+    bool needsList = false;
     for (const Field& f : as.fields) {
         const QString t = f.type.toLower();
         if (t == "date")     needsDate = true;
         if (t == "time")     needsTime = true;
         if (t == "datetime") needsDt   = true;
         if (t == "duration") needsDur  = true;
+        if (f.multiples)     needsList = true;
     }
     if (needsDate) s << "import java.time.LocalDate;\n";
     if (needsTime) s << "import java.time.LocalTime;\n";
     if (needsDt)   s << "import java.time.LocalDateTime;\n";
     if (needsDur)  s << "import java.time.Duration;\n";
-    if (needsDate || needsTime || needsDt || needsDur) s << "\n";
+    if (needsList) s << "import java.util.List;\n";
+    if (needsDate || needsTime || needsDt || needsDur || needsList) s << "\n";
 
     s << "public class " << cn << " {\n";
 
-    for (const Field& f : as.fields)
-        s << "    public " << javaType(f.type) << " " << toCamelCase(f.name) << ";\n";
+    for (const Field& f : as.fields) {
+        if (f.multiples)
+            s << "    public List<" << javaBoxedType(f.type) << "> " << toCamelCase(f.name) << ";\n";
+        else
+            s << "    public " << javaType(f.type) << " " << toCamelCase(f.name) << ";\n";
+    }
     s << "\n";
 
     s << "    public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << javaType(as.fields[i].type) << " " << toCamelCase(as.fields[i].name);
+        const Field& f = as.fields[i];
+        if (f.multiples)
+            s << "List<" << javaBoxedType(f.type) << "> " << toCamelCase(f.name);
+        else
+            s << javaType(f.type) << " " << toCamelCase(f.name);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
