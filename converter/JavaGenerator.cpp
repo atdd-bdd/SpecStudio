@@ -615,7 +615,7 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    public void " << sig.method << "() {\n";
-        s << "        throw new UnsupportedOperationException(\"Not implemented: " << sig.method << "\");\n";
+        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
     }
@@ -627,7 +627,7 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
     s << "        for (" << iterType << " value : values) {\n";
     s << "            System.out.println(value);\n";
     s << "        }\n";
-    s << "        throw new UnsupportedOperationException(\"Not implemented: " << sig.method << "\");\n";
+    s << "        fail(\"Not implemented: " << sig.method << "\");\n";
     s << "    }\n";
     return out;
 }
@@ -678,7 +678,16 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
     s << "package " << specPkg << ";\n\n";
     s << "import java.util.List;\n";
     s << "import " << domainPkg << ".*;\n";
-    s << "import static org.junit.Assert.assertEquals;\n\n";
+    const bool glueJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
+                         && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
+                             || m_framework.toLower().startsWith("junit5")
+                             || m_framework.toLower() == "junit 5");
+    if (m_framework.compare("TestNG", Qt::CaseInsensitive) == 0)
+        s << "import static org.testng.Assert.fail;\n\n";
+    else if (glueJUnit5)
+        s << "import static org.junit.jupiter.api.Assertions.fail;\n\n";
+    else
+        s << "import static org.junit.Assert.fail;\n\n";
     s << "public class " << glueClass << " {\n";
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
