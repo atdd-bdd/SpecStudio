@@ -615,8 +615,7 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    public void " << sig.method << "() {\n";
-        s << "        System.out.println(\"---  \" + \"" << sig.method << "\");\n";
-        s << "        // TODO: implement\n";
+        s << "        throw new UnsupportedOperationException(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
     }
@@ -625,11 +624,10 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
         : QString("List<%1>").arg(sig.paramType);
     const QString iterType = sig.paramType.contains('<') ? "List<String>" : sig.paramType;
     s << "    public void " << sig.method << "(" << paramType << " values) {\n";
-    s << "        System.out.println(\"---  \" + \"" << sig.method << "\");\n";
     s << "        for (" << iterType << " value : values) {\n";
     s << "            System.out.println(value);\n";
-    s << "            // TODO: implement\n";
     s << "        }\n";
+    s << "        throw new UnsupportedOperationException(\"Not implemented: " << sig.method << "\");\n";
     s << "    }\n";
     return out;
 }

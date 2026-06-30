@@ -601,8 +601,7 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig)
     if (sig.paramType.isEmpty()) {
         s << "        public void " << sig.method << "()\n";
         s << "        {\n";
-        s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
-        s << "            // TODO: implement\n";
+        s << "            throw new NotImplementedException(\"Not implemented: " << sig.method << "\");\n";
         s << "        }\n";
         return out;
     }
@@ -611,20 +610,18 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig)
         : sig.paramType;
     s << "        public void " << sig.method << "(" << paramType << " values)\n";
     s << "        {\n";
-    s << "            Console.WriteLine(\"---  \" + \"" << sig.method << "\");\n";
     if (sig.paramType == "List<List<string>>") {
         s << "            foreach (var row in values)\n";
         s << "            {\n";
         s << "                Console.WriteLine(string.Join(\", \", row));\n";
-        s << "                // TODO: implement\n";
         s << "            }\n";
     } else {
         s << "            foreach (var value in values)\n";
         s << "            {\n";
         s << "                Console.WriteLine(value);\n";
-        s << "                // TODO: implement\n";
         s << "            }\n";
     }
+    s << "            throw new NotImplementedException(\"Not implemented: " << sig.method << "\");\n";
     s << "        }\n";
     return out;
 }
