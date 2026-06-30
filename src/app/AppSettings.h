@@ -50,6 +50,10 @@ public:
     QStringList recentSolutions() const;
     void        addRecentSolution(const QString& path);
 
+    // Active build configuration file (per-project, absolute path to a .specconfig file)
+    QString activeBuildConfig(const QString& projectRoot) const;
+    void    setActiveBuildConfig(const QString& projectRoot, const QString& configPath);
+
     // Default project/solution location
     QString defaultProjectLocation() const;
     void    setDefaultProjectLocation(const QString& path);

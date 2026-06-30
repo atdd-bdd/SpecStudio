@@ -414,7 +414,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     s << "import java.util.ArrayList;\n";
     s << "import " << domainPkg << ".*;\n";
     s << "import " << specPkg << "." << className << "_glue;\n";
-    for (const QString& imp : file.configJava) s << imp << "\n";
+    for (const QString& imp : m_extraImports) s << imp << "\n";
 
     const bool isJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
                        && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
@@ -718,7 +718,7 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
     s << "package " << specPkg << ";\n\n";
     s << "import java.util.List;\n";
     s << "import " << domainPkg << ".*;\n";
-    for (const QString& imp : file.configJava) s << imp << "\n";
+    for (const QString& imp : m_extraImports) s << imp << "\n";
     const bool glueJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
                          && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
                              || m_framework.toLower().startsWith("junit5")
@@ -762,7 +762,8 @@ bool JavaGenerator::writeFile(const QString& path, const QString& content, QStri
 QStringList JavaGenerator::generate(const SpectableFile& file, const Options& opts)
 {
     QStringList msgs;
-    m_framework = opts.framework;
+    m_framework    = opts.framework;
+    m_extraImports = opts.extraImports;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -853,8 +854,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, file.configJava), msgs);
-        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, file.configJava),  msgs);
+        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, m_extraImports), msgs);
+        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, m_extraImports),  msgs);
     }
 
     {

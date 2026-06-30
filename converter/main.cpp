@@ -51,6 +51,11 @@ int main(int argc, char* argv[])
         "dir", "");
     cli.addOption(srcRootOpt);
 
+    QCommandLineOption importOpt("import",
+        "Extra import/using statement injected into all generated files. "
+        "May be specified multiple times.", "statement");
+    cli.addOption(importOpt);
+
     cli.process(app);
 
     const QStringList pos = cli.positionalArguments();
@@ -102,6 +107,7 @@ int main(int argc, char* argv[])
         opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
         opts.framework     = framework;
+        opts.extraImports  = cli.values(importOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
@@ -111,6 +117,7 @@ int main(int argc, char* argv[])
         opts.nsPrefix      = cli.value(nsOpt);
         opts.outputDir     = outputDir;
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        opts.extraImports  = cli.values(importOpt);
         CSharpGenerator gen;
         genMsgs = gen.generate(file, opts);
     }

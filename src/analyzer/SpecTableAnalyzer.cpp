@@ -592,8 +592,7 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
         "import", "insert",
         "examples",
         "description", "details", "constraint", "notes",
-        "given", "when", "then", "and", "but",
-        "configuration"
+        "given", "when", "then", "and", "but"
     };
 
     QFile f(filePath);

@@ -1,6 +1,8 @@
 #include "MainWindow.h"
 #include "AppController.h"
 #include "AppSettings.h"
+#include "../model/Solution.h"
+#include "../model/Project.h"
 #include "../ui/SolutionExplorer.h"
 #include "../ui/EditorTabWidget.h"
 #include "../ui/OutputPanel.h"
@@ -12,6 +14,7 @@
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QDir>
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QMenu>
@@ -231,6 +234,9 @@ void MainWindow::setupMenuBar()
     auto* actBuildFile     = buildMenu->addAction(tr("Current File"),  QKeySequence(Qt::Key_F6));
     auto* actBuildProject  = buildMenu->addAction(tr("Project"),       QKeySequence(Qt::SHIFT | Qt::Key_F6));
     auto* actBuildSolution = buildMenu->addAction(tr("Solution"),      QKeySequence(Qt::CTRL | Qt::Key_F6));
+    buildMenu->addSeparator();
+    m_configMenu = buildMenu->addMenu(tr("Configuration"));
+    connect(m_configMenu, &QMenu::aboutToShow, this, &MainWindow::populateConfigMenu);
 
     connect(actBuildFile,     &QAction::triggered, m_controller, &AppController::onBuildCurrentFile);
     connect(actBuildProject,  &QAction::triggered, m_controller, &AppController::onBuildProject);
@@ -285,6 +291,60 @@ void MainWindow::restoreWindowState()
         restoreGeometry(settings.value("Window/geometry").toByteArray());
     if (settings.contains("Window/state"))
         restoreState(settings.value("Window/state").toByteArray());
+}
+
+void MainWindow::populateConfigMenu()
+{
+    m_configMenu->clear();
+
+    Solution* sol = m_controller->currentSolution();
+    if (!sol) {
+        auto* none = m_configMenu->addAction(tr("(no solution open)"));
+        none->setEnabled(false);
+        return;
+    }
+
+    // Collect all projects that might be relevant
+    QList<Project*> projs = sol->projects();
+    if (projs.isEmpty()) {
+        auto* none = m_configMenu->addAction(tr("(no projects)"));
+        none->setEnabled(false);
+        return;
+    }
+
+    // Show configs for the first project (or the active one if we can determine it)
+    // Use a simple heuristic: list configs from all projects, grouped
+    AppSettings settings;
+    bool anyFound = false;
+
+    for (Project* p : projs) {
+        const QDir projDir(p->rootPath());
+        const QStringList cfgFiles = projDir.entryList({ "*.specconfig" }, QDir::Files, QDir::Name);
+        if (cfgFiles.isEmpty()) continue;
+        anyFound = true;
+
+        if (projs.size() > 1) {
+            auto* label = m_configMenu->addAction(QStringLiteral("[%1]").arg(p->name()));
+            label->setEnabled(false);
+        }
+
+        const QString active = settings.activeBuildConfig(p->rootPath());
+
+        for (const QString& fname : cfgFiles) {
+            const QString absPath = projDir.absoluteFilePath(fname);
+            auto* act = m_configMenu->addAction(fname);
+            act->setCheckable(true);
+            act->setChecked(absPath == active || (active.isEmpty() && fname == cfgFiles.first() && cfgFiles.size() == 1));
+            connect(act, &QAction::triggered, m_controller,
+                    [this, absPath] { m_controller->onSetActiveBuildConfig(absPath); });
+        }
+        if (projs.size() > 1) m_configMenu->addSeparator();
+    }
+
+    if (!anyFound) {
+        auto* none = m_configMenu->addAction(tr("(no .specconfig files found)"));
+        none->setEnabled(false);
+    }
 }
 
 void MainWindow::populateRecentMenu()

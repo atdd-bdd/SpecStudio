@@ -146,9 +146,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         InStepTable,
         SkipTable,      // discard until blank or non-pipe line
         InNamedBlock,   // inside BusinessRule / Calculation / DataType header
-        InExamplesTable,// reading the Examples table for a named block
-        InConfigJava,   // collecting extra Java import lines
-        InConfigCSharp  // collecting extra C# using lines
+        InExamplesTable // reading the Examples table for a named block
     };
 
     State       state       = State::Top;
@@ -315,14 +313,6 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 }
                 break;
 
-            case State::InConfigJava:
-                if (!cells.isEmpty()) result.configJava << cells[0];
-                break;
-
-            case State::InConfigCSharp:
-                if (!cells.isEmpty()) result.configCSharp << cells[0];
-                break;
-
             default:
                 emitMsg(lineNum, "Unexpected table row (no active block)", true);
                 break;
@@ -420,26 +410,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             continue;
         }
 
-        // ── Configuration Java / CSharp — per-language extra import lines ────────
-        if (firstWord.compare("Configuration", Qt::CaseInsensitive) == 0) {
-            if (state == State::InAttrDef)    endAttrDef();
-            if (state == State::InDefineTable) endDefineDef();
-            curScen = nullptr; curStep = nullptr;
-            const QString lang = trimmed.mid(firstWord.length()).trimmed().toLower();
-            if (lang == "java")
-                state = State::InConfigJava;
-            else if (lang == "csharp" || lang == "c#")
-                state = State::InConfigCSharp;
-            else
-                state = State::Top;
-            continue;
-        }
-
-        // ── Terminate open Attributes/Define/Config table on any other keyword ──
+        // ── Terminate open Attributes/Define table on any other keyword ────────
         if (state == State::InAttrDef)    endAttrDef();
         if (state == State::InDefineTable) endDefineDef();
-        if (state == State::InConfigJava || state == State::InConfigCSharp)
-            state = State::Top;
         pendingTags.clear();  // not consumed — discard
 
         // ── Parsed keywords ───────────────────────────────────────────────────

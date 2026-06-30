@@ -8,17 +8,19 @@ class JavaGenerator
 {
 public:
     struct Options {
-        QString packagePrefix = "gherkinexecutor";
-        QString outputDir;
-        QString sourceRoot;     // project root for computing package from subfolder path
-        bool    overwriteGlue = false;
-        QString framework     = "JUnit";  // "JUnit", "TestNG"
+        QString     packagePrefix = "gherkinexecutor";
+        QString     outputDir;
+        QString     sourceRoot;     // project root for computing package from subfolder path
+        bool        overwriteGlue = false;
+        QString     framework     = "JUnit";  // "JUnit", "TestNG"
+        QStringList extraImports;             // injected after auto-imports in every generated file
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
 
 private:
-    QString m_framework;
+    QString     m_framework;
+    QStringList m_extraImports;
 
     static QString javaType(const QString& specType);
     static QString parseExpr(const QString& field, const QString& specType);

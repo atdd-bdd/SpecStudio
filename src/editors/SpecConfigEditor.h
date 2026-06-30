@@ -7,6 +7,7 @@ class QLineEdit;
 class QComboBox;
 class QCheckBox;
 class QLabel;
+class QPlainTextEdit;
 class QPushButton;
 
 class SpecConfigEditor : public BaseEditor
@@ -29,12 +30,13 @@ private:
     void populateFromConfig(const SpecConfig& cfg);
     SpecConfig configFromForm() const;
 
-    QLineEdit*   m_outputDir      = nullptr;
-    QComboBox*   m_language       = nullptr;
-    QComboBox*   m_framework      = nullptr;
-    QLineEdit*   m_namespace      = nullptr;
-    QCheckBox*   m_overwriteGlue  = nullptr;
-    QLineEdit*   m_converterPath  = nullptr;
-    QPushButton* m_browseConverter = nullptr;
-    QLabel*      m_statusLabel    = nullptr;
+    QLineEdit*    m_outputDir      = nullptr;
+    QComboBox*    m_language       = nullptr;
+    QComboBox*    m_framework      = nullptr;
+    QLineEdit*    m_namespace      = nullptr;
+    QCheckBox*    m_overwriteGlue  = nullptr;
+    QLineEdit*    m_converterPath  = nullptr;
+    QPushButton*  m_browseConverter = nullptr;
+    QPlainTextEdit* m_imports      = nullptr;
+    QLabel*       m_statusLabel    = nullptr;
 };

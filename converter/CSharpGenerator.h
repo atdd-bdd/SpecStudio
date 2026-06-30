@@ -8,9 +8,10 @@ class CSharpGenerator
 {
 public:
     struct Options {
-        QString nsPrefix     = "gherkinexecutor";  // namespace prefix
-        QString outputDir;                          // destination directory
-        bool    overwriteGlue = false;              // force-overwrite the glue file
+        QString     nsPrefix     = "gherkinexecutor";  // namespace prefix
+        QString     outputDir;                          // destination directory
+        bool        overwriteGlue = false;              // force-overwrite the glue file
+        QStringList extraImports;                       // injected after auto-usings in every generated file
     };
 
     // Generate all output files; returns list of "SEVERITY:LINE:message" strings
@@ -38,12 +39,14 @@ private:
     static const Define*  findDefine(const QString& name, const SpectableFile& file);
 
     // File generators
-    QString genStringClass(const AttrSet& as, const QString& ns, const QStringList& extraUsings) const;
-    QString genTypedClass(const AttrSet& as, const QString& ns, const QStringList& extraUsings) const;
+    QString genStringClass(const AttrSet& as, const QString& ns) const;
+    QString genTypedClass(const AttrSet& as, const QString& ns) const;
     QString genTestFile(const SpectableFile& file, const QString& ns,
                         const QString& className, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& ns,
                         const QString& className) const;
+
+    QStringList m_extraImports;
 
     struct GlueSig { QString method; QString paramType; bool isList; };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);

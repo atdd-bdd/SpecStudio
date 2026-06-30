@@ -39,6 +39,7 @@ public slots:
     void onBuildCurrentFile();
     void onBuildProject();
     void onBuildSolution();
+    void onSetActiveBuildConfig(const QString& configAbsPath);
     void onAnalyze();
     void onAnalyzeSolution();
     void onFindAllUsages();

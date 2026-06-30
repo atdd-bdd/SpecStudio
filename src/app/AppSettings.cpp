@@ -157,7 +157,17 @@ QStringList AppSettings::recentSolutions() const
 
 QStringList AppSettings::knownExtensions()
 {
-    return { ".spectable", ".feature", ".featurex", ".txt", ".md", ".csv", ".xls", ".xlsx" };
+    return { ".spectable", ".specconfig", ".feature", ".featurex", ".txt", ".md", ".csv", ".xls", ".xlsx" };
+}
+
+QString AppSettings::activeBuildConfig(const QString& projectRoot) const
+{
+    return m_settings.value(projectKey(projectRoot) + "/activeBuildConfig").toString();
+}
+
+void AppSettings::setActiveBuildConfig(const QString& projectRoot, const QString& configPath)
+{
+    m_settings.setValue(projectKey(projectRoot) + "/activeBuildConfig", configPath);
 }
 
 void AppSettings::addRecentSolution(const QString& path)

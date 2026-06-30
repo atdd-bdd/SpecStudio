@@ -282,7 +282,7 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
 // String class generator
 // ---------------------------------------------------------------------------
 
-QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, const QStringList& extraUsings) const
+QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) const
 {
     const QString cn = as.name + "String";
     QString out;
@@ -294,8 +294,8 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, co
 
     s << "namespace " << ns << "\n{\n";
     if (needsList) s << "using System.Collections.Generic;\n";
-    for (const QString& u : extraUsings) s << u << "\n";
-    if (needsList || !extraUsings.isEmpty()) s << "\n";
+    for (const QString& u : m_extraImports) s << u << "\n";
+    if (needsList || !m_extraImports.isEmpty()) s << "\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
@@ -347,7 +347,7 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, co
 // Typed class generator
 // ---------------------------------------------------------------------------
 
-QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, const QStringList& extraUsings) const
+QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) const
 {
     const QString cn = as.name + "Typed";
     QString out;
@@ -359,8 +359,8 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
 
     s << "namespace " << ns << "\n{\n";
     if (needsList) s << "using System.Collections.Generic;\n";
-    for (const QString& u : extraUsings) s << u << "\n";
-    if (needsList || !extraUsings.isEmpty()) s << "\n";
+    for (const QString& u : m_extraImports) s << u << "\n";
+    if (needsList || !m_extraImports.isEmpty()) s << "\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
@@ -404,7 +404,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
     s << "namespace " << ns << "{\n";
     s << "using Microsoft.VisualStudio.TestTools.UnitTesting;\n";
     s << "using System.Collections.Generic;\n";
-    for (const QString& u : file.configCSharp) s << u << "\n";
+    for (const QString& u : m_extraImports) s << u << "\n";
     s << "\n[TestClass]\n";
     s << "public class " << className << "{\n\n";
 
@@ -701,7 +701,7 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
     s << "    using System;\n";
     s << "    using System.Collections.Generic;\n";
     s << "    using static Microsoft.VisualStudio.TestTools.UnitTesting.Assert;\n";
-    for (const QString& u : file.configCSharp) s << "    " << u << "\n";
+    for (const QString& u : m_extraImports) s << "    " << u << "\n";
     s << "\n";
     s << "    public class " << glueClass << "\n    {\n";
     s << "        const string DNCString = \"?DNC?\";\n\n";
@@ -736,6 +736,7 @@ bool CSharpGenerator::writeFile(const QString& path, const QString& content, QSt
 QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& opts)
 {
     QStringList msgs;
+    m_extraImports = opts.extraImports;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -795,8 +796,8 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         const QString stringPath = dir.filePath(as.name + "String.cs");
         const QString typedPath  = dir.filePath(as.name + "Typed.cs");
 
-        writeFile(stringPath, genStringClass(as, ns, file.configCSharp), msgs);
-        writeFile(typedPath,  genTypedClass(as, ns, file.configCSharp),  msgs);
+        writeFile(stringPath, genStringClass(as, ns), msgs);
+        writeFile(typedPath,  genTypedClass(as, ns),  msgs);
     }
 
     // 2. Unit test file (always overwritten, but only if no errors)

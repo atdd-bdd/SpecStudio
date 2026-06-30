@@ -98,6 +98,4 @@ struct SpectableFile {
     QVector<Step>          cleanupSteps;
     QVector<Scenario>      scenarios;
     QVector<ParseMessage>  messages;
-    QStringList            configJava;    // extra import lines from "Configuration Java" block
-    QStringList            configCSharp;  // extra using  lines from "Configuration CSharp" block
 };

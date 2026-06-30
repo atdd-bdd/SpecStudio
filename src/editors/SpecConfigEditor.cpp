@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QVBoxLayout>
 
@@ -117,6 +118,26 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     root->addWidget(convGroup);
 
+    // ── Imports group ─────────────────────────────────────────────────────────
+    auto* impGroup  = new QGroupBox(tr("Extra Imports / Using Statements"), inner);
+    auto* impLayout = new QVBoxLayout(impGroup);
+
+    auto* impHint = new QLabel(
+        tr("One statement per line. Added verbatim to every generated source file after "
+           "the automatic imports.\n"
+           "Java example:  import com.example.Money;\n"
+           "C# example:    using Example.Domain;"), impGroup);
+    impHint->setWordWrap(true);
+    impHint->setStyleSheet("color: gray; font-size: 11px;");
+    impLayout->addWidget(impHint);
+
+    m_imports = new QPlainTextEdit(impGroup);
+    m_imports->setPlaceholderText(tr("import com.example.Money;\nimport com.example.Validator;"));
+    m_imports->setFixedHeight(120);
+    impLayout->addWidget(m_imports);
+
+    root->addWidget(impGroup);
+
     // ── Status bar ────────────────────────────────────────────────────────────
     m_statusLabel = new QLabel(inner);
     m_statusLabel->setStyleSheet("color: gray;");
@@ -132,6 +153,7 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     connect(m_namespace, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_overwriteGlue, &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
     connect(m_converterPath, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
+    connect(m_imports,  &QPlainTextEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(browseOut, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseOutputDir);
     connect(m_browseConverter, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseConverter);
 
@@ -201,6 +223,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
 
     block(m_language); block(m_framework); block(m_outputDir);
     block(m_namespace); block(m_overwriteGlue); block(m_converterPath);
+    block(m_imports);
 
     m_outputDir->setText(cfg.outputDirectory);
 
@@ -218,9 +241,11 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_namespace->setEnabled(cfg.language == "CSharp");
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
     m_converterPath->setText(cfg.converterPath);
+    m_imports->setPlainText(cfg.imports.join("\n"));
 
     unblock(m_language); unblock(m_framework); unblock(m_outputDir);
     unblock(m_namespace); unblock(m_overwriteGlue); unblock(m_converterPath);
+    unblock(m_imports);
 }
 
 SpecConfig SpecConfigEditor::configFromForm() const
@@ -232,5 +257,8 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.namespacePrefix = m_namespace->text().trimmed();
     cfg.overwriteGlue   = m_overwriteGlue->isChecked();
     cfg.converterPath   = m_converterPath->text().trimmed();
+    const QString impText = m_imports->toPlainText();
+    for (const QString& line : impText.split('\n'))
+        if (!line.trimmed().isEmpty()) cfg.imports << line.trimmed();
     return cfg;
 }

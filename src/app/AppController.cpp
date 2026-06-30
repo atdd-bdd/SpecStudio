@@ -665,10 +665,16 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
     setupBuildConnections();
 
     for (auto* proj : targets) {
-        const QString cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
+        // Prefer the user-selected config; fall back to nearest .specconfig in tree
+        QString cfgPath = m_settings->activeBuildConfig(proj->rootPath());
+        if (cfgPath.isEmpty() || !QFile::exists(cfgPath))
+            cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
         const SpecConfig cfg  = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
         const QString converter = cfg.converterPath.isEmpty() ? autoDetectConverter()
                                                                : cfg.converterPath;
+        if (!cfgPath.isEmpty())
+            m_mainWindow->outputPanel()->appendBuildOutput(
+                tr("Configuration: %1").arg(QFileInfo(cfgPath).fileName()));
 
         for (auto* pf : proj->files()) {
             if (pf->type() == FileType::SpecTable) {
@@ -681,6 +687,8 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
                 if (cfg.overwriteGlue)              args << "--overwrite-glue";
                 args << "--source-root" << proj->rootPath();
+                for (const QString& imp : cfg.imports)
+                    args << "--import" << imp;
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();
@@ -706,6 +714,15 @@ void AppController::onBuildProject()
         return;
     }
     doBuildProjects({ active });
+}
+
+void AppController::onSetActiveBuildConfig(const QString& configAbsPath)
+{
+    Project* proj = activeProject();
+    if (!proj) return;
+    m_settings->setActiveBuildConfig(proj->rootPath(), configAbsPath);
+    m_mainWindow->outputPanel()->appendBuildOutput(
+        tr("Build configuration set to: %1").arg(QFileInfo(configAbsPath).fileName()));
 }
 
 void AppController::onBuildSolution()

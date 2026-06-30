@@ -8,6 +8,8 @@ class AttributeInspectorPanel;
 class BaseEditor;
 class EntityTreePanel;
 class FindReplaceDialog;
+class Project;
+class QMenu;
 class QSplitter;
 class SolutionExplorer;
 class EditorTabWidget;
@@ -49,11 +51,13 @@ private:
     void restoreWindowState();
 
     void populateRecentMenu();
+    void populateConfigMenu();
 
     void stubAction(const QString& name);
 
     AppController*     m_controller      = nullptr;
     QMenu*             m_recentMenu      = nullptr;
+    QMenu*             m_configMenu      = nullptr;
     FindReplaceDialog* m_findReplaceDlg  = nullptr;
     SolutionExplorer*  m_solutionExplorer = nullptr;
     QSplitter*         m_splitter        = nullptr;
