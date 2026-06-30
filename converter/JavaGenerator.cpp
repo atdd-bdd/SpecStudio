@@ -268,7 +268,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
 // String class
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg) const
+QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const
 {
     const QString cn = as.name + "String";
     const QString tn = as.name + "Typed";
@@ -293,7 +293,9 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg) con
     if (needsDt)   s << "import java.time.LocalDateTime;\n";
     if (needsDur)  s << "import java.time.Duration;\n";
     if (needsCollections) s << "import java.util.Collections;\n";
-    if (needsDate || needsTime || needsDt || needsDur || needsCollections) s << "\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    if (needsDate || needsTime || needsDt || needsDur || needsCollections || !extraImports.isEmpty())
+        s << "\n";
 
     s << "public class " << cn << " {\n";
 
@@ -342,7 +344,7 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg) con
 // Typed class
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg) const
+QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const
 {
     const QString cn = as.name + "Typed";
     QString out;
@@ -365,7 +367,9 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg) cons
     if (needsDt)   s << "import java.time.LocalDateTime;\n";
     if (needsDur)  s << "import java.time.Duration;\n";
     if (needsList) s << "import java.util.List;\n";
-    if (needsDate || needsTime || needsDt || needsDur || needsList) s << "\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    if (needsDate || needsTime || needsDt || needsDur || needsList || !extraImports.isEmpty())
+        s << "\n";
 
     s << "public class " << cn << " {\n";
 
@@ -410,6 +414,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     s << "import java.util.ArrayList;\n";
     s << "import " << domainPkg << ".*;\n";
     s << "import " << specPkg << "." << className << "_glue;\n";
+    for (const QString& imp : file.configJava) s << imp << "\n";
 
     const bool isJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
                        && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
@@ -713,6 +718,7 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
     s << "package " << specPkg << ";\n\n";
     s << "import java.util.List;\n";
     s << "import " << domainPkg << ".*;\n";
+    for (const QString& imp : file.configJava) s << imp << "\n";
     const bool glueJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
                          && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
                              || m_framework.toLower().startsWith("junit5")
@@ -847,8 +853,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg), msgs);
-        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg),  msgs);
+        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, file.configJava), msgs);
+        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, file.configJava),  msgs);
     }
 
     {

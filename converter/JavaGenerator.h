@@ -34,8 +34,8 @@ private:
     static const AttrSet* findAttrSet(const QString& name, const SpectableFile& file);
     static const Define*  findDefine(const QString& name, const SpectableFile& file);
 
-    QString genStringClass(const AttrSet& as, const QString& pkg) const;
-    QString genTypedClass(const AttrSet& as, const QString& pkg) const;
+    QString genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const;
+    QString genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const;
     QString genTestFile(const SpectableFile& file, const QString& testPkg,
                         const QString& specPkg, const QString& domainPkg,
                         const QString& className, QStringList& errors) const;
