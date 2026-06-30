@@ -738,6 +738,14 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         return msgs;
     }
 
+    // Copy the source .spectable file into the output folder
+    if (!file.filePath.isEmpty()) {
+        const QString destPath = dir.filePath(QFileInfo(file.filePath).fileName());
+        QFile::remove(destPath);
+        if (!QFile::copy(file.filePath, destPath))
+            msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, destPath);
+    }
+
     // Synthesize AttrSets for built-in Examples names (EnumerationValues, ValidValues, etc.)
     // referenced in NamedBlocks but not declared with an explicit Attributes block.
     SpectableFile augmented = file;
