@@ -38,7 +38,9 @@ public slots:
     void onDiffCurrentFile();
     void onBuildCurrentFile();
     void onBuildProject();
+    void onBuildSolution();
     void onAnalyze();
+    void onAnalyzeSolution();
     void onFindAllUsages();
     void onRenameStep();
     void onRenameFile(const QString& absolutePath);
@@ -58,6 +60,8 @@ private:
     void applyFonts();
     void applyAutoReload();
     void setupBuildConnections();
+    void doBuildProjects(const QList<Project*>& targets);
+    void doAnalyze(const QList<Project*>& targets);
     Project* activeProject() const;  // project in Explorer selection, or current editor's project
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);

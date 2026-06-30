@@ -228,17 +228,22 @@ void MainWindow::setupMenuBar()
     // ---- Build ----
     auto* buildMenu = menuBar()->addMenu(tr("&Build"));
 
-    auto* actBuildFile    = buildMenu->addAction(tr("Current File"),    QKeySequence(Qt::Key_F6));
-    auto* actBuildProject = buildMenu->addAction(tr("Entire Project"),  QKeySequence(Qt::SHIFT | Qt::Key_F6));
+    auto* actBuildFile     = buildMenu->addAction(tr("Current File"),  QKeySequence(Qt::Key_F6));
+    auto* actBuildProject  = buildMenu->addAction(tr("Project"),       QKeySequence(Qt::SHIFT | Qt::Key_F6));
+    auto* actBuildSolution = buildMenu->addAction(tr("Solution"),      QKeySequence(Qt::CTRL | Qt::Key_F6));
 
-    connect(actBuildFile,    &QAction::triggered, m_controller, &AppController::onBuildCurrentFile);
-    connect(actBuildProject, &QAction::triggered, m_controller, &AppController::onBuildProject);
+    connect(actBuildFile,     &QAction::triggered, m_controller, &AppController::onBuildCurrentFile);
+    connect(actBuildProject,  &QAction::triggered, m_controller, &AppController::onBuildProject);
+    connect(actBuildSolution, &QAction::triggered, m_controller, &AppController::onBuildSolution);
 
     // ---- Analyze ----
     auto* analyzeMenu = menuBar()->addMenu(tr("&Analyze"));
 
-    auto* actAnalyze = analyzeMenu->addAction(tr("Check Syntax"), QKeySequence(Qt::Key_F7));
-    connect(actAnalyze, &QAction::triggered, m_controller, &AppController::onAnalyze);
+    auto* actAnalyzeProject  = analyzeMenu->addAction(tr("Project"),  QKeySequence(Qt::Key_F7));
+    auto* actAnalyzeSolution = analyzeMenu->addAction(tr("Solution"), QKeySequence(Qt::SHIFT | Qt::Key_F7));
+
+    connect(actAnalyzeProject,  &QAction::triggered, m_controller, &AppController::onAnalyze);
+    connect(actAnalyzeSolution, &QAction::triggered, m_controller, &AppController::onAnalyzeSolution);
 }
 
 void MainWindow::setupDocks()

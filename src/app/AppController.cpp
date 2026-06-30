@@ -653,24 +653,14 @@ void AppController::onBuildCurrentFile()
     m_builder->run(converter, args);
 }
 
-void AppController::onBuildProject()
+void AppController::doBuildProjects(const QList<Project*>& targets)
 {
-    if (!m_solution || m_solution->projects().isEmpty()) {
-        QMessageBox::information(m_mainWindow, tr("No Project"),
-            tr("Open a project first."));
-        return;
-    }
-
     m_mainWindow->outputPanel()->clearBuildOutput();
     m_mainWindow->outputPanel()->showBuildTab();
 
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
 
-    // Scope to the active project; fall back to all projects if none is identified
-    Project* active = activeProject();
-    const QList<Project*> targets = active ? QList<Project*>{ active }
-                                           : m_solution->projects();
     m_buildLogPath = targets.isEmpty() ? QString() : targets.first()->rootPath() + "/build.log";
     setupBuildConnections();
 
@@ -691,7 +681,6 @@ void AppController::onBuildProject()
                 if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
                 if (cfg.overwriteGlue)              args << "--overwrite-glue";
                 args << "--source-root" << proj->rootPath();
-                // Pass all other .spectable files in this project as global context
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();
@@ -702,22 +691,38 @@ void AppController::onBuildProject()
     }
 }
 
-void AppController::onAnalyze()
+void AppController::onBuildProject()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
         QMessageBox::information(m_mainWindow, tr("No Project"),
             tr("Open a project first."));
         return;
     }
+    Project* active = activeProject();
+    if (!active) {
+        QMessageBox::information(m_mainWindow, tr("No Active Project"),
+            tr("Select a project in Solution Explorer or open a file in a project.\n"
+               "Use Build > Solution to build all projects."));
+        return;
+    }
+    doBuildProjects({ active });
+}
 
+void AppController::onBuildSolution()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Solution"),
+            tr("Open a solution first."));
+        return;
+    }
+    doBuildProjects(m_solution->projects());
+}
+
+void AppController::doAnalyze(const QList<Project*>& targets)
+{
     QList<Diagnostic>  all;
     QList<CoverageEntry> coverageEntries;
     QStringList allTags;
-
-    // Scope to the active project; fall back to all projects
-    Project* active = activeProject();
-    const QList<Project*> targets = active ? QList<Project*>{ active }
-                                           : m_solution->projects();
 
     for (auto* proj : targets) {
         // FeatureX analysis
@@ -745,11 +750,9 @@ void AppController::onAnalyze()
             CoverageEntry entry;
             entry.filePath = fp;
 
-            // Specification name (first one declared in this file)
             if (!fileSym.specifications.isEmpty())
                 entry.specName = fileSym.specifications.begin().key();
 
-            // Symbol counts scoped to this file
             for (auto it = fileSym.scenarios.cbegin(); it != fileSym.scenarios.cend(); ++it)
                 if (it.value().filePath == fp) ++entry.scenarios;
             for (auto it = fileSym.businessRules.cbegin(); it != fileSym.businessRules.cend(); ++it)
@@ -761,7 +764,6 @@ void AppController::onAnalyze()
             for (auto it = fileSym.entities.cbegin(); it != fileSym.entities.cend(); ++it)
                 if (it.value().filePath == fp) ++entry.attrSets;
 
-            // Check if _Tests file has been generated
             if (!entry.specName.isEmpty()) {
                 const QString cfgPath = findSpecConfig(
                     QFileInfo(fp).dir().absolutePath(), proj->rootPath());
@@ -772,8 +774,7 @@ void AppController::onAnalyze()
                 QString className = entry.specName;
                 className.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
                 className.remove(QRegularExpression("^_+|_+$"));
-                const QString testsFile = QDir(outDir).filePath(className + "_Tests" + ext);
-                entry.testsGenerated = QFile::exists(testsFile);
+                entry.testsGenerated = QFile::exists(QDir(outDir).filePath(className + "_Tests" + ext));
             }
 
             coverageEntries << entry;
@@ -784,7 +785,6 @@ void AppController::onAnalyze()
     m_mainWindow->outputPanel()->setDiagnostics(all);
     m_mainWindow->outputPanel()->showAnalysisTab();
 
-    // Push error squiggles to any open editors (both panes)
     QMap<QString, QList<QPair<int,int>>> marksByFile;
     for (const auto& d : all)
         marksByFile[d.filePath].append({d.line, d.column});
@@ -793,17 +793,41 @@ void AppController::onAnalyze()
             ed->setErrorMarks(it.value());
     }
 
-    // Push collected tags to all open editors so @ autocomplete works
     for (auto* ed : m_mainWindow->allOpenEditors()) {
         ed->setTagCompletionWords(allTags);
-        // Refresh SpecTable symbol completions from the rebuilt index
         if (auto* ste = qobject_cast<SpecTableEditor*>(ed))
             ste->refreshDynamicCompletions();
     }
 
-    // Refresh visualization panels
     if (auto* panel = m_mainWindow->entityTree())
         panel->refresh(m_specTableIndex);
+}
+
+void AppController::onAnalyze()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Project"),
+            tr("Open a project first."));
+        return;
+    }
+    Project* active = activeProject();
+    if (!active) {
+        QMessageBox::information(m_mainWindow, tr("No Active Project"),
+            tr("Select a project in Solution Explorer or open a file in a project.\n"
+               "Use Analyze > Solution to analyze all projects."));
+        return;
+    }
+    doAnalyze({ active });
+}
+
+void AppController::onAnalyzeSolution()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("No Solution"),
+            tr("Open a solution first."));
+        return;
+    }
+    doAnalyze(m_solution->projects());
 }
 
 void AppController::onRenameFile(const QString& absolutePath)
