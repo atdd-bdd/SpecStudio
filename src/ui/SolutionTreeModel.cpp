@@ -183,6 +183,15 @@ QVariant SolutionTreeModel::data(const QModelIndex& index, int role) const
                 node->file->relativePath().length() - 1);
         return {};
 
+    case Qt::UserRole + 2:
+        // Node type string — lets context menus distinguish Project from Folder/File
+        switch (node->type) {
+        case NodeType::Project: return QStringLiteral("project");
+        case NodeType::Folder:  return QStringLiteral("folder");
+        case NodeType::File:    return QStringLiteral("file");
+        default:                return {};
+        }
+
     default:
         return {};
     }

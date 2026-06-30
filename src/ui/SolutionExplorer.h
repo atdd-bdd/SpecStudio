@@ -26,6 +26,8 @@ signals:
     void newFileRequested(const QString& projectRootPath);
     void fileRenameRequested(const QString& absolutePath);
     void fileDeleteRequested(const QString& absolutePath);
+    void fileMoveRequested(const QString& absolutePath);
+    void projectRenameRequested(const QString& projectRootPath);
 
 private:
     QTreeView* m_tree = nullptr;

@@ -28,9 +28,11 @@ SolutionExplorer::SolutionExplorer(QWidget* parent)
     m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
     connect(m_tree, &QTreeView::customContextMenuRequested, this, [this](const QPoint& pos) {
         QModelIndex index = m_tree->indexAt(pos);
-        QString filePath    = index.data(Qt::UserRole).toString();
-        QString projectRoot = index.data(Qt::UserRole + 1).toString();
-        const bool isFile   = !filePath.isEmpty();
+        const QString filePath    = index.data(Qt::UserRole).toString();
+        const QString projectRoot = index.data(Qt::UserRole + 1).toString();
+        const QString nodeType    = index.data(Qt::UserRole + 2).toString();
+        const bool isFile    = (nodeType == "file");
+        const bool isProject = (nodeType == "project");
 
         QMenu menu(this);
         auto* actNewFile = menu.addAction(tr("New File..."));
@@ -38,12 +40,24 @@ SolutionExplorer::SolutionExplorer(QWidget* parent)
             emit newFileRequested(projectRoot);
         });
 
+        if (isProject) {
+            menu.addSeparator();
+            auto* actRename = menu.addAction(tr("Rename Project..."));
+            connect(actRename, &QAction::triggered, this, [this, projectRoot] {
+                emit projectRenameRequested(projectRoot);
+            });
+        }
+
         if (isFile) {
             menu.addSeparator();
             auto* actRename = menu.addAction(tr("Rename..."));
+            auto* actMove   = menu.addAction(tr("Move..."));
             auto* actDelete = menu.addAction(tr("Delete"));
             connect(actRename, &QAction::triggered, this, [this, filePath] {
                 emit fileRenameRequested(filePath);
+            });
+            connect(actMove, &QAction::triggered, this, [this, filePath] {
+                emit fileMoveRequested(filePath);
             });
             connect(actDelete, &QAction::triggered, this, [this, filePath] {
                 emit fileDeleteRequested(filePath);

@@ -69,8 +69,12 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, &AppController::onNewFile);
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileRenameRequested,
             this, &AppController::onRenameFile);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileMoveRequested,
+            this, &AppController::onMoveFile);
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileDeleteRequested,
             this, &AppController::onDeleteFile);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::projectRenameRequested,
+            this, &AppController::onRenameProject);
     connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
             this, &AppController::onOpenFile);
 
@@ -837,6 +841,75 @@ void AppController::onRenameFile(const QString& absolutePath)
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
     }
+}
+
+void AppController::onMoveFile(const QString& absolutePath)
+{
+    if (!m_solution) return;
+
+    const QString fileName = QFileInfo(absolutePath).fileName();
+    Project* srcProj = m_solution->projectForFile(absolutePath);
+    if (!srcProj) return;
+
+    const QString destDir = QFileDialog::getExistingDirectory(
+        m_mainWindow,
+        tr("Move '%1' To Folder").arg(fileName),
+        srcProj->rootPath());
+    if (destDir.isEmpty()) return;
+
+    const QString newPath = destDir + "/" + fileName;
+    if (newPath == absolutePath) return;
+
+    if (QFile::exists(newPath)) {
+        QMessageBox::warning(m_mainWindow, tr("Move Failed"),
+            tr("'%1' already exists in that folder.").arg(fileName));
+        return;
+    }
+
+    m_mainWindow->editorTabs()->closeFile(absolutePath);
+
+    if (!QFile::rename(absolutePath, newPath)) {
+        QMessageBox::critical(m_mainWindow, tr("Move Failed"),
+            tr("Could not move '%1'.").arg(fileName));
+        return;
+    }
+
+    for (auto* proj : m_solution->projects()) {
+        proj->scanFiles();
+        connect(proj->git(), &GitClient::outputReady,
+                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                Qt::UniqueConnection);
+        proj->git()->commitAll(tr("Move %1").arg(fileName));
+    }
+    m_treeModel->refresh();
+    m_mainWindow->solutionExplorer()->treeView()->expandAll();
+    onOpenFile(newPath);
+}
+
+void AppController::onRenameProject(const QString& projectRootPath)
+{
+    if (!m_solution) return;
+
+    Project* proj = nullptr;
+    for (auto* p : m_solution->projects())
+        if (p->rootPath() == projectRootPath) { proj = p; break; }
+    if (!proj) return;
+
+    bool ok;
+    const QString newName = QInputDialog::getText(
+        m_mainWindow, tr("Rename Project"),
+        tr("New project name:"), QLineEdit::Normal, proj->name(), &ok);
+    if (!ok || newName.trimmed().isEmpty() || newName == proj->name()) return;
+
+    proj->setName(newName.trimmed());
+
+    QString error;
+    if (!SolutionSerializer::save(m_solution, error))
+        QMessageBox::warning(m_mainWindow, tr("Save Warning"), error);
+
+    m_treeModel->refresh();
+    m_mainWindow->solutionExplorer()->treeView()->expandAll();
+    m_mainWindow->statusBarMgr()->setSolutionName(m_solution->name());
 }
 
 void AppController::onDeleteFile(const QString& absolutePath)
