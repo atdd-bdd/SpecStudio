@@ -877,6 +877,15 @@ void SpecTableEditor::refreshDynamicCompletions()
 
     words.removeDuplicates();
     setCompletionWords(words);
+
+    // Dedicated list for the step-colon dropdown (Given/When/Then: <name>)
+    QStringList attrSets;
+    for (const QString& n : syms.entities.keys())   attrSets << n;
+    for (const QString& n : syms.attributes.keys()) attrSets << n;
+    for (const QString& n : syms.dataTypes.keys())  attrSets << n;
+    attrSets.sort(Qt::CaseInsensitive);
+    attrSets.removeDuplicates();
+    lineNumberEdit()->setAttrSetCompletionWords(attrSets);
 }
 
 void SpecTableEditor::populateContextMenu(QMenu* menu)

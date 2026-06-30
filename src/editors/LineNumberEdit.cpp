@@ -316,6 +316,44 @@ void LineNumberEdit::setTagCompletionWords(const QStringList& tags)
     }
 }
 
+void LineNumberEdit::setAttrSetCompletionWords(const QStringList& words)
+{
+    m_attrSetWords = words;
+    if (!m_completer) {
+        m_completer = new QCompleter(this);
+        m_completer->setWidget(this);
+        m_completer->setCompletionMode(QCompleter::PopupCompletion);
+        m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+        m_completer->setModel(new QStringListModel(this));
+        connect(m_completer, qOverload<const QString&>(&QCompleter::activated),
+                this, &LineNumberEdit::insertCompletion);
+    }
+}
+
+// Returns true when the cursor is positioned after ":" on a Given/When/Then/And/But
+// line and the text typed since the colon is a single partial word (no space yet).
+bool LineNumberEdit::isStepColonContext(const QString& blockText, int col)
+{
+    static QRegularExpression reStep(
+        R"(^\s*(Given|When|Then|And|But)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    if (!reStep.match(blockText).hasMatch()) return false;
+
+    const int colonPos = blockText.lastIndexOf(':', col - 1);
+    if (colonPos < 0) return false;
+
+    // Slice from after the colon to the cursor
+    const QString afterColon = blockText.mid(colonPos + 1, col - colonPos - 1);
+
+    // Skip any leading whitespace (the space in ": ")
+    int skip = 0;
+    while (skip < afterColon.size() && afterColon[skip].isSpace()) ++skip;
+    const QString namePart = afterColon.mid(skip);
+
+    // Still in context only if the user hasn't yet typed a space inside the name
+    return !namePart.contains(' ');
+}
+
 QString LineNumberEdit::currentLinePrefix() const
 {
     QTextCursor tc = textCursor();
@@ -327,7 +365,16 @@ QString LineNumberEdit::currentLinePrefix() const
     if (atPos >= 0 && !blockText.mid(atPos, col - atPos).contains(' '))
         return blockText.mid(atPos, col - atPos);
 
-    // Step context: from first non-space to cursor
+    // Colon context: after ":" on a step line → return just the partial attr-set name
+    if (!m_attrSetWords.isEmpty() && isStepColonContext(blockText, col)) {
+        const int colonPos = blockText.lastIndexOf(':', col - 1);
+        const QString afterColon = blockText.mid(colonPos + 1, col - colonPos - 1);
+        int skip = 0;
+        while (skip < afterColon.size() && afterColon[skip].isSpace()) ++skip;
+        return afterColon.mid(skip);  // may be "" if cursor is right after ": "
+    }
+
+    // Normal context: from first non-space to cursor
     int start = 0;
     while (start < col && blockText[start].isSpace()) ++start;
     return blockText.mid(start, col - start);
@@ -335,6 +382,15 @@ QString LineNumberEdit::currentLinePrefix() const
 
 void LineNumberEdit::updateCompleterWords()
 {
+    // In colon context, offer only attr-set / entity / datatype names
+    if (!m_attrSetWords.isEmpty()) {
+        const QTextCursor tc = textCursor();
+        if (isStepColonContext(tc.block().text(), tc.positionInBlock())) {
+            qobject_cast<QStringListModel*>(m_completer->model())->setStringList(m_attrSetWords);
+            return;
+        }
+    }
+
     static const QStringList stepPrefixes = {
         "given ", "when ", "then ", "and ", "but "
     };
@@ -398,7 +454,13 @@ void LineNumberEdit::keyPressEvent(QKeyEvent* event)
     if (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier)) return;
 
     const QString prefix = currentLinePrefix();
-    if (prefix.length() < 2) {
+
+    // In colon context (Given/When/Then: <attr-set>), show the popup immediately
+    // even before the user has typed any characters after the colon.
+    const bool inColonCtx = !m_attrSetWords.isEmpty()
+        && isStepColonContext(textCursor().block().text(), textCursor().positionInBlock());
+
+    if (!inColonCtx && prefix.length() < 2) {
         m_completer->popup()->hide();
         return;
     }
