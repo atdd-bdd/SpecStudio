@@ -46,6 +46,11 @@ int main(int argc, char* argv[])
         "(no code generated for them). May be specified multiple times.", "file");
     cli.addOption(ctxOpt);
 
+    QCommandLineOption srcRootOpt("source-root",
+        "Project source root; used by Java generator to derive package from subfolder path.",
+        "dir", "");
+    cli.addOption(srcRootOpt);
+
     cli.process(app);
 
     const QStringList pos = cli.positionalArguments();
@@ -94,6 +99,7 @@ int main(int argc, char* argv[])
         JavaGenerator::Options opts;
         opts.packagePrefix = cli.value(nsOpt);
         opts.outputDir     = outputDir;
+        opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
         opts.framework     = framework;
         JavaGenerator gen;

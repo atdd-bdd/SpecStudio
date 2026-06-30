@@ -10,6 +10,7 @@ public:
     struct Options {
         QString packagePrefix = "gherkinexecutor";
         QString outputDir;
+        QString sourceRoot;     // project root for computing package from subfolder path
         bool    overwriteGlue = false;
         QString framework     = "JUnit";  // "JUnit", "TestNG"
     };

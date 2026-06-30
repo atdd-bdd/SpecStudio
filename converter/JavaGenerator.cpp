@@ -702,21 +702,39 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     }
 
     const QString className   = toClassName(file.specName);
-    const QString specSegment = className.toLower();
-    const QString domainPkg   = opts.packagePrefix + ".domain";
-    const QString specPkg     = opts.packagePrefix + ".specifications." + specSegment;
-    const QString testPkg     = specPkg + ".tests";
+    const QString domainPkg   = opts.packagePrefix + ".common";
 
-    QDir dir(opts.outputDir);
+    QString specPkg;
+    QString specSubDir;
+    if (!opts.sourceRoot.isEmpty() && !file.filePath.isEmpty()) {
+        const QDir    srcDir(QFileInfo(opts.sourceRoot).absoluteFilePath());
+        const QString fileAbsDir = QFileInfo(file.filePath).absoluteDir().absolutePath();
+        QString relPath = srcDir.relativeFilePath(fileAbsDir);
+        if (relPath == "." || relPath.isEmpty()) {
+            specPkg = opts.packagePrefix;
+        } else {
+            QStringList parts;
+            for (const QString& p : relPath.split('/'))
+                if (!p.isEmpty() && p != "..") parts << p.toLower().replace('-', '_');
+            specPkg = parts.isEmpty() ? opts.packagePrefix
+                                      : opts.packagePrefix + "." + parts.join('.');
+            specSubDir = parts.join('/');
+        }
+    } else {
+        specPkg = opts.packagePrefix + ".specifications." + className.toLower();
+    }
+    const QString testPkg = specPkg + ".tests";
+
+    QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
     if (!dir.exists() && !dir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(opts.outputDir);
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(dir.path());
         return msgs;
     }
 
-    // Domain classes go into outputDir/domain/
-    QDir domainDir(opts.outputDir + "/domain");
+    // Domain classes go into outputDir/common/
+    QDir domainDir(opts.outputDir + "/common");
     if (!domainDir.exists() && !domainDir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create domain directory: %1").arg(domainDir.path());
+        msgs << QString("ERROR:0:Cannot create common directory: %1").arg(domainDir.path());
         return msgs;
     }
 
