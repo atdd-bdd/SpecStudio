@@ -330,6 +330,68 @@ void LineNumberEdit::setAttrSetCompletionWords(const QStringList& words)
     }
 }
 
+void LineNumberEdit::setTypeCompletionWords(const QStringList& words)
+{
+    m_typeWords = words;
+    if (!m_completer) {
+        m_completer = new QCompleter(this);
+        m_completer->setWidget(this);
+        m_completer->setCompletionMode(QCompleter::PopupCompletion);
+        m_completer->setCaseSensitivity(Qt::CaseInsensitive);
+        m_completer->setModel(new QStringListModel(this));
+        connect(m_completer, qOverload<const QString&>(&QCompleter::activated),
+                this, &LineNumberEdit::insertCompletion);
+    }
+}
+
+// Returns the 0-based column index the cursor occupies in a pipe row,
+// counting columns from the left (0 = cell after the first "|").
+// Returns -1 if the line isn't a pipe row or cursor is before the first pipe.
+int LineNumberEdit::cursorColumnInPipeRow(const QString& lineText, int col)
+{
+    if (!lineText.trimmed().startsWith('|')) return -1;
+    int pipes = 0;
+    for (int i = 0; i < col && i < lineText.size(); ++i)
+        if (lineText[i] == '|') ++pipes;
+    return pipes - 1;
+}
+
+// Returns the 0-based column index of the "Type" header in the table the cursor
+// is currently in, or -1 if not in a pipe table, on the header row itself,
+// or no "Type" column exists.
+int LineNumberEdit::tableHeaderTypeColumn() const
+{
+    QTextBlock cur = textCursor().block();
+    if (!cur.text().trimmed().startsWith('|')) return -1;
+
+    // Walk back to the first pipe row (header row)
+    QTextBlock hdr = cur;
+    while (hdr.previous().isValid() && hdr.previous().text().trimmed().startsWith('|'))
+        hdr = hdr.previous();
+
+    if (hdr == cur) return -1;  // cursor is on the header row — don't complete there
+
+    QString t = hdr.text().trimmed();
+    if (t.startsWith('|')) t = t.mid(1);
+    if (t.endsWith('|'))   t.chop(1);
+    const QStringList cells = t.split('|');
+    for (int i = 0; i < cells.size(); ++i) {
+        if (cells[i].trimmed().compare("Type", Qt::CaseInsensitive) == 0)
+            return i;
+    }
+    return -1;
+}
+
+bool LineNumberEdit::isTypeColumnContext() const
+{
+    if (m_typeWords.isEmpty()) return false;
+    const int typeCol = tableHeaderTypeColumn();
+    if (typeCol < 0) return false;
+    const QString blockText = textCursor().block().text();
+    const int col = textCursor().positionInBlock();
+    return cursorColumnInPipeRow(blockText, col) == typeCol;
+}
+
 // Returns true when the cursor is positioned after ":" on a Given/When/Then/And/But
 // line and the text typed since the colon is a single partial word (no space yet).
 bool LineNumberEdit::isStepColonContext(const QString& blockText, int col)
@@ -374,6 +436,17 @@ QString LineNumberEdit::currentLinePrefix() const
         return afterColon.mid(skip);  // may be "" if cursor is right after ": "
     }
 
+    // Type column context: inside a "Type" cell of an Attributes/Entity table
+    if (isTypeColumnContext()) {
+        const int lastPipe = blockText.lastIndexOf('|', col - 1);
+        if (lastPipe >= 0) {
+            const QString afterPipe = blockText.mid(lastPipe + 1, col - lastPipe - 1);
+            int skip = 0;
+            while (skip < afterPipe.size() && afterPipe[skip].isSpace()) ++skip;
+            return afterPipe.mid(skip);  // partial type name typed so far
+        }
+    }
+
     // Normal context: from first non-space to cursor
     int start = 0;
     while (start < col && blockText[start].isSpace()) ++start;
@@ -389,6 +462,12 @@ void LineNumberEdit::updateCompleterWords()
             qobject_cast<QStringListModel*>(m_completer->model())->setStringList(m_attrSetWords);
             return;
         }
+    }
+
+    // In Type column context, offer only type names
+    if (isTypeColumnContext()) {
+        qobject_cast<QStringListModel*>(m_completer->model())->setStringList(m_typeWords);
+        return;
     }
 
     static const QStringList stepPrefixes = {
@@ -455,12 +534,12 @@ void LineNumberEdit::keyPressEvent(QKeyEvent* event)
 
     const QString prefix = currentLinePrefix();
 
-    // In colon context (Given/When/Then: <attr-set>), show the popup immediately
-    // even before the user has typed any characters after the colon.
+    // In colon or type-column context, show the popup immediately (0 chars needed).
     const bool inColonCtx = !m_attrSetWords.isEmpty()
         && isStepColonContext(textCursor().block().text(), textCursor().positionInBlock());
+    const bool inTypeCtx  = isTypeColumnContext();
 
-    if (!inColonCtx && prefix.length() < 2) {
+    if (!inColonCtx && !inTypeCtx && prefix.length() < 2) {
         m_completer->popup()->hide();
         return;
     }

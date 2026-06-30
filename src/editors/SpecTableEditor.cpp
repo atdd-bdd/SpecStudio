@@ -333,6 +333,66 @@ bool SpecTableEditor::handleTableTabKey()
         if (curPos >= pipes[i] && curPos <= pipes[i + 1]) { region = i; break; }
     }
 
+    // ── "Create DataType?" prompt when leaving an unrecognised Type cell ─────
+    if (m_index && region >= 0) {
+        // Find the table header row
+        QTextBlock hdrBlock = tc.block();
+        while (hdrBlock.previous().isValid()
+               && hdrBlock.previous().text().trimmed().startsWith('|'))
+            hdrBlock = hdrBlock.previous();
+
+        if (hdrBlock != tc.block()) {  // not on the header row itself
+            auto parseHeader = [](const QString& rowLine) -> QStringList {
+                QString t = rowLine.trimmed();
+                if (t.startsWith('|')) t = t.mid(1);
+                if (t.endsWith('|'))   t.chop(1);
+                QStringList cells = t.split('|');
+                for (auto& c : cells) c = c.trimmed();
+                return cells;
+            };
+            const QStringList hdr = parseHeader(hdrBlock.text());
+
+            int typeColIdx = -1;
+            for (int i = 0; i < hdr.size(); ++i)
+                if (hdr[i].compare("Type", Qt::CaseInsensitive) == 0) { typeColIdx = i; break; }
+
+            if (typeColIdx >= 0 && region == typeColIdx) {
+                const QString cellValue =
+                    line.mid(pipes[region] + 1, pipes[region + 1] - pipes[region] - 1).trimmed();
+
+                if (!cellValue.isEmpty()) {
+                    static const QStringList builtInTypes = {
+                        "Boolean", "Character", "Date", "DateTime", "Duration",
+                        "Float", "Integer", "String", "Text", "Time", "YesNo"
+                    };
+                    const SpecTableSymbols& syms = m_index->projectSymbols();
+                    const bool known =
+                        builtInTypes.contains(cellValue, Qt::CaseInsensitive)
+                        || syms.dataTypes.contains(cellValue);
+
+                    if (!known) {
+                        const auto ans = QMessageBox::question(
+                            textEdit(),
+                            tr("Unknown Type"),
+                            tr("'%1' is not a known built-in type or DataType.\n"
+                               "Create a DataType block for it?").arg(cellValue),
+                            QMessageBox::Yes | QMessageBox::No);
+                        if (ans == QMessageBox::Yes) {
+                            QTextCursor end = textEdit()->textCursor();
+                            end.movePosition(QTextCursor::End);
+                            end.insertText(
+                                QString("\n\nDataType %1\nDetails \n"
+                                        "Examples: EnumerationValues\n"
+                                        "| Value  |\n"
+                                        "| Value1 |\n"
+                                        "| Value2 |").arg(cellValue));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     const int nextRegion = region + 1;
     if (nextRegion < pipes.size() - 1) {
         // Select content of the next cell (trim whitespace)
@@ -886,6 +946,17 @@ void SpecTableEditor::refreshDynamicCompletions()
     attrSets.sort(Qt::CaseInsensitive);
     attrSets.removeDuplicates();
     lineNumberEdit()->setAttrSetCompletionWords(attrSets);
+
+    // Dedicated list for the Type column dropdown in Attributes/Entity tables
+    static const QStringList builtInTypes = {
+        "Boolean", "Character", "Date", "DateTime", "Duration",
+        "Float", "Integer", "String", "Text", "Time", "YesNo"
+    };
+    QStringList typeWords = builtInTypes;
+    for (const QString& n : syms.dataTypes.keys()) typeWords << n;
+    typeWords.sort(Qt::CaseInsensitive);
+    typeWords.removeDuplicates();
+    lineNumberEdit()->setTypeCompletionWords(typeWords);
 }
 
 void SpecTableEditor::populateContextMenu(QMenu* menu)

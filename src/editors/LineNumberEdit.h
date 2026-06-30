@@ -26,6 +26,7 @@ public:
     void setBaseCompletionWords(const QStringList& words);
     void setTagCompletionWords(const QStringList& tags);
     void setAttrSetCompletionWords(const QStringList& words);
+    void setTypeCompletionWords(const QStringList& words);
     void setFoldPattern(const QRegularExpression& re);
 
     void setErrorMarks(const QList<QPair<int,int>>& lineColPairs);
@@ -54,6 +55,9 @@ private:
     void    applyExtraSelections();
 
     static bool isStepColonContext(const QString& blockText, int col);
+    bool isTypeColumnContext() const;
+    int  tableHeaderTypeColumn() const;
+    static int cursorColumnInPipeRow(const QString& lineText, int col);
 
     void       toggleFold(int blockNumber);
     QTextBlock foldEnd(const QTextBlock& header) const;
@@ -63,6 +67,7 @@ private:
     QStringList m_baseWords;
     QStringList m_tagWords;
     QStringList m_attrSetWords;
+    QStringList m_typeWords;
 
     QRegularExpression m_foldPattern;
     QSet<int>          m_foldedBlocks;
