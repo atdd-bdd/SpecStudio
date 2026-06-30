@@ -157,7 +157,7 @@ QStringList AppSettings::recentSolutions() const
 
 QStringList AppSettings::knownExtensions()
 {
-    return { ".feature", ".featurex", ".spectable", ".txt", ".md", ".csv", ".xls", ".xlsx" };
+    return { ".spectable", ".feature", ".featurex", ".txt", ".md", ".csv", ".xls", ".xlsx" };
 }
 
 void AppSettings::addRecentSolution(const QString& path)

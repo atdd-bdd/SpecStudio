@@ -11,6 +11,7 @@
 
 static QString labelForExt(const QString& ext)
 {
+    if (ext == ".spectable") return QObject::tr("SpecTable file (.spectable)");
     if (ext == ".feature")  return QObject::tr("Feature file (.feature)");
     if (ext == ".featurex") return QObject::tr("FeatureX file (.featurex)");
     if (ext == ".txt")      return QObject::tr("Text file (.txt)");

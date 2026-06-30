@@ -73,4 +73,5 @@ private:
     SpecTableAnalyzer* m_specAnalyzer   = nullptr;
     BuildController*   m_builder        = nullptr;
     QString            m_buildAccum;    // accumulates build output for diagnostic parsing
+    QString            m_buildLogPath;  // path to write build.log; set before each build
 };

@@ -574,6 +574,13 @@ void AppController::setupBuildConnections()
                     m_mainWindow->outputPanel()->setDiagnostics(diags);
                     m_mainWindow->outputPanel()->showAnalysisTab();
                 }
+                if (!m_buildLogPath.isEmpty()) {
+                    QFile logFile(m_buildLogPath);
+                    if (logFile.open(QIODevice::WriteOnly | QIODevice::Text))
+                        QTextStream(&logFile) << m_buildAccum;
+                    m_mainWindow->outputPanel()->appendBuildOutput(
+                        tr("Log: %1").arg(m_buildLogPath));
+                }
                 m_mainWindow->outputPanel()->appendBuildOutput(
                     success ? tr("Done.") : tr("Build failed."));
             });
@@ -622,6 +629,7 @@ void AppController::onBuildCurrentFile()
 
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
+    m_buildLogPath = outDir + "/build.log";
     setupBuildConnections();
 
     QStringList args = { ed->filePath(), outDir };
@@ -629,6 +637,7 @@ void AppController::onBuildCurrentFile()
     if (!cfg.framework.isEmpty())       args << "--framework" << cfg.framework;
     if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
     if (cfg.overwriteGlue)              args << "--overwrite-glue";
+    if (!projRoot.isEmpty())            args << "--source-root" << projRoot;
     // Pass all other project .spectable files as global context
     if (m_solution) {
         for (auto* proj : m_solution->projects())
@@ -653,12 +662,13 @@ void AppController::onBuildProject()
 
     disconnect(m_builder, &BuildController::outputReady,  this, nullptr);
     disconnect(m_builder, &BuildController::buildFinished, this, nullptr);
-    setupBuildConnections();
 
     // Scope to the active project; fall back to all projects if none is identified
     Project* active = activeProject();
     const QList<Project*> targets = active ? QList<Project*>{ active }
                                            : m_solution->projects();
+    m_buildLogPath = targets.isEmpty() ? QString() : targets.first()->rootPath() + "/build.log";
+    setupBuildConnections();
 
     for (auto* proj : targets) {
         const QString cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
@@ -676,6 +686,7 @@ void AppController::onBuildProject()
                 if (!cfg.framework.isEmpty())       args << "--framework" << cfg.framework;
                 if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
                 if (cfg.overwriteGlue)              args << "--overwrite-glue";
+                args << "--source-root" << proj->rootPath();
                 // Pass all other .spectable files in this project as global context
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
