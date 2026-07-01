@@ -59,5 +59,6 @@ QStringList SpecConfig::frameworksFor(const QString& language)
 {
     if (language == "Java")   return { "JUnit", "TestNG" };
     if (language == "Python") return { "pytest", "unittest" };
+    if (language == "Rust")   return { "builtin" };
     return { "MSTest", "NUnit", "xUnit" };   // CSharp default
 }

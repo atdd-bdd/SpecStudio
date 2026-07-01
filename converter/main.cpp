@@ -1,6 +1,7 @@
 #include "SpectableParser.h"
 #include "CSharpGenerator.h"
 #include "JavaGenerator.h"
+#include "RustGenerator.h"
 
 #include <QCoreApplication>
 #include <QCommandLineParser>
@@ -25,7 +26,7 @@ int main(int argc, char* argv[])
     cli.addPositionalArgument("output", "Output directory for generated files");
 
     QCommandLineOption langOpt({ "l", "language" },
-        "Target language: CSharp (default) or Java", "language", "CSharp");
+        "Target language: CSharp (default), Java, or Rust", "language", "CSharp");
     cli.addOption(langOpt);
 
     QCommandLineOption fwOpt({ "f", "framework" },
@@ -116,6 +117,15 @@ int main(int argc, char* argv[])
         opts.extraImports  = cli.values(importOpt);
         opts.tagFilter     = cli.value(tagFilterOpt);
         JavaGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {
+        RustGenerator::Options opts;
+        opts.cratePrefix   = cli.value(nsOpt);
+        opts.outputDir     = outputDir;
+        opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        opts.extraUses     = cli.values(importOpt);
+        opts.tagFilter     = cli.value(tagFilterOpt);
+        RustGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
         // Default: C#

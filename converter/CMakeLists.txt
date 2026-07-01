@@ -6,6 +6,7 @@ add_executable(SpecTableConverter
     TagFilter.cpp
     CSharpGenerator.cpp
     JavaGenerator.cpp
+    RustGenerator.cpp
 )
 
 target_compile_features(SpecTableConverter PRIVATE cxx_std_17)

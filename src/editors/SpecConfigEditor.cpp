@@ -75,7 +75,7 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     langForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
     m_language = new QComboBox(langGroup);
-    m_language->addItems({ "CSharp", "Java", "Python" });
+    m_language->addItems({ "CSharp", "Java", "Rust", "Python" });
     langForm->addRow(tr("Language:"), m_language);
 
     m_framework = new QComboBox(langGroup);
@@ -209,8 +209,8 @@ void SpecConfigEditor::onLanguageChanged(const QString& language)
     m_framework->setCurrentIndex(idx >= 0 ? idx : 0);
     m_framework->blockSignals(false);
 
-    // Namespace only applies to CSharp
-    m_namespace->setEnabled(language == "CSharp");
+    // Namespace only applies to CSharp/Java; not used by Rust
+    m_namespace->setEnabled(language == "CSharp" || language == "Java");
 }
 
 void SpecConfigEditor::onBrowseOutputDir()
