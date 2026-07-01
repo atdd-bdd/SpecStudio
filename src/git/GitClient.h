@@ -25,6 +25,7 @@ public:
     bool        finishMerge(const QString& message);
     QString     currentBranch();
     QStringList status();
+    void        setRepoPath(const QString& path) { m_repoPath = path; }
 
 signals:
     void outputReady(const QString& text);

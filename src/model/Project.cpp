@@ -17,6 +17,12 @@ Project::~Project()
     qDeleteAll(m_files);
 }
 
+void Project::setRootPath(const QString& path)
+{
+    m_rootPath = path;
+    m_git->setRepoPath(path);
+}
+
 void Project::scanFiles()
 {
     qDeleteAll(m_files);

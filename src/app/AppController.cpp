@@ -75,6 +75,8 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, &AppController::onDeleteFile);
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::projectRenameRequested,
             this, &AppController::onRenameProject);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::projectMoveRequested,
+            this, &AppController::onMoveProject);
     connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
             this, &AppController::onOpenFile);
 
@@ -950,6 +952,52 @@ void AppController::onRenameProject(const QString& projectRootPath)
     m_treeModel->refresh();
     m_mainWindow->solutionExplorer()->treeView()->expandAll();
     m_mainWindow->statusBarMgr()->setSolutionName(m_solution->name());
+}
+
+void AppController::onMoveProject(const QString& projectRootPath)
+{
+    if (!m_solution) return;
+
+    Project* proj = nullptr;
+    for (auto* p : m_solution->projects())
+        if (p->rootPath() == projectRootPath) { proj = p; break; }
+    if (!proj) return;
+
+    const QString folderName = QFileInfo(projectRootPath).fileName();
+    const QString newParent = QFileDialog::getExistingDirectory(
+        m_mainWindow,
+        tr("Move Project '%1' To Folder").arg(proj->name()),
+        QFileInfo(projectRootPath).absolutePath());
+    if (newParent.isEmpty()) return;
+
+    const QString newRoot = newParent + "/" + folderName;
+    if (QDir::cleanPath(newRoot) == QDir::cleanPath(projectRootPath)) return;
+
+    if (QDir(newRoot).exists()) {
+        QMessageBox::warning(m_mainWindow, tr("Move Failed"),
+            tr("A folder named '%1' already exists in that location.").arg(folderName));
+        return;
+    }
+
+    // Close all open tabs for files in this project
+    for (auto* pf : proj->files())
+        m_mainWindow->editorTabs()->closeFile(pf->absolutePath());
+
+    if (!QDir().rename(projectRootPath, newRoot)) {
+        QMessageBox::critical(m_mainWindow, tr("Move Failed"),
+            tr("Could not move project folder '%1'.").arg(folderName));
+        return;
+    }
+
+    proj->setRootPath(newRoot);
+    proj->scanFiles();
+
+    QString error;
+    if (!SolutionSerializer::save(m_solution, error))
+        QMessageBox::warning(m_mainWindow, tr("Save Warning"), error);
+
+    m_treeModel->refresh();
+    m_mainWindow->solutionExplorer()->treeView()->expandAll();
 }
 
 void AppController::onDeleteFile(const QString& absolutePath)

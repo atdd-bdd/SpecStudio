@@ -19,6 +19,7 @@ public:
     GitClient*  git()      const { return m_git; }
 
     void setName(const QString& name) { m_name = name; }
+    void setRootPath(const QString& path);
 
     const QList<ProjectFile*>& files() const { return m_files; }
 

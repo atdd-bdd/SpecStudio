@@ -43,8 +43,12 @@ SolutionExplorer::SolutionExplorer(QWidget* parent)
         if (isProject) {
             menu.addSeparator();
             auto* actRename = menu.addAction(tr("Rename Project..."));
+            auto* actMove   = menu.addAction(tr("Move Project..."));
             connect(actRename, &QAction::triggered, this, [this, projectRoot] {
                 emit projectRenameRequested(projectRoot);
+            });
+            connect(actMove, &QAction::triggered, this, [this, projectRoot] {
+                emit projectMoveRequested(projectRoot);
             });
         }
 
