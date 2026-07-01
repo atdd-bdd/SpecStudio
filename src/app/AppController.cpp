@@ -643,6 +643,8 @@ void AppController::onBuildCurrentFile()
     if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
     if (cfg.overwriteGlue)              args << "--overwrite-glue";
     if (!projRoot.isEmpty())            args << "--source-root" << projRoot;
+    for (const QString& imp : cfg.imports)
+        args << "--import" << imp;
     // Pass all other project .spectable files as global context
     if (m_solution) {
         for (auto* proj : m_solution->projects())
