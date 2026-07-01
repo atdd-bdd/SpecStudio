@@ -42,6 +42,8 @@ private:
     void extractAsAttributeSet();
     void extractAsDefine();
     void editMultilineComment();
+    void importCsv();
+    static QVector<QStringList> parseCsvFile(const QString& filePath);
 
     SpecTableIndex* m_index          = nullptr;
     QStringList     m_staticKeywords;

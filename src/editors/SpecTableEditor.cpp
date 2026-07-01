@@ -8,6 +8,9 @@
 
 #include <QApplication>
 #include <QDialog>
+#include <QFile>
+#include <QFileDialog>
+#include <QTextStream>
 #include <QDialogButtonBox>
 #include <QFileInfo>
 #include <QFontMetrics>
@@ -920,6 +923,182 @@ void SpecTableEditor::extractAsDefine()
     tc.insertText(indent + "Define " + name.trimmed() + "\n");
 }
 
+// ---------------------------------------------------------------------------
+// CSV import — parse file, validate against AttributeSet, insert as pipe table
+// ---------------------------------------------------------------------------
+
+QVector<QStringList> SpecTableEditor::parseCsvFile(const QString& filePath)
+{
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    QTextStream in(&f);
+    QVector<QStringList> result;
+
+    while (!in.atEnd()) {
+        const QString rawLine = in.readLine();
+        QStringList row;
+        QString field;
+        bool inQuotes = false;
+
+        for (int i = 0; i < rawLine.size(); ++i) {
+            const QChar ch = rawLine[i];
+            if (inQuotes) {
+                if (ch == '"') {
+                    if (i + 1 < rawLine.size() && rawLine[i + 1] == '"') {
+                        field += '"'; ++i;  // escaped quote
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    field += ch;
+                }
+            } else {
+                if (ch == '"') {
+                    inQuotes = true;
+                } else if (ch == ',') {
+                    row << field.trimmed();
+                    field.clear();
+                } else {
+                    field += ch;
+                }
+            }
+        }
+        row << field.trimmed();
+        if (!(row.size() == 1 && row[0].isEmpty()))
+            result << row;
+    }
+    return result;
+}
+
+void SpecTableEditor::importCsv()
+{
+    QTextCursor tc = textEdit()->textCursor();
+    const QString lineText = tc.block().text();
+
+    static QRegularExpression reStepLine(
+        R"(^\s*(?:Given|When|Then|And|But)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    if (!reStepLine.match(lineText).hasMatch()) return;
+
+    static QRegularExpression reStepAttr(
+        R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+    auto m = reStepAttr.match(lineText);
+    const QString attrSetName = m.hasMatch() ? m.captured(1) : QString();
+
+    const QString csvPath = QFileDialog::getOpenFileName(
+        this, tr("Import CSV"), {}, tr("CSV Files (*.csv);;All Files (*)"));
+    if (csvPath.isEmpty()) return;
+
+    const QVector<QStringList> rows = parseCsvFile(csvPath);
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, tr("Import CSV"), tr("The CSV file is empty."));
+        return;
+    }
+
+    const QStringList csvHeaders = rows.first();
+    const QVector<QStringList> dataRows = rows.mid(1);
+
+    // Case 1 — known AttributeSet: validate headers match its fields
+    if (!attrSetName.isEmpty() && m_index
+            && m_index->projectSymbols().hasAttributeSet(attrSetName)) {
+        const QVector<QStringList> attrDef = m_index->attributeRows(attrSetName);
+        QStringList expectedFields;
+        for (int r = 1; r < attrDef.size(); ++r)
+            if (!attrDef[r].isEmpty()) expectedFields << attrDef[r][0];
+
+        QStringList missing, extra;
+        for (const QString& h : csvHeaders)
+            if (!expectedFields.contains(h, Qt::CaseInsensitive)) extra << h;
+        for (const QString& f : expectedFields)
+            if (!csvHeaders.contains(f, Qt::CaseInsensitive)) missing << f;
+
+        if (!missing.isEmpty() || !extra.isEmpty()) {
+            QString msg = tr("CSV headers do not match AttributeSet '%1':").arg(attrSetName);
+            if (!missing.isEmpty())
+                msg += tr("\n  Missing: %1").arg(missing.join(", "));
+            if (!extra.isEmpty())
+                msg += tr("\n  Extra: %1").arg(extra.join(", "));
+            msg += tr("\n\nProceed anyway?");
+            if (QMessageBox::question(this, tr("Column Mismatch"), msg,
+                    QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes)
+                return;
+        }
+    }
+
+    // Case 2 — no AttributeSet: offer to create one from the CSV headers
+    if (attrSetName.isEmpty() && !csvHeaders.isEmpty()) {
+        const auto ans = QMessageBox::question(
+            this, tr("Create AttributeSet?"),
+            tr("The step has no AttributeSet. Create one from the CSV headers?\n\nHeaders: %1")
+                .arg(csvHeaders.join(", ")),
+            QMessageBox::Yes | QMessageBox::No);
+        if (ans == QMessageBox::Yes) {
+            bool ok;
+            const QString name = QInputDialog::getText(
+                this, tr("New AttributeSet"),
+                tr("Name for the new AttributeSet:"), QLineEdit::Normal, {}, &ok);
+            if (ok && !name.trimmed().isEmpty()) {
+                const QString trimmedName = name.trimmed();
+
+                // Append Attributes block at end of file
+                QString block = QString("\n\nAttributes %1\n").arg(trimmedName);
+                block += "| Attribute | Type | Default | Notes |\n";
+                for (const QString& h : csvHeaders)
+                    block += QString("| %1 | String |  |  |\n").arg(h);
+                block.chop(1);
+                QTextCursor endCur = textEdit()->textCursor();
+                endCur.movePosition(QTextCursor::End);
+                endCur.insertText(block);
+
+                // Append ": AttrSetName" to the step line
+                QTextCursor stepCur(tc.block());
+                stepCur.movePosition(QTextCursor::EndOfBlock);
+                stepCur.insertText(": " + trimmedName);
+            }
+        }
+    }
+
+    // Insert CSV as pipe table — after any existing table rows below the step
+    QTextBlock stepBlock = tc.block();
+    QTextBlock insertBlock = stepBlock;
+    for (QTextBlock nb = stepBlock.next(); nb.isValid(); nb = nb.next()) {
+        if (!nb.text().trimmed().startsWith('|')) break;
+        insertBlock = nb;
+    }
+
+    // Derive indent from step line
+    QString indent;
+    for (const QChar ch : stepBlock.text()) { if (!ch.isSpace()) break; indent += ch; }
+
+    // Compute column widths for neat formatting
+    QVector<int> widths(csvHeaders.size(), 0);
+    for (int i = 0; i < csvHeaders.size(); ++i)
+        widths[i] = csvHeaders[i].length();
+    for (const QStringList& row : dataRows)
+        for (int i = 0; i < qMin(row.size(), csvHeaders.size()); ++i)
+            widths[i] = qMax(widths[i], row[i].length());
+
+    auto makeRow = [&](const QStringList& cells) -> QString {
+        QString rowLine = indent + "|";
+        for (int i = 0; i < csvHeaders.size(); ++i) {
+            const QString val = (i < cells.size()) ? cells[i] : QString();
+            rowLine += " " + val.leftJustified(widths[i]) + " |";
+        }
+        return rowLine;
+    };
+
+    QStringList tableLines;
+    tableLines << makeRow(csvHeaders);
+    for (const QStringList& row : dataRows)
+        tableLines << makeRow(row);
+
+    QTextCursor insertCur(insertBlock);
+    insertCur.movePosition(QTextCursor::EndOfBlock);
+    insertCur.insertText("\n" + tableLines.join("\n"));
+    textEdit()->setTextCursor(insertCur);
+}
+
 void SpecTableEditor::refreshDynamicCompletions()
 {
     if (!m_index) return;
@@ -1157,7 +1336,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         });
     }
 
-    // Find Step Usages (shown when cursor is on a Given/When/Then/And/But line)
+    // Import CSV / Find Step Usages (shown when cursor is on a Given/When/Then/And/But line)
     {
         static QRegularExpression reStep(
             R"(^\s*(Given|When|Then|And|But)\s+(.+?)(?:\s*:.*)?$)",
@@ -1167,8 +1346,9 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         if (sm.hasMatch()) {
             QString kw   = sm.captured(1);
             QString text = sm.captured(2).trimmed();
-            // Normalise And/But to the last real keyword (best effort: just keep as-is for search)
             menu->addSeparator();
+            auto* csvAct = menu->addAction(tr("Import CSV..."));
+            connect(csvAct, &QAction::triggered, this, &SpecTableEditor::importCsv);
             auto* stepAct = menu->addAction(tr("Find Step Usages: %1 %2...").arg(kw, text));
             connect(stepAct, &QAction::triggered, this, [this, kw, text] {
                 emit findStepUsagesRequested(kw, text);
