@@ -548,7 +548,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             }
         }
 
-        // Everything else: silently skip
+        emitMsg(lineNum, QString("Unrecognized keyword '%1'").arg(firstWord), true);
     }
 
     return result;
