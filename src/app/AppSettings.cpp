@@ -157,7 +157,7 @@ QStringList AppSettings::recentSolutions() const
 
 QStringList AppSettings::knownExtensions()
 {
-    return { ".spectable", ".specconfig", ".feature", ".featurex", ".txt", ".md", ".csv", ".xls", ".xlsx" };
+    return { ".spectable", ".specconfig", ".featurex", ".feature", ".txt", ".md", ".csv", ".xls", ".xlsx" };
 }
 
 QString AppSettings::activeBuildConfig(const QString& projectRoot) const

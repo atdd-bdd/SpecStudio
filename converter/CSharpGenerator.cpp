@@ -812,6 +812,14 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         }
     }
 
+    // Copy the source .spectable file into the output folder
+    if (!file.filePath.isEmpty()) {
+        const QString destPath = dir.filePath(QFileInfo(file.filePath).fileName());
+        QFile::remove(destPath);
+        if (!QFile::copy(file.filePath, destPath))
+            msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, destPath);
+    }
+
     // 1. String + Typed classes for each AttrSet → go into common/
     for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;
