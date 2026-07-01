@@ -14,6 +14,7 @@ public:
         bool        overwriteGlue = false;
         QString     framework     = "JUnit";  // "JUnit", "TestNG"
         QStringList extraImports;             // injected after auto-imports in every generated file
+        QString     tagFilter;               // boolean tag expression; empty = generate all
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
@@ -21,6 +22,7 @@ public:
 private:
     QString     m_framework;
     QStringList m_extraImports;
+    QString     m_tagFilter;
 
     static QString javaType(const QString& specType);
     static QString parseExpr(const QString& field, const QString& specType);

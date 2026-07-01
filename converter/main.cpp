@@ -56,6 +56,12 @@ int main(int argc, char* argv[])
         "May be specified multiple times.", "statement");
     cli.addOption(importOpt);
 
+    QCommandLineOption tagFilterOpt("tag-filter",
+        "Boolean $tag expression; only matching Scenario/BusinessRule/Calculation/DataType "
+        "blocks are generated. E.g.: \"smoke AND NOT wip\". Empty = generate all.",
+        "expr", "");
+    cli.addOption(tagFilterOpt);
+
     cli.process(app);
 
     const QStringList pos = cli.positionalArguments();
@@ -108,6 +114,7 @@ int main(int argc, char* argv[])
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
         opts.framework     = framework;
         opts.extraImports  = cli.values(importOpt);
+        opts.tagFilter     = cli.value(tagFilterOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
@@ -119,6 +126,7 @@ int main(int argc, char* argv[])
         opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
         opts.extraImports  = cli.values(importOpt);
+        opts.tagFilter     = cli.value(tagFilterOpt);
         CSharpGenerator gen;
         genMsgs = gen.generate(file, opts);
     }

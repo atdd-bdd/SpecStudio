@@ -151,7 +151,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 
     State       state       = State::Top;
     QString     lastKw;
-    QStringList pendingTags;  // @Tag lines accumulate here until consumed by next block
+    QStringList pendingTags;          // @Tag lines accumulate here until consumed by next block
+    QStringList pendingGeneratorTags; // $Tag lines — generator-only, never passed to annotations
 
     AttrSet*    curAttr       = nullptr;
     Define*     curDefine     = nullptr;
@@ -206,7 +207,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 endNamedBlock();
             }
             // InNamedBlock stays alive through blank lines (Description may precede Examples)
-            pendingTags.clear();  // tags must immediately precede their block
+            pendingTags.clear();          // tags must immediately precede their block
+            pendingGeneratorTags.clear();
             continue;
         }
 
@@ -219,6 +221,14 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             static QRegularExpression reTag(R"(@(\w+))");
             auto it = reTag.globalMatch(trimmed);
             while (it.hasNext()) pendingTags << it.next().captured(1);
+            continue;
+        }
+
+        // ── Generator tags ($TagName) — filtering only, never emitted ────────
+        if (trimmed.startsWith('$')) {
+            static QRegularExpression reGenTag(R"(\$(\w+))");
+            auto it = reGenTag.globalMatch(trimmed);
+            while (it.hasNext()) pendingGeneratorTags << it.next().captured(1);
             continue;
         }
 
@@ -392,6 +402,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             nb.name = trimmed.mid(firstWord.length()).trimmed();
             nb.line = lineNum;
             nb.tags = pendingTags; pendingTags.clear();
+            nb.generatorTags = pendingGeneratorTags; pendingGeneratorTags.clear();
             if (kind == "DataType" && !nb.name.isEmpty())
                 result.dataTypeNames.push_back(nb.name);
             result.namedBlocks.push_back(nb);
@@ -413,7 +424,6 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // ── Terminate open Attributes/Define table on any other keyword ────────
         if (state == State::InAttrDef)    endAttrDef();
         if (state == State::InDefineTable) endDefineDef();
-        pendingTags.clear();  // not consumed — discard
 
         // ── Parsed keywords ───────────────────────────────────────────────────
 
@@ -493,6 +503,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             sc.name = nameRaw;
             sc.line = lineNum;
             sc.tags = pendingTags; pendingTags.clear();
+            sc.generatorTags = pendingGeneratorTags; pendingGeneratorTags.clear();
             result.scenarios.push_back(sc);
             curScen = &result.scenarios.last();
             state   = State::InScenario;
@@ -548,6 +559,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             }
         }
 
+        pendingTags.clear();
+        pendingGeneratorTags.clear();
         emitMsg(lineNum, QString("Unrecognized keyword '%1'").arg(firstWord), true);
     }
 

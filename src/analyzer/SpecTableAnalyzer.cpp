@@ -607,7 +607,8 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
 
         if (trimmed.isEmpty())           continue;   // blank
         if (trimmed.startsWith('#'))     continue;   // comment
-        if (trimmed.startsWith('@'))     continue;   // tag
+        if (trimmed.startsWith('@'))     continue;   // @tag — pass-through annotation
+        if (trimmed.startsWith('$'))     continue;   // $tag — generator filter tag
         if (trimmed.startsWith('|'))     continue;   // pipe row
         // indented non-pipe line = continuation of Description/Notes/etc.
         if (raw.startsWith(' ') || raw.startsWith('\t')) continue;

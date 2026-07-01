@@ -3,6 +3,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core)
 add_executable(SpecTableConverter
     main.cpp
     SpectableParser.cpp
+    TagFilter.cpp
     CSharpGenerator.cpp
     JavaGenerator.cpp
 )

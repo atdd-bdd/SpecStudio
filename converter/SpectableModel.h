@@ -56,7 +56,8 @@ struct Step {
 // One Scenario block
 struct Scenario {
     QString       name;
-    QStringList   tags;
+    QStringList   tags;           // @Tags — passed through as test annotations
+    QStringList   generatorTags;  // $Tags — consumed by generator for filtering only
     QVector<Step> steps;
     int           line = 0;
 };
@@ -80,7 +81,8 @@ struct ExamplesBlock {
 struct NamedBlock {
     QString      kind;          // "BusinessRule", "Calculation", or "DataType"
     QString      name;
-    QStringList  tags;
+    QStringList  tags;           // @Tags — passed through as test annotations
+    QStringList  generatorTags;  // $Tags — consumed by generator for filtering only
     ExamplesBlock examples;
     bool         hasExamples = false;
     int          line        = 0;

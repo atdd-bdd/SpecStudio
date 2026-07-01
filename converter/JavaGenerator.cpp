@@ -1,4 +1,5 @@
 #include "JavaGenerator.h"
+#include "TagFilter.h"
 
 #include <QDir>
 #include <QFile>
@@ -524,6 +525,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         s << "    // -------------------------\n";
     }
     for (const Scenario& sc : file.scenarios) {
+        if (!TagFilter::matches(m_tagFilter, sc.generatorTags)) continue;
         const QString meth      = "Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
 
@@ -552,6 +554,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
+            if (!TagFilter::matches(m_tagFilter, nb.generatorTags)) continue;
 
             const QString meth      = kind + "_" + toClassName(nb.name);
             const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);
@@ -767,6 +770,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     QStringList msgs;
     m_framework    = opts.framework;
     m_extraImports = opts.extraImports;
+    m_tagFilter    = opts.tagFilter;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";

@@ -15,6 +15,7 @@ struct SpecConfig
     bool        overwriteGlue  = false;      // regenerate glue stubs even if they exist
     QString     converterPath;               // empty = auto-detect next to SpecStudio.exe
     QStringList imports;                     // extra import/using statements for all generated files
+    QString     tagFilter;                   // boolean $tag expression — only matching blocks generated
 
     // Load from a .specconfig JSON file; returns defaults if the file cannot be read
     static SpecConfig load(const QString& filePath);

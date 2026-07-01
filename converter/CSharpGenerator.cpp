@@ -1,4 +1,5 @@
 #include "CSharpGenerator.h"
+#include "TagFilter.h"
 
 #include <QDir>
 #include <QFile>
@@ -491,6 +492,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
     };
 
     for (const Scenario& sc : file.scenarios) {
+        if (!TagFilter::matches(m_tagFilter, sc.generatorTags)) continue;
         const QString meth = "Test_Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
         const QString glueVar   = glueClass[0].toLower() + glueClass.mid(1) + "_object";
@@ -522,6 +524,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
+            if (!TagFilter::matches(m_tagFilter, nb.generatorTags)) continue;
 
             const QString meth      = kind + "_" + toClassName(nb.name);
             const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);
@@ -741,6 +744,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
 {
     QStringList msgs;
     m_extraImports = opts.extraImports;
+    m_tagFilter    = opts.tagFilter;
     m_commonNs     = opts.nsPrefix + ".common";
 
     if (file.specName.isEmpty()) {

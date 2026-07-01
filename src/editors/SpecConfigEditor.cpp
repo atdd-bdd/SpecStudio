@@ -138,6 +138,26 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     root->addWidget(impGroup);
 
+    // ── Tag filter group ──────────────────────────────────────────────────────
+    auto* tfGroup  = new QGroupBox(tr("Generator Tag Filter"), inner);
+    auto* tfLayout = new QVBoxLayout(tfGroup);
+
+    auto* tfHint = new QLabel(
+        tr("Boolean expression of $tags. Only matching blocks are generated.\n"
+           "Leave blank to generate everything.\n"
+           "Examples:  smoke\n"
+           "           smoke AND NOT wip\n"
+           "           (smoke OR regression) AND NOT draft"), tfGroup);
+    tfHint->setWordWrap(true);
+    tfHint->setStyleSheet("color: gray; font-size: 11px;");
+    tfLayout->addWidget(tfHint);
+
+    m_tagFilter = new QLineEdit(tfGroup);
+    m_tagFilter->setPlaceholderText(tr("e.g.  smoke AND NOT wip"));
+    tfLayout->addWidget(m_tagFilter);
+
+    root->addWidget(tfGroup);
+
     // ── Status bar ────────────────────────────────────────────────────────────
     m_statusLabel = new QLabel(inner);
     m_statusLabel->setStyleSheet("color: gray;");
@@ -153,7 +173,8 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     connect(m_namespace, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_overwriteGlue, &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
     connect(m_converterPath, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
-    connect(m_imports,  &QPlainTextEdit::textChanged, this, &SpecConfigEditor::markDirty);
+    connect(m_imports,    &QPlainTextEdit::textChanged, this, &SpecConfigEditor::markDirty);
+    connect(m_tagFilter,  &QLineEdit::textChanged,      this, &SpecConfigEditor::markDirty);
     connect(browseOut, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseOutputDir);
     connect(m_browseConverter, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseConverter);
 
@@ -223,7 +244,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
 
     block(m_language); block(m_framework); block(m_outputDir);
     block(m_namespace); block(m_overwriteGlue); block(m_converterPath);
-    block(m_imports);
+    block(m_imports); block(m_tagFilter);
 
     m_outputDir->setText(cfg.outputDirectory);
 
@@ -242,10 +263,11 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
     m_converterPath->setText(cfg.converterPath);
     m_imports->setPlainText(cfg.imports.join("\n"));
+    m_tagFilter->setText(cfg.tagFilter);
 
     unblock(m_language); unblock(m_framework); unblock(m_outputDir);
     unblock(m_namespace); unblock(m_overwriteGlue); unblock(m_converterPath);
-    unblock(m_imports);
+    unblock(m_imports); unblock(m_tagFilter);
 }
 
 SpecConfig SpecConfigEditor::configFromForm() const
@@ -260,5 +282,6 @@ SpecConfig SpecConfigEditor::configFromForm() const
     const QString impText = m_imports->toPlainText();
     for (const QString& line : impText.split('\n'))
         if (!line.trimmed().isEmpty()) cfg.imports << line.trimmed();
+    cfg.tagFilter = m_tagFilter->text().trimmed();
     return cfg;
 }

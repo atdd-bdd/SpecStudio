@@ -645,6 +645,7 @@ void AppController::onBuildCurrentFile()
     if (!projRoot.isEmpty())            args << "--source-root" << projRoot;
     for (const QString& imp : cfg.imports)
         args << "--import" << imp;
+    if (!cfg.tagFilter.isEmpty())       args << "--tag-filter" << cfg.tagFilter;
     // Pass all other project .spectable files as global context
     if (m_solution) {
         for (auto* proj : m_solution->projects())
@@ -692,6 +693,7 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 args << "--source-root" << proj->rootPath();
                 for (const QString& imp : cfg.imports)
                     args << "--import" << imp;
+                if (!cfg.tagFilter.isEmpty()) args << "--tag-filter" << cfg.tagFilter;
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();

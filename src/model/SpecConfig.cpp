@@ -26,6 +26,7 @@ SpecConfig SpecConfig::load(const QString& filePath)
         for (const QJsonValue& v : o["imports"].toArray())
             cfg.imports << v.toString();
     }
+    if (o.contains("tagFilter")) cfg.tagFilter = o["tagFilter"].toString();
     return cfg;
 }
 
@@ -45,6 +46,8 @@ bool SpecConfig::save(const QString& filePath) const
         for (const QString& imp : imports) arr << imp;
         o["imports"] = arr;
     }
+    if (!tagFilter.isEmpty())
+        o["tagFilter"] = tagFilter;
 
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;

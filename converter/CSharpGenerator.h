@@ -13,6 +13,7 @@ public:
         QString     sourceRoot;                         // project root; used to derive subfolder from file path
         bool        overwriteGlue = false;              // force-overwrite the glue file
         QStringList extraImports;                       // injected after auto-usings in every generated file
+        QString     tagFilter;                          // boolean tag expression; empty = generate all
     };
 
     // Generate all output files; returns list of "SEVERITY:LINE:message" strings
@@ -48,6 +49,7 @@ private:
                         const QString& className) const;
 
     QStringList m_extraImports;
+    QString     m_tagFilter;
     QString     m_commonNs;
 
     struct GlueSig { QString method; QString paramType; bool isList; };

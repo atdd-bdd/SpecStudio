@@ -38,5 +38,6 @@ private:
     QLineEdit*    m_converterPath  = nullptr;
     QPushButton*  m_browseConverter = nullptr;
     QPlainTextEdit* m_imports      = nullptr;
+    QLineEdit*    m_tagFilter      = nullptr;
     QLabel*       m_statusLabel    = nullptr;
 };
