@@ -462,9 +462,11 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 const QString listVar = QString("stringListList%1").arg(objectCounter);
 
                 const StepTable& tbl = step.table;
-                // For transposed tables the "Attribute/Value" header is consumed but not stored,
-                // so rows always starts at 0. For normal tables, rows[0] is the header.
-                int startRow = (tbl.hasHeader && !tbl.transposed) ? 1 : 0;
+                // DataType/primitive-typed steps have no header — all rows are data.
+                // For normal multi-column tables, rows[0] is the column-name header.
+                const bool isTypedGrid = !step.attrSetName.isEmpty()
+                                      && isDataType(step.attrSetName, file);
+                int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
 
                 s << "         List<List<string>> " << listVar
                   << " = new List<List<string>>{\n";

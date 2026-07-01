@@ -495,7 +495,10 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 ++objectCounter;
                 const QString listVar = QString("stringListList%1").arg(objectCounter);
                 const StepTable& tbl = step.table;
-                int startRow = (tbl.hasHeader && !tbl.transposed) ? 1 : 0;
+                // DataType/primitive-typed steps have no header — all rows are data
+                const bool isTypedGrid = !step.attrSetName.isEmpty()
+                                      && isDataType(step.attrSetName, file);
+                int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
 
                 s << "        List<List<String>> " << listVar
                   << " = new ArrayList<>();\n";
