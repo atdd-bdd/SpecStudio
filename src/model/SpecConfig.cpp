@@ -37,7 +37,8 @@ bool SpecConfig::save(const QString& filePath) const
     o["outputDirectory"] = outputDirectory;
     o["language"]        = language;
     o["framework"]       = framework;
-    o["namespace"]       = namespacePrefix;
+    if (!namespacePrefix.isEmpty())
+        o["namespace"]   = namespacePrefix;
     o["overwriteGlue"]   = overwriteGlue;
     if (!converterPath.isEmpty())
         o["converterPath"] = converterPath;

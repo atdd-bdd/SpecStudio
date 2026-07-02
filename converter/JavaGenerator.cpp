@@ -14,6 +14,12 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+// Join a package prefix with a suffix; if prefix is empty, return suffix alone.
+static QString joinPkg(const QString& prefix, const QString& suffix)
+{
+    return prefix.isEmpty() ? suffix : prefix + "." + suffix;
+}
+
 // ---------------------------------------------------------------------------
 // Type mapping
 // ---------------------------------------------------------------------------
@@ -796,7 +802,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     }
 
     const QString className   = toClassName(file.specName);
-    const QString domainPkg   = opts.packagePrefix + ".common";
+    const QString domainPkg   = joinPkg(opts.packagePrefix, "common");
 
     QString specPkg;
     QString specSubDir;
@@ -811,13 +817,13 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             for (const QString& p : relPath.split('/'))
                 if (!p.isEmpty() && p != "..") parts << p.toLower().replace('-', '_');
             specPkg = parts.isEmpty() ? opts.packagePrefix
-                                      : opts.packagePrefix + "." + parts.join('.');
+                                      : joinPkg(opts.packagePrefix, parts.join('.'));
             specSubDir = parts.join('/');
         }
     } else {
-        specPkg = opts.packagePrefix + ".specifications." + className.toLower();
+        specPkg = joinPkg(opts.packagePrefix, "specifications." + className.toLower());
     }
-    const QString testPkg = specPkg + ".tests";
+    const QString testPkg = joinPkg(specPkg, "tests");
 
     QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
     if (!dir.exists() && !dir.mkpath(".")) {

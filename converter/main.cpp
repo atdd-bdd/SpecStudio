@@ -35,7 +35,7 @@ int main(int argc, char* argv[])
     cli.addOption(fwOpt);
 
     QCommandLineOption nsOpt({ "n", "namespace" },
-        "Namespace/package prefix (default: gherkinexecutor)", "prefix", "gherkinexecutor");
+        "Namespace/package prefix (empty = no prefix)", "prefix", "");
     cli.addOption(nsOpt);
 
     QCommandLineOption overwriteGlueOpt("overwrite-glue",

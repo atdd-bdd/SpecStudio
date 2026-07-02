@@ -19,6 +19,12 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+// Join a namespace prefix with a suffix; if prefix is empty, return suffix alone.
+static QString joinNs(const QString& prefix, const QString& suffix)
+{
+    return prefix.isEmpty() ? suffix : prefix + "." + suffix;
+}
+
 // ---------------------------------------------------------------------------
 // Type mapping
 // ---------------------------------------------------------------------------
@@ -764,7 +770,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     QStringList msgs;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
-    m_commonNs     = opts.nsPrefix + ".common";
+    m_commonNs     = joinNs(opts.nsPrefix, "common");
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -787,7 +793,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         }
     }
 
-    const QString ns = opts.nsPrefix + "." + className;
+    const QString ns = joinNs(opts.nsPrefix, className);
 
     QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
     if (!dir.exists() && !dir.mkpath(".")) {
@@ -801,7 +807,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         msgs << QString("ERROR:0:Cannot create common directory: %1").arg(commonDir.path());
         return msgs;
     }
-    const QString commonNs = opts.nsPrefix + ".common";
+    const QString commonNs = joinNs(opts.nsPrefix, "common");
 
     // Synthesize AttrSets for built-in Examples names (EnumerationValues, ValidValues, etc.)
     // referenced in NamedBlocks but not declared with an explicit Attributes block.

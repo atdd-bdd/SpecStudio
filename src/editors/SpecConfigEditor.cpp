@@ -82,7 +82,7 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     langForm->addRow(tr("Test framework:"), m_framework);
 
     m_namespace = new QLineEdit(langGroup);
-    m_namespace->setPlaceholderText(tr("e.g.  gherkinexecutor"));
+    m_namespace->setPlaceholderText(tr("(blank = no prefix)"));
     langForm->addRow(tr("Namespace prefix:"), m_namespace);
 
     root->addWidget(langGroup);

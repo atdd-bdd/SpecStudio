@@ -11,7 +11,7 @@ struct SpecConfig
     QString outputDirectory = "generated";   // relative to this .specconfig file
     QString language        = "CSharp";      // CSharp | Java (future)
     QString framework       = "MSTest";      // MSTest | NUnit | xUnit | JUnit | TestNG
-    QString namespacePrefix = "gherkinexecutor";
+    QString namespacePrefix;
     bool        overwriteGlue  = false;      // regenerate glue stubs even if they exist
     QString     converterPath;               // empty = auto-detect next to SpecStudio.exe
     QStringList imports;                     // extra import/using statements for all generated files
