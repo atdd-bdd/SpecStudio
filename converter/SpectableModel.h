@@ -50,6 +50,8 @@ struct Step {
     StepTable table;
     bool      hasTable   = false;
     QString   defineRef;    // "=DefineName" in place of a table
+    QString   docString;    // content between opening and closing """
+    bool      hasDocString = false;
     int       line = 0;
 };
 

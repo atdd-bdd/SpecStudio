@@ -146,7 +146,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         InStepTable,
         SkipTable,      // discard until blank or non-pipe line
         InNamedBlock,   // inside BusinessRule / Calculation / DataType header
-        InExamplesTable // reading the Examples table for a named block
+        InExamplesTable,// reading the Examples table for a named block
+        InDocString     // collecting """ ... """ content for the current step
     };
 
     State       state       = State::Top;
@@ -194,6 +195,35 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         const int    lineNum  = idx + 1;
         const QString raw     = lines[idx];
         const QString trimmed = raw.trimmed();
+
+        // ── DocString accumulation ────────────────────────────────────────────
+        // Must come before blank/indentation checks so all content is captured.
+        if (state == State::InDocString) {
+            if (trimmed == "\"\"\"") {
+                if (curStep) {
+                    if (curStep->docString.endsWith('\n'))
+                        curStep->docString.chop(1);
+                    curStep->hasDocString = true;
+                }
+                state   = curScen ? State::InScenario
+                                  : (inCleanupBlock ? State::InCleanup : State::InBackground);
+                curStep = nullptr;
+            } else {
+                if (curStep) curStep->docString += raw + "\n";
+            }
+            continue;
+        }
+
+        // ── DocString opener ──────────────────────────────────────────────────
+        // """ on its own line immediately after a bare step (no attrSet, no table).
+        if (trimmed == "\"\"\"" && curStep
+                && curStep->attrSetName.isEmpty() && !curStep->hasTable
+                && !curStep->hasDocString
+                && (state == State::InScenario || state == State::InBackground
+                    || state == State::InCleanup)) {
+            state = State::InDocString;
+            continue;
+        }
 
         // ── Blank lines ──────────────────────────────────────────────────────
         if (trimmed.isEmpty()) {
@@ -331,6 +361,22 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         }
 
         // ── Non-pipe, non-blank lines ─────────────────────────────────────────
+
+        // =DefineName must be checked before endStepTable(), which clears curStep.
+        {
+            QString defName;
+            if (isDefineLine(trimmed, defName)) {
+                if (curStep && (state == State::InScenario || state == State::InBackground
+                                || state == State::InCleanup
+                                || state == State::AwaitStepTable)) {
+                    curStep->defineRef = defName;
+                    curStep->hasTable  = false;
+                }
+                if (state == State::InStepTable || state == State::AwaitStepTable)
+                    endStepTable();
+                continue;
+            }
+        }
 
         // End open step table
         if (state == State::InStepTable || state == State::AwaitStepTable)
@@ -540,21 +586,6 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                : (inCleanupBlock ? State::InCleanup : State::InBackground))
                     : State::AwaitStepTable;
                 state = nextState;
-                continue;
-            }
-        }
-
-        // Define reference =DefineName
-        {
-            QString defName;
-            if (isDefineLine(trimmed, defName)) {
-                if (curStep && (state == State::InScenario || state == State::InBackground
-                                || state == State::InCleanup
-                                || state == State::AwaitStepTable)) {
-                    curStep->defineRef = defName;
-                    curStep->hasTable  = false;
-                    endStepTable();
-                }
                 continue;
             }
         }

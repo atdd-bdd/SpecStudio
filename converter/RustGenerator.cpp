@@ -427,6 +427,15 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
 
     auto emitSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
+            if (step.hasDocString) {
+                const QString meth = toFnName(step.keyword, step.text);
+                QString esc = step.docString;
+                esc.replace("\\", "\\\\");
+                esc.replace("\"", "\\\"");
+                esc.replace("\n", "\\n");
+                s << "    glue." << meth << "(\"" << esc << "\");\n";
+                continue;
+            }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
                 const QString meth = toFnName(step.keyword, step.text);
                 s << "    glue." << meth << "();\n";
@@ -543,7 +552,9 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
             const QString meth = toFnName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-            if (step.attrSetName.isEmpty() && !step.hasTable)
+            if (step.hasDocString)
+                sigs.push_back({ meth, "docstring" });
+            else if (step.attrSetName.isEmpty() && !step.hasTable)
                 sigs.push_back({ meth, "" });
             else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file))
                 sigs.push_back({ meth, step.attrSetName + "String" });
@@ -577,6 +588,11 @@ QString RustGenerator::genStubFn(const GlueSig& sig)
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    pub fn " << sig.method << "(&mut self) {\n";
+        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        s << "    }\n";
+    } else if (sig.paramType == "docstring") {
+        s << "    pub fn " << sig.method << "(&mut self, value: &str) {\n";
+        s << "        println!(\"{}\", value);\n";
         s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {

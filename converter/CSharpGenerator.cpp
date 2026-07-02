@@ -415,6 +415,15 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
+            if (step.hasDocString) {
+                const QString meth = toMethodName(step.keyword, step.text);
+                QString esc = step.docString;
+                esc.replace("\\", "\\\\");
+                esc.replace("\"", "\\\"");
+                esc.replace("\n", "\\n");
+                s << "         " << glueVar << "." << meth << "(\"" << esc << "\");\n\n";
+                continue;
+            }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
                 // Bare step — call with no arguments
                 const QString meth = toMethodName(step.keyword, step.text);
@@ -594,7 +603,9 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
             const QString meth = toMethodName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-            if (step.attrSetName.isEmpty() && !step.hasTable)
+            if (step.hasDocString)
+                sigs.push_back({ meth, "docstring", false });
+            else if (step.attrSetName.isEmpty() && !step.hasTable)
                 sigs.push_back({ meth, "", false });           // void / no parameter
             else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file))
                 sigs.push_back({ meth, step.attrSetName + "String", true });
@@ -635,6 +646,14 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig)
     if (sig.paramType.isEmpty()) {
         s << "        public void " << sig.method << "()\n";
         s << "        {\n";
+        s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
+        s << "        }\n";
+        return out;
+    }
+    if (sig.paramType == "docstring") {
+        s << "        public void " << sig.method << "(string value)\n";
+        s << "        {\n";
+        s << "            Console.WriteLine(value);\n";
         s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
         s << "        }\n";
         return out;
