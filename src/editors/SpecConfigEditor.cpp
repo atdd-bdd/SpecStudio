@@ -259,7 +259,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_framework->setCurrentIndex(fwIdx >= 0 ? fwIdx : 0);
 
     m_namespace->setText(cfg.namespacePrefix);
-    m_namespace->setEnabled(cfg.language == "CSharp");
+    m_namespace->setEnabled(cfg.language == "CSharp" || cfg.language == "Java");
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
     m_converterPath->setText(cfg.converterPath);
     m_imports->setPlainText(cfg.imports.join("\n"));
