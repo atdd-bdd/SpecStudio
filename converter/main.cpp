@@ -95,6 +95,10 @@ int main(int argc, char* argv[])
             if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
     }
 
+    // Emit FILE: before any messages so the IDE's output parser attributes
+    // warnings to this file even when multiple converters run concurrently.
+    std::cout << "FILE:" << inputPath.toStdString() << "\n";
+
     bool hasError = false;
     for (const ParseMessage& m : file.messages) {
         const char* sev = m.warning ? "WARNING" : "ERROR";
