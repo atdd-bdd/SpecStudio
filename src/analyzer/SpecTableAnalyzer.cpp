@@ -599,18 +599,21 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
     QTextStream in(&f);
-    int lineNum = 0;
+    int lineNum    = 0;
+    bool inDocStr  = false;
     while (!in.atEnd()) {
         const QString raw     = in.readLine();
         ++lineNum;
         const QString trimmed = raw.trimmed();
+
+        if (trimmed == "\"\"\"") { inDocStr = !inDocStr; continue; }  // docstring delimiter
+        if (inDocStr)                        continue;   // content inside """ ... """
 
         if (trimmed.isEmpty())               continue;   // blank
         if (trimmed.startsWith('#'))         continue;   // comment
         if (trimmed.startsWith('@'))         continue;   // @tag — pass-through annotation
         if (trimmed.startsWith('$'))         continue;   // $tag — generator filter tag
         if (trimmed.startsWith('|'))         continue;   // pipe row
-        if (trimmed.startsWith("\"\"\""))    continue;   // docstring delimiter
         if (trimmed.startsWith('='))         continue;   // =DefineName reference
         // indented non-pipe line = continuation of Description/Notes/etc.
         if (raw.startsWith(' ') || raw.startsWith('\t')) continue;
