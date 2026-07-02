@@ -605,11 +605,13 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
         ++lineNum;
         const QString trimmed = raw.trimmed();
 
-        if (trimmed.isEmpty())           continue;   // blank
-        if (trimmed.startsWith('#'))     continue;   // comment
-        if (trimmed.startsWith('@'))     continue;   // @tag — pass-through annotation
-        if (trimmed.startsWith('$'))     continue;   // $tag — generator filter tag
-        if (trimmed.startsWith('|'))     continue;   // pipe row
+        if (trimmed.isEmpty())               continue;   // blank
+        if (trimmed.startsWith('#'))         continue;   // comment
+        if (trimmed.startsWith('@'))         continue;   // @tag — pass-through annotation
+        if (trimmed.startsWith('$'))         continue;   // $tag — generator filter tag
+        if (trimmed.startsWith('|'))         continue;   // pipe row
+        if (trimmed.startsWith("\"\"\""))    continue;   // docstring delimiter
+        if (trimmed.startsWith('='))         continue;   // =DefineName reference
         // indented non-pipe line = continuation of Description/Notes/etc.
         if (raw.startsWith(' ') || raw.startsWith('\t')) continue;
 
