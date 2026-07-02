@@ -53,7 +53,12 @@ QString RustGenerator::parseExpr(const QString& field, const QString& specType)
         return QString(
             "matches!(s.%1.to_lowercase().as_str(), \"true\" | \"t\" | \"yes\" | \"y\" | \"1\")")
             .arg(field);
-    return QString("s.%1.clone()").arg(field);
+    // String-backed built-ins (date/time/datetime/duration/string/text/char)
+    if (t == "string" || t == "text" || t == "character" || t == "char"
+     || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
+        return QString("s.%1.clone()").arg(field);
+    // User-defined type — use From<String> convention, same intent as Java's new Type(this.field)
+    return QString("%1::from(s.%2.clone())").arg(specType.trimmed()).arg(field);
 }
 
 // ---------------------------------------------------------------------------
