@@ -1117,11 +1117,11 @@ void SpecTableEditor::refreshDynamicCompletions()
     words.removeDuplicates();
     setCompletionWords(words);
 
-    // Dedicated list for the step-colon dropdown (Given/When/Then: <name>)
+    // Dedicated list for the step-colon dropdown (Given/When/Then/Examples: <name>)
+    // DataTypes are excluded — they are for the Type column, not step parameters.
     QStringList attrSets;
     for (const QString& n : syms.entities.keys())   attrSets << n;
     for (const QString& n : syms.attributes.keys()) attrSets << n;
-    for (const QString& n : syms.dataTypes.keys())  attrSets << n;
     attrSets.sort(Qt::CaseInsensitive);
     attrSets.removeDuplicates();
     lineNumberEdit()->setAttrSetCompletionWords(attrSets);

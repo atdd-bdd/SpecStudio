@@ -397,7 +397,7 @@ bool LineNumberEdit::isTypeColumnContext() const
 bool LineNumberEdit::isStepColonContext(const QString& blockText, int col)
 {
     static QRegularExpression reStep(
-        R"(^\s*(Given|When|Then|And|But)\b)",
+        R"(^\s*(Given|When|Then|And|But|Examples)\b)",
         QRegularExpression::CaseInsensitiveOption);
     if (!reStep.match(blockText).hasMatch()) return false;
 
