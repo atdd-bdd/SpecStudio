@@ -137,6 +137,10 @@ bool SpecTableEditor::eventFilter(QObject* obj, QEvent* event)
         {
             QTimer::singleShot(0, this, &SpecTableEditor::autoInsertTableHeader);
         }
+        if (ke->key() == Qt::Key_Slash && ke->modifiers() == Qt::ControlModifier) {
+            toggleLineComment();
+            return true;
+        }
     }
     if (obj == textEdit()->viewport() && event->type() == QEvent::ToolTip) {
         auto* he = static_cast<QHelpEvent*>(event);
@@ -743,6 +747,43 @@ void SpecTableEditor::autoInsertTableHeader()
 // Edit multi-line comment — join continuation lines into a single string,
 // let the user edit it, then reflow at the current viewport width.
 // ---------------------------------------------------------------------------
+
+// Toggle # comment on the current line or every line in the selection.
+// If all affected lines already start with #, the # is removed; otherwise
+// # is prepended to every line (mixed state → all get commented).
+void SpecTableEditor::toggleLineComment()
+{
+    QPlainTextEdit* te  = textEdit();
+    QTextCursor     cur = te->textCursor();
+    QTextDocument*  doc = te->document();
+
+    const int posStart = cur.selectionStart();
+    const int posEnd   = cur.selectionEnd();
+
+    QTextBlock firstBlock = doc->findBlock(posStart);
+    QTextBlock lastBlock  = doc->findBlock(posEnd);
+
+    // If the selection ends exactly at a block boundary don't include that block.
+    if (posStart != posEnd && lastBlock.position() == posEnd)
+        lastBlock = lastBlock.previous();
+
+    // Decide: remove comments only if every line already starts with #
+    bool allCommented = true;
+    for (QTextBlock b = firstBlock; b.isValid() && b != lastBlock.next(); b = b.next()) {
+        if (!b.text().startsWith('#')) { allCommented = false; break; }
+    }
+
+    cur.beginEditBlock();
+    for (QTextBlock b = firstBlock; b.isValid() && b != lastBlock.next(); b = b.next()) {
+        QTextCursor bc(b);
+        bc.movePosition(QTextCursor::StartOfBlock);
+        if (allCommented)
+            bc.deleteChar();
+        else
+            bc.insertText("#");
+    }
+    cur.endEditBlock();
+}
 
 void SpecTableEditor::editMultilineComment()
 {

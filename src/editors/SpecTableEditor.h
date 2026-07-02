@@ -41,6 +41,7 @@ private:
     void autoInsertTableHeader();
     void extractAsAttributeSet();
     void extractAsDefine();
+    void toggleLineComment();
     void editMultilineComment();
     void importCsv();
     static QVector<QStringList> parseCsvFile(const QString& filePath);
