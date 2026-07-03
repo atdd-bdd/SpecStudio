@@ -43,6 +43,7 @@ public slots:
     void onAnalyze();
     void onAnalyzeSolution();
     void onFindAllUsages();
+    void onFindAll(const QString& term, bool caseSensitive, bool useRegex);
     void onRenameStep();
     void onRenameFile(const QString& absolutePath);
     void onMoveFile(const QString& absolutePath);

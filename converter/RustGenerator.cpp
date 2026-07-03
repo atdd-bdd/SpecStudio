@@ -205,13 +205,21 @@ QVector<QStringList> RustGenerator::resolveStepRows(
         fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
     if (step.table.transposed) {
-        QStringList row(fieldCount);
-        for (const QStringList& r : step.table.rows) {
-            if (r.size() < 2) continue;
-            const QString key = r[0].toLower();
-            if (fieldIdx.contains(key)) row[fieldIdx[key]] = r[1];
+        // Each row = [AttrName, Value [, Value2, ...]]
+        // Extra columns are additional list items; each value column = one result row.
+        int numCols = 0;
+        for (const QStringList& r : step.table.rows)
+            if (r.size() > numCols) numCols = r.size();
+        for (int col = 1; col < numCols; ++col) {
+            QStringList row(fieldCount);
+            for (const QStringList& r : step.table.rows) {
+                if (r.size() < 2) continue;
+                const QString key = r[0].toLower();
+                if (fieldIdx.contains(key) && col < r.size())
+                    row[fieldIdx[key]] = r[col];
+            }
+            result << row;
         }
-        result << row;
     } else {
         if (step.table.rows.size() < 2) return result;
         const QStringList& hdrs = step.table.rows[0];

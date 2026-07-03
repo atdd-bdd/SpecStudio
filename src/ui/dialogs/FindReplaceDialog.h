@@ -18,11 +18,15 @@ public:
     void showFind();
     void showReplace();
 
+signals:
+    void findAllRequested(const QString& term, bool caseSensitive, bool useRegex);
+
 private slots:
     void onFindNext();
     void onFindPrev();
     void onReplace();
     void onReplaceAll();
+    void onFindAll();
 
 private:
     PlainTextEditor* currentEditor() const;

@@ -599,6 +599,8 @@ void AppController::onBuildCurrentFile()
         return;
     }
 
+    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
+
     if (fileTypeFromPath(ed->filePath()) != FileType::SpecTable) {
         QMessageBox::information(m_mainWindow, tr("Not Supported"),
             tr("Build is only supported for .spectable files."));
@@ -718,6 +720,7 @@ void AppController::onBuildProject()
                "Use Build > Solution to build all projects."));
         return;
     }
+    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
     doBuildProjects({ active });
 }
 
@@ -737,6 +740,7 @@ void AppController::onBuildSolution()
             tr("Open a solution first."));
         return;
     }
+    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
     doBuildProjects(m_solution->projects());
 }
 
@@ -839,6 +843,7 @@ void AppController::onAnalyze()
                "Use Analyze > Solution to analyze all projects."));
         return;
     }
+    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
     doAnalyze({ active });
 }
 
@@ -849,6 +854,7 @@ void AppController::onAnalyzeSolution()
             tr("Open a solution first."));
         return;
     }
+    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
     doAnalyze(m_solution->projects());
 }
 
@@ -1093,6 +1099,74 @@ void AppController::onFindAllUsages()
                     results.append(d);
                 }
                 ++lineNum;
+            }
+        }
+    }
+
+    m_mainWindow->outputPanel()->setFindResults(results, term);
+    m_mainWindow->outputPanel()->showFindResultsTab();
+}
+
+void AppController::onFindAll(const QString& term, bool caseSensitive, bool useRegex)
+{
+    if (term.isEmpty()) return;
+
+    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    QRegularExpression re;
+    if (useRegex) {
+        re = QRegularExpression(term,
+            caseSensitive ? QRegularExpression::NoPatternOption
+                          : QRegularExpression::CaseInsensitiveOption);
+        if (!re.isValid()) return;
+    }
+
+    auto lineMatches = [&](const QString& line) {
+        return useRegex ? re.match(line).hasMatch()
+                        : line.contains(term, cs);
+    };
+
+    QList<Diagnostic> results;
+    QSet<QString> searchedPaths;
+
+    // 1. Search open editors (in-memory content — catches unsaved edits)
+    for (auto* ed : m_mainWindow->allOpenEditors()) {
+        auto* pte = qobject_cast<PlainTextEditor*>(ed);
+        if (!pte) continue;
+        searchedPaths.insert(ed->filePath());
+        QTextDocument* doc = pte->textEdit()->document();
+        for (QTextBlock blk = doc->begin(); blk != doc->end(); blk = blk.next()) {
+            if (lineMatches(blk.text())) {
+                Diagnostic d;
+                d.filePath = ed->filePath();
+                d.line     = blk.blockNumber() + 1;
+                d.message  = blk.text().trimmed();
+                d.severity = Diagnostic::Severity::Info;
+                results.append(d);
+            }
+        }
+    }
+
+    // 2. If nothing found in open editors (or no editors open), also search project files
+    if (results.isEmpty() && m_solution) {
+        for (auto* proj : m_solution->projects()) {
+            for (auto* file : proj->files()) {
+                if (searchedPaths.contains(file->absolutePath())) continue;
+                QFile f(file->absolutePath());
+                if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+                QTextStream in(&f);
+                int lineNum = 1;
+                while (!in.atEnd()) {
+                    const QString line = in.readLine();
+                    if (lineMatches(line)) {
+                        Diagnostic d;
+                        d.filePath = file->absolutePath();
+                        d.line     = lineNum;
+                        d.message  = line.trimmed();
+                        d.severity = Diagnostic::Severity::Info;
+                        results.append(d);
+                    }
+                    ++lineNum;
+                }
             }
         }
     }

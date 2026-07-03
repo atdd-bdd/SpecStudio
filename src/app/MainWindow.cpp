@@ -14,6 +14,7 @@
 
 #include <QAction>
 #include <QCloseEvent>
+#include <QMessageBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QInputDialog>
@@ -107,6 +108,23 @@ void MainWindow::closeSplit()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    QList<BaseEditor*> dirty;
+    for (auto* ed : allOpenEditors())
+        if (ed->isDirty()) dirty.append(ed);
+
+    if (!dirty.isEmpty()) {
+        QMessageBox mb(this);
+        mb.setWindowTitle(tr("Unsaved Files"));
+        mb.setText(tr("%1 file(s) have unsaved changes.").arg(dirty.size()));
+        mb.setInformativeText(tr("Save all before closing?"));
+        mb.setStandardButtons(QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel);
+        mb.setDefaultButton(QMessageBox::SaveAll);
+        const int result = mb.exec();
+        if (result == QMessageBox::Cancel) { event->ignore(); return; }
+        if (result == QMessageBox::SaveAll)
+            for (auto* ed : dirty) ed->save();
+    }
+
     saveWindowState();
     event->accept();
 }
@@ -174,11 +192,19 @@ void MainWindow::setupMenuBar()
         if (ok) ed->goToLine(line);
     });
     connect(actFind,    &QAction::triggered, this, [this] {
-        if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
+        if (!m_findReplaceDlg) {
+            m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
+            connect(m_findReplaceDlg, &FindReplaceDialog::findAllRequested,
+                    m_controller,     &AppController::onFindAll);
+        }
         m_findReplaceDlg->showFind();
     });
     connect(actReplace, &QAction::triggered, this, [this] {
-        if (!m_findReplaceDlg) m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
+        if (!m_findReplaceDlg) {
+            m_findReplaceDlg = new FindReplaceDialog(m_editorTabs, this);
+            connect(m_findReplaceDlg, &FindReplaceDialog::findAllRequested,
+                    m_controller,     &AppController::onFindAll);
+        }
         m_findReplaceDlg->showReplace();
     });
     connect(actFindUsages, &QAction::triggered, m_controller, &AppController::onFindAllUsages);

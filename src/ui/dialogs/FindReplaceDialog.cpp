@@ -27,6 +27,7 @@ FindReplaceDialog::FindReplaceDialog(EditorTabWidget* tabs, QWidget* parent)
 
     auto* findNextBtn   = new QPushButton(tr("Find Next"), this);
     auto* findPrevBtn   = new QPushButton(tr("Find Prev"), this);
+    auto* findAllBtn    = new QPushButton(tr("Find All"), this);
     auto* replaceBtn    = new QPushButton(tr("Replace"), this);
     auto* replaceAllBtn = new QPushButton(tr("Replace All"), this);
     auto* closeBtn      = new QPushButton(tr("Close"), this);
@@ -51,6 +52,7 @@ FindReplaceDialog::FindReplaceDialog(EditorTabWidget* tabs, QWidget* parent)
     auto* btnCol = new QVBoxLayout;
     btnCol->addWidget(findNextBtn);
     btnCol->addWidget(findPrevBtn);
+    btnCol->addWidget(findAllBtn);
     btnCol->addWidget(replaceBtn);
     btnCol->addWidget(replaceAllBtn);
     btnCol->addStretch();
@@ -62,6 +64,7 @@ FindReplaceDialog::FindReplaceDialog(EditorTabWidget* tabs, QWidget* parent)
 
     connect(findNextBtn,   &QPushButton::clicked, this, &FindReplaceDialog::onFindNext);
     connect(findPrevBtn,   &QPushButton::clicked, this, &FindReplaceDialog::onFindPrev);
+    connect(findAllBtn,    &QPushButton::clicked, this, &FindReplaceDialog::onFindAll);
     connect(replaceBtn,    &QPushButton::clicked, this, &FindReplaceDialog::onReplace);
     connect(replaceAllBtn, &QPushButton::clicked, this, &FindReplaceDialog::onReplaceAll);
     connect(closeBtn,      &QPushButton::clicked, this, &QDialog::hide);
@@ -146,4 +149,12 @@ void FindReplaceDialog::onReplaceAll()
         setStatus(tr("Replaced %1 occurrence(s)").arg(count), false);
     else
         setStatus(tr("Not found"), true);
+}
+
+void FindReplaceDialog::onFindAll()
+{
+    const QString text = m_findEdit->text();
+    if (text.isEmpty()) { setStatus({}); return; }
+    setStatus(tr("Searching…"));
+    emit findAllRequested(text, m_caseSensitive->isChecked(), m_useRegex->isChecked());
 }

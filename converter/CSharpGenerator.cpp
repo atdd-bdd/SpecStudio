@@ -222,18 +222,21 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
         fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
     if (step.table.transposed) {
-        // Each row = [AttrName, Value] → one data row in field order.
-        // The "Attribute/Value" header row was consumed but NOT stored in rows,
-        // so all entries in step.table.rows are data rows — always start from 0.
-        QStringList row(fieldCount);
-        for (int ri = 0; ri < step.table.rows.size(); ++ri) {
-            const QStringList& r = step.table.rows[ri];
-            if (r.size() < 2) continue;
-            QString key = r[0].toLower();
-            if (fieldIdx.contains(key))
-                row[fieldIdx[key]] = r[1];
+        // Each row = [AttrName, Value [, Value2, ...]]
+        // Extra columns are additional list items; each value column = one result row.
+        int numCols = 0;
+        for (const QStringList& r : step.table.rows)
+            if (r.size() > numCols) numCols = r.size();
+        for (int col = 1; col < numCols; ++col) {
+            QStringList row(fieldCount);
+            for (const QStringList& r : step.table.rows) {
+                if (r.size() < 2) continue;
+                const QString key = r[0].toLower();
+                if (fieldIdx.contains(key) && col < r.size())
+                    row[fieldIdx[key]] = r[col];
+            }
+            result << row;
         }
-        result << row;
     } else {
         // Normal: rows[0] = header, rows[1..] = data
         if (step.table.rows.size() < 2) return result;

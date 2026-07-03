@@ -530,14 +530,10 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
         if (tableRows.isEmpty()) continue;
 
         if (transposed) {
-            // Each row is | AttributeName | Value |
+            // Each row is | AttributeName | Value [| Value2 | ...] |
+            // Extra columns are additional list items — all valid.
             for (const auto& row : tableRows) {
-                if (row.second.size() != 2) {
-                    out.append(makeDiag(filePath, row.first,
-                        QStringLiteral("Transposed table must have exactly 2 columns"),
-                        Diagnostic::Severity::Warning));
-                    continue;
-                }
+                if (row.second.size() < 2) continue;
                 const QString aname = row.second[0];
                 if (!aname.isEmpty() && !declaredAttrs.contains(aname)) {
                     out.append(makeDiag(filePath, row.first,
@@ -545,9 +541,11 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
                             .arg(aname, attrName),
                         Diagnostic::Severity::Warning));
                 }
-                const QString val = row.second[1];
-                if (!val.isEmpty() && !val.startsWith('='))
-                    validateDataTypeValue(filePath, row.first, val, attrType.value(aname), out);
+                for (int c = 1; c < row.second.size(); ++c) {
+                    const QString val = row.second[c];
+                    if (!val.isEmpty() && !val.startsWith('='))
+                        validateDataTypeValue(filePath, row.first, val, attrType.value(aname), out);
+                }
             }
         } else {
             // First row = column headers, remaining rows = data values
