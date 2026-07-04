@@ -319,9 +319,9 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     if (needsDt)   s << "import java.time.LocalDateTime;\n";
     if (needsDur)  s << "import java.time.Duration;\n";
     if (needsCollections) s << "import java.util.Collections;\n";
+    s << "import java.util.Objects;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
-    if (needsDate || needsTime || needsDt || needsDur || needsCollections || !extraImports.isEmpty())
-        s << "\n";
+    s << "\n";
 
     s << "public class " << cn << " {\n";
 
@@ -354,6 +354,27 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
         s << "\n";
     }
     s << "        );\n    }\n\n";
+
+    // equals()
+    s << "    @Override\n    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof " << cn << ")) return false;\n";
+    s << "        " << cn << " that = (" << cn << ") o;\n";
+    s << "        return ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << "\n            && ";
+        const QString field = toCamelCase(as.fields[i].name);
+        s << "Objects.equals(" << field << ", that." << field << ")";
+    }
+    s << ";\n    }\n\n";
+
+    // hashCode()
+    s << "    @Override\n    public int hashCode() {\n        return Objects.hash(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << toCamelCase(as.fields[i].name);
+    }
+    s << ");\n    }\n\n";
 
     // toString() — label uses original name, value reference uses camelCase identifier
     s << "    @Override\n    public String toString() {\n        return ";
@@ -393,9 +414,9 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     if (needsDt)   s << "import java.time.LocalDateTime;\n";
     if (needsDur)  s << "import java.time.Duration;\n";
     if (needsList) s << "import java.util.List;\n";
+    s << "import java.util.Objects;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
-    if (needsDate || needsTime || needsDt || needsDur || needsList || !extraImports.isEmpty())
-        s << "\n";
+    s << "\n";
 
     s << "public class " << cn << " {\n";
 
@@ -419,7 +440,28 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << ") {\n";
     for (const Field& f : as.fields)
         s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
-    s << "    }\n}\n";
+    s << "    }\n\n";
+
+    // equals()
+    s << "    @Override\n    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof " << cn << ")) return false;\n";
+    s << "        " << cn << " that = (" << cn << ") o;\n";
+    s << "        return ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << "\n            && ";
+        const QString field = toCamelCase(as.fields[i].name);
+        s << "Objects.equals(" << field << ", that." << field << ")";
+    }
+    s << ";\n    }\n\n";
+
+    // hashCode()
+    s << "    @Override\n    public int hashCode() {\n        return Objects.hash(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << toCamelCase(as.fields[i].name);
+    }
+    s << ");\n    }\n}\n";
 
     return out;
 }
