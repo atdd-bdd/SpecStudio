@@ -311,6 +311,7 @@ void SpecTableAnalyzer::checkDefineRefs(const QString& filePath,
     while (!in.atEnd()) {
         const QString line = in.readLine();
         ++lineNum;
+        if (line.trimmed().startsWith('#')) continue;   // commented-out line
 
         QRegularExpressionMatchIterator it = reRef.globalMatch(line);
         while (it.hasNext()) {
@@ -512,7 +513,7 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
                 attrType[aname] = attrDef[r][1];
         }
 
-        // Collect the step's table rows (skip blank lines, stop at non-pipe non-blank)
+        // Collect the step's table rows (skip blank/comment lines, stop at non-pipe non-blank)
         QVector<QPair<int, QStringList>> tableRows;
         for (int j = i + 1; j < lines.size(); ++j) {
             if (reRow.match(lines[j]).hasMatch()) {
@@ -522,6 +523,8 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
                     cells << parts[p].trimmed();
                 tableRows.append({j + 1, cells});
             } else if (lines[j].trimmed().isEmpty()) {
+                continue;
+            } else if (lines[j].trimmed().startsWith('#')) {
                 continue;
             } else {
                 break;

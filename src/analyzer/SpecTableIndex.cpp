@@ -108,6 +108,7 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
             if (!reRow.match(ln).hasMatch()) {
                 if (ln.trimmed().isEmpty()) continue;
                 if (!ln.isEmpty() && ln[0].isSpace()) continue; // indented continuation
+                if (ln.trimmed().startsWith('#')) continue;     // commented-out line
                 if (reSkipLine.match(ln).hasMatch()) continue;  // metadata keyword
                 break; // new top-level block or unrecognised non-pipe line
             }
@@ -115,7 +116,7 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
             QStringList cells;
             for (int p = 1; p < parts.size() - 1; ++p)
                 cells << parts[p].trimmed();
-            if (!cells.isEmpty())
+            if (!cells.isEmpty() && !cells[0].startsWith('#'))  // skip commented-out rows
                 result << cells;
         }
         return result;
@@ -154,13 +155,14 @@ QPair<QString, QVector<QStringList>> SpecTableIndex::defineInfo(const QString& n
             const QString& ln = lines[j];
             if (!reRow2.match(ln).hasMatch()) {
                 if (ln.trimmed().isEmpty()) continue;
+                if (ln.trimmed().startsWith('#')) continue;  // commented-out line
                 break;
             }
             QStringList parts = ln.split('|');
             QStringList cells;
             for (int p = 1; p < parts.size() - 1; ++p)
                 cells << parts[p].trimmed();
-            if (!cells.isEmpty())
+            if (!cells.isEmpty() && !cells[0].startsWith('#'))  // skip commented-out rows
                 rows << cells;
         }
         return { {}, rows };
