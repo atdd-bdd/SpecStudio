@@ -16,6 +16,19 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+static QString resolveValue(const QString& cell, const SpectableFile& file)
+{
+    if (cell.startsWith('=')) {
+        const QString name = cell.mid(1).trimmed();
+        for (const Define& d : file.defines)
+            if (d.name.compare(name, Qt::CaseInsensitive) == 0 && !d.isTable && !d.hasDocString) {
+                QString v = d.scalarValue;
+                return v.replace('~', ' ');
+            }
+    }
+    return resolveCell(cell);
+}
+
 static QString rustEscape(const QString& s)
 {
     QString r = s;
@@ -178,7 +191,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
                 const QStringList& r = def->tableRows[ri];
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
-                if (fieldIdx.contains(key)) row[fieldIdx[key]] = resolveCell(r[1]);
+                if (fieldIdx.contains(key)) row[fieldIdx[key]] = resolveValue(r[1], file);
             }
             result << row;
         } else {
@@ -191,7 +204,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
                 QStringList row(fieldCount);
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
-                    if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
+                    if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
                 result << row;
             }
         }
@@ -216,7 +229,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
                 if (fieldIdx.contains(key) && col < r.size())
-                    row[fieldIdx[key]] = r[col];
+                    row[fieldIdx[key]] = resolveValue(r[col], file);
             }
             result << row;
         }
@@ -230,7 +243,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
             QStringList row(fieldCount);
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
-                if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
+                if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
             result << row;
         }
     }
@@ -426,7 +439,7 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
             const QStringList& r = rows[ri];
             for (int ci = 0; ci < r.size(); ++ci) {
                 if (ci) s << ", ";
-                s << "\"" << rustEscape(resolveCell(r[ci])) << "\".to_string()";
+                s << "\"" << rustEscape(resolveValue(r[ci], file)) << "\".to_string()";
             }
             s << "],\n";
         }

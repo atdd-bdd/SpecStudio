@@ -19,6 +19,19 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+static QString resolveValue(const QString& cell, const SpectableFile& file)
+{
+    if (cell.startsWith('=')) {
+        const QString name = cell.mid(1).trimmed();
+        for (const Define& d : file.defines)
+            if (d.name.compare(name, Qt::CaseInsensitive) == 0 && !d.isTable && !d.hasDocString) {
+                QString v = d.scalarValue;
+                return v.replace('~', ' ');
+            }
+    }
+    return resolveCell(cell);
+}
+
 // Join a namespace prefix with a suffix; if prefix is empty, return suffix alone.
 static QString joinNs(const QString& prefix, const QString& suffix)
 {
@@ -192,7 +205,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
                 if (r.size() < 2) continue;
                 QString key = r[0].toLower();
                 if (fieldIdx.contains(key))
-                    row[fieldIdx[key]] = resolveCell(r[1]);
+                    row[fieldIdx[key]] = resolveValue(r[1], file);
             }
             result << row;
         } else {
@@ -206,7 +219,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
                 QStringList row(fieldCount);
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
-                    if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
+                    if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
                 result << row;
             }
         }
@@ -233,7 +246,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
                 if (fieldIdx.contains(key) && col < r.size())
-                    row[fieldIdx[key]] = r[col];
+                    row[fieldIdx[key]] = resolveValue(r[col], file);
             }
             result << row;
         }
@@ -248,7 +261,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
             QStringList row(fieldCount);
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
-                if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
             result << row;
         }
     }
@@ -506,7 +519,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     const QStringList& r = tbl.rows[ri];
                     for (int ci = 0; ci < r.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << resolveCell(r[ci]) << "\"";
+                        s << "\"" << resolveValue(r[ci], file) << "\"";
                     }
                     s << " },\n";
                 }
@@ -595,7 +608,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     s << "         new List<string>{ ";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << resolveCell(row[ci]) << "\"";
+                        s << "\"" << resolveValue(row[ci], file) << "\"";
                     }
                     s << " },\n";
                 }

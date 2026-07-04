@@ -149,6 +149,17 @@ QPair<QString, QVector<QStringList>> SpecTableIndex::defineInfo(const QString& n
         if (!afterEq.isEmpty())
             return { afterEq, {} };
 
+        // Docstring define — accumulate until closing """
+        if (i + 1 < lines.size() && lines[i + 1].trimmed() == "\"\"\"") {
+            QString docStr;
+            for (int j = i + 2; j < lines.size(); ++j) {
+                if (lines[j].trimmed() == "\"\"\"") break;
+                docStr += lines[j] + "\n";
+            }
+            if (docStr.endsWith('\n')) docStr.chop(1);
+            return { docStr, {} };
+        }
+
         // Table define — collect rows
         QVector<QStringList> rows;
         for (int j = i + 1; j < lines.size(); ++j) {

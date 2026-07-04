@@ -196,7 +196,38 @@ void SpecTableEditor::showHoverPreview(const QPoint& viewportPos, const QPoint& 
         else if (syms.scenarios.contains(word))       type = "Scenario";
         else if (syms.specifications.contains(word))  type = "Specification";
 
-        if (!type.isEmpty())
+        if (type == "Define") {
+            // If cursor is on a =DefineName reference, show the define value
+            QTextCursor tcCheck = tc;
+            tcCheck.setPosition(tc.selectionStart());
+            tcCheck.movePosition(QTextCursor::Left, QTextCursor::KeepAnchor, 1);
+            if (tcCheck.selectedText() == "=" && m_index) {
+                const auto info = m_index->defineInfo(word);
+                if (!info.first.isEmpty()) {
+                    const QString val = info.first.toHtmlEscaped().replace("\n", "<br>");
+                    tipText = QStringLiteral("<b>=%1</b> = %2<br><small>%3 &mdash; line %4</small>")
+                                  .arg(word.toHtmlEscaped(), val,
+                                       QFileInfo(loc.filePath).fileName().toHtmlEscaped(),
+                                       QString::number(loc.line));
+                } else if (!info.second.isEmpty()) {
+                    tipText = QStringLiteral("<b>=%1</b><table border='1' cellpadding='3' style='margin-top:4px'>")
+                                  .arg(word.toHtmlEscaped());
+                    for (int r = 0; r < info.second.size(); ++r) {
+                        tipText += (r == 0) ? "<tr style='background:#e0e0e0'>" : "<tr>";
+                        for (const QString& cell : info.second[r])
+                            tipText += (r == 0)
+                                ? QStringLiteral("<th>%1</th>").arg(cell.toHtmlEscaped())
+                                : QStringLiteral("<td>%1</td>").arg(cell.toHtmlEscaped());
+                        tipText += "</tr>";
+                    }
+                    tipText += QStringLiteral("</table><br><small>%1 &mdash; line %2</small>")
+                                   .arg(QFileInfo(loc.filePath).fileName().toHtmlEscaped())
+                                   .arg(loc.line);
+                }
+            }
+        }
+
+        if (!type.isEmpty() && tipText.isEmpty())
             tipText = QStringLiteral("<b>%1:</b> %2<br><small>%3 &mdash; line %4</small>")
                           .arg(type, word.toHtmlEscaped(),
                                QFileInfo(loc.filePath).fileName().toHtmlEscaped(),

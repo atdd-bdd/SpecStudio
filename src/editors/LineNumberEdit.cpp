@@ -427,6 +427,13 @@ QString LineNumberEdit::currentLinePrefix() const
     if (atPos >= 0 && !blockText.mid(atPos, col - atPos).contains(' '))
         return blockText.mid(atPos, col - atPos);
 
+    // Define-ref context: =DefineName inside a cell (not on a Define declaration line)
+    if (!blockText.trimmed().startsWith("Define", Qt::CaseInsensitive)) {
+        int eqPos = blockText.lastIndexOf('=', col - 1);
+        if (eqPos >= 0 && !blockText.mid(eqPos, col - eqPos).contains(' '))
+            return blockText.mid(eqPos, col - eqPos);
+    }
+
     // Colon context: after ":" on a step line → return just the partial attr-set name
     if (!m_attrSetWords.isEmpty() && isStepColonContext(blockText, col)) {
         const int colonPos = blockText.lastIndexOf(':', col - 1);
@@ -467,6 +474,15 @@ void LineNumberEdit::updateCompleterWords()
     // In Type column context, offer only type names
     if (isTypeColumnContext()) {
         qobject_cast<QStringListModel*>(m_completer->model())->setStringList(m_typeWords);
+        return;
+    }
+
+    // In define-ref context (=...), offer only =Name entries
+    if (currentLinePrefix().startsWith('=')) {
+        QStringList defineWords;
+        for (const QString& w : m_baseWords)
+            if (w.startsWith('=')) defineWords << w;
+        qobject_cast<QStringListModel*>(m_completer->model())->setStringList(defineWords);
         return;
     }
 
@@ -539,7 +555,7 @@ void LineNumberEdit::keyPressEvent(QKeyEvent* event)
         && isStepColonContext(textCursor().block().text(), textCursor().positionInBlock());
     const bool inTypeCtx  = isTypeColumnContext();
 
-    if (!inColonCtx && !inTypeCtx && prefix.length() < 2) {
+    if (!inColonCtx && !inTypeCtx && !prefix.startsWith('=') && prefix.length() < 2) {
         m_completer->popup()->hide();
         return;
     }
