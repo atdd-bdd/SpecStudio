@@ -87,6 +87,23 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     root->addWidget(langGroup);
 
+    // ── Output options ────────────────────────────────────────────────────────
+    auto* outOptGroup  = new QGroupBox(tr("Output Options"), inner);
+    auto* outOptLayout = new QVBoxLayout(outOptGroup);
+
+    m_copySpectable = new QCheckBox(
+        tr("Copy .spectable source file to output directory"), outOptGroup);
+    m_copySpectable->setChecked(true);
+    auto* copyHint = new QLabel(
+        tr("When checked, the .spectable file is copied alongside the generated code."),
+        outOptGroup);
+    copyHint->setWordWrap(true);
+    copyHint->setStyleSheet("color: gray; font-size: 11px;");
+    outOptLayout->addWidget(m_copySpectable);
+    outOptLayout->addWidget(copyHint);
+
+    root->addWidget(outOptGroup);
+
     // ── Glue group ────────────────────────────────────────────────────────────
     auto* glueGroup = new QGroupBox(tr("Glue File"), inner);
     auto* glueLayout = new QVBoxLayout(glueGroup);
@@ -171,7 +188,8 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     connect(m_framework, &QComboBox::currentTextChanged, this, &SpecConfigEditor::markDirty);
     connect(m_outputDir, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_namespace, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
-    connect(m_overwriteGlue, &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
+    connect(m_overwriteGlue,  &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
+    connect(m_copySpectable,  &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
     connect(m_converterPath, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_imports,    &QPlainTextEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_tagFilter,  &QLineEdit::textChanged,      this, &SpecConfigEditor::markDirty);
@@ -243,8 +261,8 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     auto unblock = [](QObject* o) { o->blockSignals(false); };
 
     block(m_language); block(m_framework); block(m_outputDir);
-    block(m_namespace); block(m_overwriteGlue); block(m_converterPath);
-    block(m_imports); block(m_tagFilter);
+    block(m_namespace); block(m_overwriteGlue); block(m_copySpectable);
+    block(m_converterPath); block(m_imports); block(m_tagFilter);
 
     m_outputDir->setText(cfg.outputDirectory);
 
@@ -261,13 +279,14 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_namespace->setText(cfg.namespacePrefix);
     m_namespace->setEnabled(cfg.language == "CSharp" || cfg.language == "Java");
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
+    m_copySpectable->setChecked(cfg.copySpectable);
     m_converterPath->setText(cfg.converterPath);
     m_imports->setPlainText(cfg.imports.join("\n"));
     m_tagFilter->setText(cfg.tagFilter);
 
     unblock(m_language); unblock(m_framework); unblock(m_outputDir);
-    unblock(m_namespace); unblock(m_overwriteGlue); unblock(m_converterPath);
-    unblock(m_imports); unblock(m_tagFilter);
+    unblock(m_namespace); unblock(m_overwriteGlue); unblock(m_copySpectable);
+    unblock(m_converterPath); unblock(m_imports); unblock(m_tagFilter);
 }
 
 SpecConfig SpecConfigEditor::configFromForm() const
@@ -278,6 +297,7 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.framework       = m_framework->currentText();
     cfg.namespacePrefix = m_namespace->text().trimmed();
     cfg.overwriteGlue   = m_overwriteGlue->isChecked();
+    cfg.copySpectable   = m_copySpectable->isChecked();
     cfg.converterPath   = m_converterPath->text().trimmed();
     const QString impText = m_imports->toPlainText();
     for (const QString& line : impText.split('\n'))

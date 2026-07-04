@@ -42,6 +42,10 @@ int main(int argc, char* argv[])
         "Overwrite the glue file even if it exists");
     cli.addOption(overwriteGlueOpt);
 
+    QCommandLineOption noCopyOpt("no-copy-spectable",
+        "Do not copy the .spectable source file to the output directory");
+    cli.addOption(noCopyOpt);
+
     QCommandLineOption ctxOpt("context",
         "Additional .spectable files whose Attributes/Entities/Defines are globally visible "
         "(no code generated for them). May be specified multiple times.", "file");
@@ -117,6 +121,7 @@ int main(int argc, char* argv[])
         opts.outputDir     = outputDir;
         opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable = !cli.isSet(noCopyOpt);
         opts.framework     = framework;
         opts.extraImports  = cli.values(importOpt);
         opts.tagFilter     = cli.value(tagFilterOpt);
@@ -127,6 +132,7 @@ int main(int argc, char* argv[])
         opts.cratePrefix   = cli.value(nsOpt);
         opts.outputDir     = outputDir;
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable = !cli.isSet(noCopyOpt);
         opts.extraUses     = cli.values(importOpt);
         opts.tagFilter     = cli.value(tagFilterOpt);
         RustGenerator gen;
@@ -139,6 +145,7 @@ int main(int argc, char* argv[])
         opts.outputDir     = outputDir;
         opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable = !cli.isSet(noCopyOpt);
         opts.extraImports  = cli.values(importOpt);
         opts.tagFilter     = cli.value(tagFilterOpt);
         CSharpGenerator gen;

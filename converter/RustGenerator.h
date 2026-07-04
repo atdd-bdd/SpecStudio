@@ -10,6 +10,7 @@ public:
         QString     cratePrefix;    // reserved — always uses "crate::" paths
         QString     outputDir;
         bool        overwriteGlue = false;
+        bool        copySpectable = true;
         QStringList extraUses;     // extra "use" lines injected at top of generated files
         QString     tagFilter;
     };

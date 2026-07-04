@@ -35,6 +35,7 @@ private:
     QComboBox*    m_framework      = nullptr;
     QLineEdit*    m_namespace      = nullptr;
     QCheckBox*    m_overwriteGlue  = nullptr;
+    QCheckBox*    m_copySpectable  = nullptr;
     QLineEdit*    m_converterPath  = nullptr;
     QPushButton*  m_browseConverter = nullptr;
     QPlainTextEdit* m_imports      = nullptr;

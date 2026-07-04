@@ -12,6 +12,7 @@ public:
         QString     outputDir;                          // destination directory
         QString     sourceRoot;                         // project root; used to derive subfolder from file path
         bool        overwriteGlue = false;              // force-overwrite the glue file
+        bool        copySpectable = true;               // copy source .spectable to output dir
         QStringList extraImports;                       // injected after auto-usings in every generated file
         QString     tagFilter;                          // boolean tag expression; empty = generate all
     };

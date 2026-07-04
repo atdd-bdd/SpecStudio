@@ -21,6 +21,7 @@ SpecConfig SpecConfig::load(const QString& filePath)
     if (o.contains("framework"))       cfg.framework        = o["framework"].toString();
     if (o.contains("namespace"))       cfg.namespacePrefix  = o["namespace"].toString();
     if (o.contains("overwriteGlue"))   cfg.overwriteGlue    = o["overwriteGlue"].toBool();
+    if (o.contains("copySpectable"))   cfg.copySpectable    = o["copySpectable"].toBool();
     if (o.contains("converterPath"))   cfg.converterPath    = o["converterPath"].toString();
     if (o.contains("imports")) {
         for (const QJsonValue& v : o["imports"].toArray())
@@ -40,6 +41,8 @@ bool SpecConfig::save(const QString& filePath) const
     if (!namespacePrefix.isEmpty())
         o["namespace"]   = namespacePrefix;
     o["overwriteGlue"]   = overwriteGlue;
+    if (!copySpectable)
+        o["copySpectable"] = false;
     if (!converterPath.isEmpty())
         o["converterPath"] = converterPath;
     if (!imports.isEmpty()) {
