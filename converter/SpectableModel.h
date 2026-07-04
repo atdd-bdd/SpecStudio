@@ -23,13 +23,15 @@ struct AttrSet {
     bool           isContext = false;  // from a context file — symbols only, no class generation
 };
 
-// A Define block (constant value or table)
+// A Define block (constant value, table, or docstring)
 struct Define {
     QString              name;
     QString              scalarValue;  // for "Define Name = scalar"
     QVector<QStringList> tableRows;    // for table-form Define (raw cell lists)
     bool                 isTable    = false;
     bool                 transposed = false;  // vertical key/value Define table
+    QString              docString;           // for docstring-form Define
+    bool                 hasDocString = false;
     int                  line       = 0;
     bool                 isContext  = false;  // from a context file
 };

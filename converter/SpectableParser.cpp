@@ -137,17 +137,18 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 
     enum class State {
         Top,
-        InAttrDef,      // reading the field-definition pipe table
+        InAttrDef,         // reading the field-definition pipe table
         InDefineTable,
+        InDefineDocString, // collecting """ ... """ content for the current define
         InBackground,
         InCleanup,
         InScenario,
         AwaitStepTable,
         InStepTable,
-        SkipTable,      // discard until blank or non-pipe line
-        InNamedBlock,   // inside BusinessRule / Calculation / DataType header
-        InExamplesTable,// reading the Examples table for a named block
-        InDocString     // collecting """ ... """ content for the current step
+        SkipTable,         // discard until blank or non-pipe line
+        InNamedBlock,      // inside BusinessRule / Calculation / DataType header
+        InExamplesTable,   // reading the Examples table for a named block
+        InDocString        // collecting """ ... """ content for the current step
     };
 
     State       state       = State::Top;
@@ -210,6 +211,23 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 curStep = nullptr;
             } else {
                 if (curStep) curStep->docString += raw + "\n";
+            }
+            continue;
+        }
+
+        // ── Define DocString accumulation ────────────────────────────────────
+        if (state == State::InDefineDocString) {
+            if (trimmed == "\"\"\"") {
+                if (curDefine) {
+                    if (curDefine->docString.endsWith('\n'))
+                        curDefine->docString.chop(1);
+                    curDefine->hasDocString = true;
+                    curDefine->isTable = false;
+                }
+                curDefine = nullptr;
+                state = State::Top;
+            } else {
+                if (curDefine) curDefine->docString += raw + "\n";
             }
             continue;
         }
@@ -376,6 +394,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     endStepTable();
                 continue;
             }
+        }
+
+        // DocString opener for defines: """ immediately after Define Name (no rows yet)
+        if (trimmed == "\"\"\"" && state == State::InDefineTable && curDefine
+                && curDefine->tableRows.isEmpty()) {
+            state = State::InDefineDocString;
+            continue;
         }
 
         // End open step table

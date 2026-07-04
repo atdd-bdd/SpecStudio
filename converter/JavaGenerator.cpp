@@ -473,6 +473,18 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 s << "        " << glueVar << "." << meth << "(\"" << esc << "\");\n\n";
                 continue;
             }
+            if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+                const Define* def = findDefine(step.defineRef, file);
+                if (def && def->hasDocString) {
+                    const QString meth = toMethodName(step.keyword, step.text);
+                    QString esc = def->docString;
+                    esc.replace("\\", "\\\\");
+                    esc.replace("\"", "\\\"");
+                    esc.replace("\n", "\\n");
+                    s << "        " << glueVar << "." << meth << "(\"" << esc << "\");\n\n";
+                    continue;
+                }
+            }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
                 // Bare step — call with no arguments
                 const QString meth = toMethodName(step.keyword, step.text);
@@ -642,16 +654,20 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             const QString meth = toMethodName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-            if (step.hasDocString)
+            if (step.hasDocString) {
                 sigs.push_back({ meth, "docstring" });
-            else if (step.attrSetName.isEmpty() && !step.hasTable)
+            } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+                const Define* def = findDefine(step.defineRef, file);
+                sigs.push_back({ meth, (def && def->hasDocString) ? "docstring" : "" });
+            } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "" });                  // void / no parameter
-            else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file))
+            } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, step.attrSetName + "String" });
-            else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file))
+            } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, "List<List<String>>" });  // grid
-            else
+            } else {
                 sigs.push_back({ meth, "List<String>" });
+            }
         }
     };
 
@@ -844,8 +860,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         return msgs;
     }
 
-    // Copy the source .spectable file into the output folder
-    if (!file.filePath.isEmpty()) {
+    // Copy the source .spectable file into the output folder (if enabled)
+    if (opts.copySpectable && !file.filePath.isEmpty()) {
         const QString destPath = dir.filePath(QFileInfo(file.filePath).fileName());
         QFile::remove(destPath);
         if (!QFile::copy(file.filePath, destPath))

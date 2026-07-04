@@ -444,6 +444,18 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                 s << "    glue." << meth << "(\"" << esc << "\");\n";
                 continue;
             }
+            if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+                const Define* def = findDefine(step.defineRef, file);
+                if (def && def->hasDocString) {
+                    const QString meth = toFnName(step.keyword, step.text);
+                    QString esc = def->docString;
+                    esc.replace("\\", "\\\\");
+                    esc.replace("\"", "\\\"");
+                    esc.replace("\n", "\\n");
+                    s << "    glue." << meth << "(\"" << esc << "\");\n";
+                    continue;
+                }
+            }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
                 const QString meth = toFnName(step.keyword, step.text);
                 s << "    glue." << meth << "();\n";
@@ -560,14 +572,18 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
             const QString meth = toFnName(step.keyword, step.text);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
-            if (step.hasDocString)
+            if (step.hasDocString) {
                 sigs.push_back({ meth, "docstring" });
-            else if (step.attrSetName.isEmpty() && !step.hasTable)
+            } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+                const Define* def = findDefine(step.defineRef, file);
+                sigs.push_back({ meth, (def && def->hasDocString) ? "docstring" : "" });
+            } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "" });
-            else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file))
+            } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, step.attrSetName + "String" });
-            else
+            } else {
                 sigs.push_back({ meth, "grid" });
+            }
         }
     };
 
@@ -720,8 +736,8 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         return msgs;
     }
 
-    // Copy source .spectable
-    if (!file.filePath.isEmpty()) {
+    // Copy source .spectable (if enabled)
+    if (opts.copySpectable && !file.filePath.isEmpty()) {
         const QString dest = outDir.filePath(QFileInfo(file.filePath).fileName());
         QFile::remove(dest);
         if (!QFile::copy(file.filePath, dest))
