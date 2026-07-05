@@ -517,26 +517,60 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
     int objectCounter = 0;
 
+    // Strip the common leading whitespace from docstring lines and emit as a Java text block.
+    // Each content line is prefixed with `lineIndent` in the output; Java then strips that indent.
+    // Issues a warning if any non-blank line lacks the common prefix.
+    auto emitTextBlock = [&](const QString& docString, const QString& lineIndent, int srcLine) {
+        const QStringList lines = docString.split('\n');
+
+        // Compute common leading whitespace across non-blank lines
+        QString prefix;
+        bool first = true;
+        for (const QString& ln : lines) {
+            if (ln.trimmed().isEmpty()) continue;
+            if (first) {
+                int i = 0;
+                while (i < ln.size() && (ln[i] == ' ' || ln[i] == '\t')) ++i;
+                prefix = ln.left(i);
+                first = false;
+            } else {
+                int maxLen = qMin(prefix.size(), ln.size());
+                int i = 0;
+                while (i < maxLen && prefix[i] == ln[i]) ++i;
+                prefix = prefix.left(i);
+            }
+        }
+
+        s << "\"\"\"\n";
+        for (const QString& ln : lines) {
+            if (ln.trimmed().isEmpty()) {
+                s << "\n";
+            } else if (ln.startsWith(prefix)) {
+                s << lineIndent << ln.mid(prefix.size()) << "\n";
+            } else {
+                errors << QStringLiteral("WARNING:%1: Text does not align with the opening \"\"\"").arg(srcLine);
+                s << lineIndent << ln << "\n";
+            }
+        }
+        s << lineIndent << "\"\"\"";
+    };
+
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
             if (step.hasDocString) {
                 const QString meth = toMethodName(step.keyword, step.text);
-                QString esc = step.docString;
-                esc.replace("\\", "\\\\");
-                esc.replace("\"", "\\\"");
-                esc.replace("\n", "\\n");
-                s << "        " << glueVar << "." << meth << "(\"" << esc << "\");\n\n";
+                s << "        " << glueVar << "." << meth << "(";
+                emitTextBlock(step.docString, "        ", step.line);
+                s << ");\n\n";
                 continue;
             }
             if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
                 if (def && def->hasDocString) {
                     const QString meth = toMethodName(step.keyword, step.text);
-                    QString esc = def->docString;
-                    esc.replace("\\", "\\\\");
-                    esc.replace("\"", "\\\"");
-                    esc.replace("\n", "\\n");
-                    s << "        " << glueVar << "." << meth << "(\"" << esc << "\");\n\n";
+                    s << "        " << glueVar << "." << meth << "(";
+                    emitTextBlock(def->docString, "        ", step.line);
+                    s << ");\n\n";
                     continue;
                 }
             }
