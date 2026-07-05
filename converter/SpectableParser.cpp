@@ -109,6 +109,69 @@ static bool isBlockStartKeyword(const QString& firstWord)
 }
 
 // ---------------------------------------------------------------------------
+// CSV/TSV → pipe-table conversion
+// ---------------------------------------------------------------------------
+
+static QVector<QStringList> parseCsvRows(const QString& content, const QString& fname)
+{
+    QStringList lines = content.split('\n');
+    while (!lines.isEmpty() && lines.last().trimmed().isEmpty())
+        lines.removeLast();
+    if (lines.isEmpty()) return {};
+
+    QChar delim = ',';
+    const QString ext = QFileInfo(fname).suffix().toLower();
+    if (ext == "tsv") {
+        delim = '\t';
+    } else if (ext != "csv") {
+        for (const QString& ln : lines) {
+            if (ln.trimmed().isEmpty()) continue;
+            if (ln.count('\t') > ln.count(',')) delim = '\t';
+            break;
+        }
+    }
+
+    QVector<QStringList> rows;
+    for (const QString& ln : lines) {
+        if (ln.trimmed().isEmpty()) continue;
+        QStringList cells;
+        for (const QString& c : ln.split(delim))
+            cells << c.trimmed();
+        rows << cells;
+    }
+    return rows;
+}
+
+static void validateCsvHeaders(const QVector<QStringList>& rows, const QString& fname,
+                                const QStringList& expectedFields, QStringList& warnings)
+{
+    if (rows.isEmpty() || expectedFields.isEmpty()) return;
+    for (const QString& hdr : rows[0]) {
+        bool found = false;
+        for (const QString& f : expectedFields)
+            if (f.compare(hdr, Qt::CaseInsensitive) == 0) { found = true; break; }
+        if (!found)
+            warnings << QStringLiteral("Header '%1' in '%2' does not match any Attribute").arg(hdr, fname);
+    }
+}
+
+static QString csvToTable(const QString& content, const QString& fname,
+                           const QStringList& expectedFields, QStringList& warnings)
+{
+    const QVector<QStringList> rows = parseCsvRows(content, fname);
+    if (rows.isEmpty()) return {};
+    validateCsvHeaders(rows, fname, expectedFields, warnings);
+    QString result;
+    for (const QStringList& row : rows) {
+        result += '|';
+        for (const QString& cell : row)
+            result += ' ' + cell + " |";
+        result += '\n';
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
 // Parse
 // ---------------------------------------------------------------------------
 
@@ -192,6 +255,51 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         state         = State::Top;
     };
 
+    // Append one line of docstring content, resolving Insert commands.
+    // `lineNum` is captured by reference so it reflects the current loop variable.
+    static QRegularExpression reDocInsert(
+        R"re(^\s*Insert\s+(?:"([^"]+)"|'([^']+)'|<([^>]+)>)\s*$)re",
+        QRegularExpression::CaseInsensitiveOption);
+    const QString baseDir = QFileInfo(absPath).absolutePath();
+
+    auto appendDocLine = [&](const QString& raw, QString& docStr, int lineNum) {
+        auto m = reDocInsert.match(raw);
+        if (m.hasMatch()) {
+            const QString fname = !m.captured(1).isEmpty() ? m.captured(1)
+                                : !m.captured(2).isEmpty() ? m.captured(2)
+                                                           : m.captured(3);
+            const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+            QFile ins(fullPath);
+            if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                emitMsg(lineNum, "WARNING: Cannot insert file: " + fname, false);
+                return;
+            }
+            QString content = QTextStream(&ins).readAll();
+            const QString ext = QFileInfo(fname).suffix().toLower();
+            if (ext == "csv" || ext == "tsv") {
+                // Collect expected field names from the step's attrSet (if in step context)
+                QStringList expectedFields;
+                if (curStep && !curStep->attrSetName.isEmpty()) {
+                    for (const AttrSet& as : result.attrSets)
+                        if (as.name.compare(curStep->attrSetName, Qt::CaseInsensitive) == 0) {
+                            for (const Field& fld : as.fields)
+                                expectedFields << fld.name;
+                            break;
+                        }
+                }
+                QStringList warnings;
+                docStr += csvToTable(content, fname, expectedFields, warnings);
+                for (const QString& w : warnings)
+                    emitMsg(lineNum, w, false);
+            } else {
+                if (!content.endsWith('\n')) content += '\n';
+                docStr += content;
+            }
+        } else {
+            docStr += raw + "\n";
+        }
+    };
+
     for (int idx = 0; idx < lines.size(); ++idx) {
         const int    lineNum  = idx + 1;
         const QString raw     = lines[idx];
@@ -210,7 +318,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                   : (inCleanupBlock ? State::InCleanup : State::InBackground);
                 curStep = nullptr;
             } else {
-                if (curStep) curStep->docString += raw + "\n";
+                if (curStep) appendDocLine(raw, curStep->docString, lineNum);
             }
             continue;
         }
@@ -227,7 +335,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 curDefine = nullptr;
                 state = State::Top;
             } else {
-                if (curDefine) curDefine->docString += raw + "\n";
+                if (curDefine) appendDocLine(raw, curDefine->docString, lineNum);
             }
             continue;
         }
@@ -393,6 +501,42 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 if (state == State::InStepTable || state == State::AwaitStepTable)
                     endStepTable();
                 continue;
+            }
+        }
+
+        // Insert "file.csv" in step table position (AwaitStepTable)
+        {
+            auto mi = reDocInsert.match(trimmed);
+            if (mi.hasMatch() && curStep && !curStep->attrSetName.isEmpty()
+                    && state == State::AwaitStepTable) {
+                const QString fname = !mi.captured(1).isEmpty() ? mi.captured(1)
+                                    : !mi.captured(2).isEmpty() ? mi.captured(2)
+                                                                : mi.captured(3);
+                const QString ext = QFileInfo(fname).suffix().toLower();
+                if (ext == "csv" || ext == "tsv") {
+                    const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+                    QFile ins(fullPath);
+                    if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        emitMsg(lineNum, "WARNING: Cannot insert file: " + fname, false);
+                    } else {
+                        QStringList expectedFields;
+                        for (const AttrSet& as : result.attrSets)
+                            if (as.name.compare(curStep->attrSetName, Qt::CaseInsensitive) == 0) {
+                                for (const Field& fld : as.fields) expectedFields << fld.name;
+                                break;
+                            }
+                        const QVector<QStringList> rows = parseCsvRows(QTextStream(&ins).readAll(), fname);
+                        QStringList warnings;
+                        validateCsvHeaders(rows, fname, expectedFields, warnings);
+                        for (const QString& w : warnings) emitMsg(lineNum, w, false);
+                        curStep->table.rows      = rows;
+                        curStep->table.hasHeader = !rows.isEmpty();
+                        curStep->hasTable        = true;
+                        curStep->defineRef.clear();
+                    }
+                    endStepTable();
+                    continue;
+                }
             }
         }
 

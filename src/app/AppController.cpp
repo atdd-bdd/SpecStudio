@@ -607,15 +607,18 @@ void AppController::onBuildCurrentFile()
         return;
     }
 
-    // Locate config
+    // Locate config — prefer user-selected active config for this project
     const QString projRoot = m_solution
         ? (m_solution->projectForFile(ed->filePath())
            ? m_solution->projectForFile(ed->filePath())->rootPath() : QString())
         : QString();
-    const QString cfgPath  = findSpecConfig(QFileInfo(ed->filePath()).dir().absolutePath(),
-                                             projRoot.isEmpty()
-                                             ? QFileInfo(ed->filePath()).dir().absolutePath()
-                                             : projRoot);
+    QString cfgPath = projRoot.isEmpty() ? QString()
+                                         : m_settings->activeBuildConfig(projRoot);
+    if (cfgPath.isEmpty() || !QFile::exists(cfgPath))
+        cfgPath = findSpecConfig(QFileInfo(ed->filePath()).dir().absolutePath(),
+                                 projRoot.isEmpty()
+                                 ? QFileInfo(ed->filePath()).dir().absolutePath()
+                                 : projRoot);
     const SpecConfig cfg   = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
 
     // Resolve converter and output dir
