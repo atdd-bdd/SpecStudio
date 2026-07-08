@@ -438,7 +438,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     // Warn on unrecognised header columns
                     static const QStringList knownHeaders = {
                         "attribute", "name", "type", "datatype",
-                        "default", "notes", "in-out", "in/out", "multiples"
+                        "default", "note", "notes", "in-out", "in/out", "multiples"
                     };
                     for (const QString& h : cells) {
                         if (!h.startsWith('#') && !knownHeaders.contains(h.toLower())) {

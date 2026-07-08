@@ -69,8 +69,32 @@ static QString javaBoxedType(const QString& specType)
     return specType.trimmed();
 }
 
+static bool isDataType(const QString& name, const SpectableFile& file)
+{
+    static const QStringList builtins = {
+        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Date", "Time", "DateTime", "Duration", "YesNo"
+    };
+    for (const QString& b : builtins)
+        if (b.compare(name, Qt::CaseInsensitive) == 0) return true;
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+static bool isEnumType(const QString& name, const SpectableFile& file)
+{
+    for (const NamedBlock& nb : file.namedBlocks)
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0
+         && nb.name.compare(name, Qt::CaseInsensitive) == 0
+         && nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0)
+            return true;
+    return false;
+}
+
 QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
-                                  int line, QStringList& msgs)
+                                  int line, QStringList& msgs,
+                                  const SpectableFile* file)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int" || t == "long")
@@ -88,6 +112,10 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
     if (t == "duration")                  return QString("Duration.parse(this.%1)").arg(field);
     if (t == "string" || t == "text"
      || t == "character" || t == "char")  return QString("this.%1").arg(field);
+    if (file && isEnumType(specType.trimmed(), *file))
+        return QString("%1.valueOf(this.%2)").arg(specType.trimmed()).arg(field);
+    if (file && isDataType(specType.trimmed(), *file))
+        return QString("new %1(this.%2)").arg(specType.trimmed()).arg(field);
     msgs << QString("WARNING:%1:Unknown type '%2' for field '%3' — no parse conversion available")
                 .arg(line).arg(specType.trimmed()).arg(field);
     return QString("this.%1").arg(field);
@@ -149,19 +177,6 @@ static QString cellLiteral(const QString& val, const QString& specType)
 
 // DataType detection (built-in names + user-declared)
 // ---------------------------------------------------------------------------
-
-static bool isDataType(const QString& name, const SpectableFile& file)
-{
-    static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
-        "Date", "Time", "DateTime", "Duration", "YesNo"
-    };
-    for (const QString& b : builtins)
-        if (b.compare(name, Qt::CaseInsensitive) == 0) return true;
-    for (const QString& d : file.dataTypeNames)
-        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
-    return false;
-}
 
 // ---------------------------------------------------------------------------
 // Examples-table row resolution for NamedBlock (BusinessRule / Calc / DataType)
@@ -327,7 +342,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
 // String class
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs) const
+QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
     const QString tn = as.name + "Typed";
@@ -378,7 +393,7 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     s << "        return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f = as.fields[i];
-        const QString expr = parseExpr(toCamelCase(f.name), f.type, as.line, msgs);
+        const QString expr = parseExpr(toCamelCase(f.name), f.type, as.line, msgs, &file);
         if (f.multiples)
             s << "            Collections.singletonList(" << expr << ")";
         else
@@ -1050,7 +1065,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, m_extraImports, msgs), msgs);
+        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, m_extraImports, msgs, file), msgs);
         writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, m_extraImports, msgs),  msgs);
     }
 
