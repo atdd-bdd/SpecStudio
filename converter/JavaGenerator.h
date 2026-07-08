@@ -26,7 +26,8 @@ private:
     QString     m_tagFilter;
 
     static QString javaType(const QString& specType);
-    static QString parseExpr(const QString& field, const QString& specType);
+    static QString parseExpr(const QString& field, const QString& specType,
+                              int line, QStringList& msgs);
 
     static QString toClassName(const QString& name);
     static QString toMethodName(const QString& keyword, const QString& stepText);
@@ -39,8 +40,8 @@ private:
     static const AttrSet* findAttrSet(const QString& name, const SpectableFile& file);
     static const Define*  findDefine(const QString& name, const SpectableFile& file);
 
-    QString genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const;
-    QString genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const;
+    QString genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs) const;
+    QString genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs) const;
     QString genTestFile(const SpectableFile& file, const QString& testPkg,
                         const QString& specPkg, const QString& domainPkg,
                         const QString& className, QStringList& errors) const;

@@ -112,6 +112,39 @@ static bool isBlockStartKeyword(const QString& firstWord)
 // CSV/TSV → pipe-table conversion
 // ---------------------------------------------------------------------------
 
+static QStringList parseCsvLine(const QString& line, QChar delim)
+{
+    QStringList result;
+    QString field;
+    bool inQuotes = false;
+    for (int i = 0; i < line.size(); ++i) {
+        const QChar c = line[i];
+        if (inQuotes) {
+            if (c == '"') {
+                if (i + 1 < line.size() && line[i + 1] == '"') {
+                    field += '"';  // escaped double-quote
+                    ++i;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                field += c;
+            }
+        } else {
+            if (c == '"') {
+                inQuotes = true;
+            } else if (c == delim) {
+                result << field.trimmed();
+                field.clear();
+            } else {
+                field += c;
+            }
+        }
+    }
+    result << field.trimmed();
+    return result;
+}
+
 static QVector<QStringList> parseCsvRows(const QString& content, const QString& fname)
 {
     QStringList lines = content.split('\n');
@@ -134,10 +167,7 @@ static QVector<QStringList> parseCsvRows(const QString& content, const QString& 
     QVector<QStringList> rows;
     for (const QString& ln : lines) {
         if (ln.trimmed().isEmpty()) continue;
-        QStringList cells;
-        for (const QString& c : ln.split(delim))
-            cells << c.trimmed();
-        rows << cells;
+        rows << parseCsvLine(ln, delim);
     }
     return rows;
 }

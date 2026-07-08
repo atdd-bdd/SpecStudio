@@ -808,10 +808,15 @@ void SpecTableEditor::toggleLineComment()
     for (QTextBlock b = firstBlock; b.isValid() && b != lastBlock.next(); b = b.next()) {
         QTextCursor bc(b);
         bc.movePosition(QTextCursor::StartOfBlock);
-        if (allCommented)
-            bc.deleteChar();
-        else
-            bc.insertText("#");
+        if (allCommented) {
+            // Remove "# " if present, otherwise just "#"
+            const QString text = b.text();
+            bc.deleteChar();                          // remove '#'
+            if (bc.block().text().startsWith(' '))
+                bc.deleteChar();                      // remove the space
+        } else {
+            bc.insertText("# ");
+        }
     }
     cur.endEditBlock();
 }

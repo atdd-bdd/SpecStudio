@@ -69,11 +69,14 @@ static QString javaBoxedType(const QString& specType)
     return specType.trimmed();
 }
 
-QString JavaGenerator::parseExpr(const QString& field, const QString& specType)
+QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
+                                  int line, QStringList& msgs)
 {
     const QString t = specType.trimmed().toLower();
-    if (t == "integer" || t == "int")     return QString("Integer.parseInt(this.%1)").arg(field);
-    if (t == "float"   || t == "decimal") return QString("Double.parseDouble(this.%1)").arg(field);
+    if (t == "integer" || t == "int" || t == "long")
+                                          return QString("Integer.parseInt(this.%1)").arg(field);
+    if (t == "float"   || t == "decimal"
+     || t == "double")                    return QString("Double.parseDouble(this.%1)").arg(field);
     if (t == "boolean" || t == "yesno"
      || t == "bool")                      return QString(
         "(this.%1.equalsIgnoreCase(\"true\") || this.%1.equalsIgnoreCase(\"t\") "
@@ -85,7 +88,9 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType)
     if (t == "duration")                  return QString("Duration.parse(this.%1)").arg(field);
     if (t == "string" || t == "text"
      || t == "character" || t == "char")  return QString("this.%1").arg(field);
-    return QString("new %1(this.%2)").arg(specType.trimmed()).arg(field);
+    msgs << QString("WARNING:%1:Unknown type '%2' for field '%3' — no parse conversion available")
+                .arg(line).arg(specType.trimmed()).arg(field);
+    return QString("this.%1").arg(field);
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +127,26 @@ QString JavaGenerator::toCamelCase(const QString& fieldName)
 }
 
 // ---------------------------------------------------------------------------
+// Convert a raw cell string to a typed Java literal for the given spec type
+// ---------------------------------------------------------------------------
+
+static QString cellLiteral(const QString& val, const QString& specType)
+{
+    const QString t = specType.trimmed().toLower();
+    if (t == "string" || t == "text" || t == "character" || t == "char")
+        return "\"" + val + "\"";
+    if (t == "integer" || t == "int" || t == "long")
+        return val;
+    if (t == "float" || t == "decimal" || t == "double")
+        return val;
+    if (t == "boolean" || t == "yesno" || t == "bool") {
+        const QString v = val.toLower();
+        return (v == "true" || v == "t" || v == "yes" || v == "y" || v == "1")
+               ? "true" : "false";
+    }
+    return "\"" + val + "\"";  // DataType or unknown — string fallback
+}
+
 // DataType detection (built-in names + user-declared)
 // ---------------------------------------------------------------------------
 
@@ -294,7 +319,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
 // String class
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const
+QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs) const
 {
     const QString cn = as.name + "String";
     const QString tn = as.name + "Typed";
@@ -345,7 +370,7 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     s << "        return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f = as.fields[i];
-        const QString expr = parseExpr(toCamelCase(f.name), f.type);
+        const QString expr = parseExpr(toCamelCase(f.name), f.type, as.line, msgs);
         if (f.multiples)
             s << "            Collections.singletonList(" << expr << ")";
         else
@@ -391,7 +416,7 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
 // Typed class
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports) const
+QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs) const
 {
     const QString cn = as.name + "Typed";
     QString out;
@@ -616,25 +641,39 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
             } else if (step.hasTable && as == nullptr) {
                 ++objectCounter;
-                const QString listVar = QString("stringListList%1").arg(objectCounter);
+                const QString listVar = QString("objectList%1").arg(objectCounter);
                 const StepTable& tbl = step.table;
-                // DataType/primitive-typed steps have no header — all rows are data
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && isDataType(step.attrSetName, file);
-                int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
-
-                s << "        List<List<String>> " << listVar
-                  << " = new ArrayList<>();\n";
-                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                    s << "        " << listVar << ".add(List.of(";
-                    const QStringList& r = tbl.rows[ri];
-                    for (int ci = 0; ci < r.size(); ++ci) {
-                        if (ci) s << ", ";
-                        s << "\"" << resolveValue(r[ci], file) << "\"";
-                    }
-                    s << "));\n";
-                }
+                const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
                 const QString meth = toMethodName(step.keyword, step.text);
+
+                if (isTypedGrid) {
+                    const QString boxed = javaBoxedType(step.attrSetName);
+                    s << "        List<List<" << boxed << ">> " << listVar
+                      << " = new ArrayList<>();\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "        " << listVar << ".add(List.of(";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            s << cellLiteral(resolveValue(r[ci], file), step.attrSetName);
+                        }
+                        s << "));\n";
+                    }
+                } else {
+                    s << "        List<List<String>> " << listVar
+                      << " = new ArrayList<>();\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "        " << listVar << ".add(List.of(";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            s << "\"" << resolveValue(r[ci], file) << "\"";
+                        }
+                        s << "));\n";
+                    }
+                }
                 s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
             }
         }
@@ -753,7 +792,7 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, step.attrSetName + "String" });
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, "List<List<String>>" });  // grid
+                sigs.push_back({ meth, "List<List<" + javaBoxedType(step.attrSetName) + ">>" });
             } else {
                 sigs.push_back({ meth, "List<String>" });
             }
@@ -803,7 +842,14 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
     const QString paramType = sig.paramType.contains('<')
         ? sig.paramType
         : QString("List<%1>").arg(sig.paramType);
-    const QString iterType = sig.paramType.contains('<') ? "List<String>" : sig.paramType;
+    QString iterType;
+    if (sig.paramType.startsWith("List<List<") && sig.paramType.endsWith(">>")) {
+        iterType = "List<" + sig.paramType.mid(10, sig.paramType.length() - 12) + ">";
+    } else if (sig.paramType.contains('<')) {
+        iterType = "List<String>";
+    } else {
+        iterType = sig.paramType;
+    }
     s << "    public void " << sig.method << "(" << paramType << " values) {\n";
     s << "        for (" << iterType << " value : values) {\n";
     s << "            System.out.println(value);\n";
@@ -996,8 +1042,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, m_extraImports), msgs);
-        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, m_extraImports),  msgs);
+        writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, m_extraImports, msgs), msgs);
+        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, m_extraImports, msgs),  msgs);
     }
 
     {
