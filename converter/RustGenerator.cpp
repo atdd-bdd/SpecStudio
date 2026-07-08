@@ -780,8 +780,8 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
                 const QString c = col.trimmed();
                 if (c.isEmpty()) continue;
                 Field f; f.name = c;
-                f.type = (isVV && c.compare("valid", Qt::CaseInsensitive) == 0)
-                         ? "Boolean" : "String";
+                f.type = (isVV && c.compare("isvalid", Qt::CaseInsensitive) == 0)
+                         ? "YesNo" : "String";
                 sa.fields.push_back(f);
             }
             if (!sa.fields.isEmpty()) augmented.attrSets.push_back(sa);

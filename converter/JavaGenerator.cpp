@@ -1123,8 +1123,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                 const QString c = col.trimmed();
                 if (!c.isEmpty()) {
                     Field f; f.name = c;
-                    f.type = (isValidValues && c.compare("valid", Qt::CaseInsensitive) == 0)
-                             ? "Boolean" : "String";
+                    f.type = (isValidValues && c.compare("isvalid", Qt::CaseInsensitive) == 0)
+                             ? "YesNo" : "String";
                     sa.fields.push_back(f);
                 }
             }
