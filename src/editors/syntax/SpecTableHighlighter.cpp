@@ -93,7 +93,7 @@ void SpecTableHighlighter::buildRules()
     // --- Valid / Yes / No / True / False in tables ---
     QTextCharFormat validFmt;
     validFmt.setForeground(QColor("#4EC9B0"));
-    addRule(R"(\b(IsValid|Yes|No|True|False|true|false)\b)", validFmt);
+    addRule(R"(\b(Valid|Yes|No|True|False|true|false)\b)", validFmt);
 
     // --- ~ space placeholder in table cells ---
     QTextCharFormat tildeFmt;

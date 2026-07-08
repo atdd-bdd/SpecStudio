@@ -43,8 +43,8 @@ QString JavaGenerator::javaType(const QString& specType)
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")          return "int";
     if (t == "float"   || t == "decimal")      return "double";
-    if (t == "boolean" || t == "yesno"
-     || t == "bool")                           return "boolean";
+    if (t == "yesno")                          return "YesNo";
+    if (t == "boolean" || t == "bool")         return "boolean";
     if (t == "date")                           return "LocalDate";
     if (t == "time")                           return "LocalTime";
     if (t == "datetime")                       return "LocalDateTime";
@@ -59,8 +59,8 @@ static QString javaBoxedType(const QString& specType)
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")          return "Integer";
     if (t == "float"   || t == "decimal")      return "Double";
-    if (t == "boolean" || t == "yesno"
-     || t == "bool")                           return "Boolean";
+    if (t == "yesno")                          return "YesNo";
+    if (t == "boolean" || t == "bool")         return "Boolean";
     if (t == "date")                           return "LocalDate";
     if (t == "time")                           return "LocalTime";
     if (t == "datetime")                       return "LocalDateTime";
@@ -105,8 +105,9 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
     if (t == "float"   || t == "decimal"
      || t == "double")
         return QString("Double.parseDouble(%1)").arg(ref);
-    if (t == "boolean" || t == "yesno"
-     || t == "bool")
+    if (t == "yesno")
+        return QString("new YesNo(%1)").arg(ref);
+    if (t == "boolean" || t == "bool")
         return QString("(%1.equalsIgnoreCase(\"true\") || %1.equalsIgnoreCase(\"t\") "
                        "|| %1.equalsIgnoreCase(\"yes\") || %1.equalsIgnoreCase(\"y\") "
                        "|| %1.equals(\"1\"))").arg(ref);
@@ -847,7 +848,9 @@ static QString cellConvertExpr(const QString& specType, const SpectableFile& fil
         return "Integer.parseInt(cell)";
     if (t == "float" || t == "decimal" || t == "double")
         return "Double.parseDouble(cell)";
-    if (t == "boolean" || t == "yesno" || t == "bool")
+    if (t == "yesno")
+        return "new YesNo(cell)";
+    if (t == "boolean" || t == "bool")
         return "Boolean.parseBoolean(cell)";
     if (t == "string" || t == "text" || t == "character" || t == "char")
         return "cell";
@@ -1028,6 +1031,40 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
 // File write helper
 // ---------------------------------------------------------------------------
 
+static QString genYesNoClass(const QString& pkg, const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.Objects;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+    s << "public class YesNo {\n";
+    s << "    public final String value;\n\n";
+    s << "    public YesNo(String value) {\n";
+    s << "        this.value = value != null ? value : \"\";\n";
+    s << "    }\n\n";
+    s << "    public boolean toBoolean() {\n";
+    s << "        return value.equalsIgnoreCase(\"true\")\n";
+    s << "            || value.equalsIgnoreCase(\"t\")\n";
+    s << "            || value.equalsIgnoreCase(\"yes\")\n";
+    s << "            || value.equalsIgnoreCase(\"y\")\n";
+    s << "            || value.equals(\"1\");\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public String toString() { return value; }\n\n";
+    s << "    @Override\n";
+    s << "    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof YesNo)) return false;\n";
+    s << "        return toBoolean() == ((YesNo) o).toBoolean();\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public int hashCode() { return Objects.hash(toBoolean()); }\n";
+    s << "}\n";
+    return out;
+}
+
 bool JavaGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
 {
     QFile f(path);
@@ -1092,6 +1129,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         msgs << QString("ERROR:0:Cannot create common directory: %1").arg(domainDir.path());
         return msgs;
     }
+
+    writeFile(domainDir.filePath("YesNo.java"), genYesNoClass(domainPkg, m_extraImports), msgs);
 
     // Copy the source .spectable file into the output folder (if enabled)
     if (opts.copySpectable && !file.filePath.isEmpty()) {
