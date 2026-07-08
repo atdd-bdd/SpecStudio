@@ -94,31 +94,35 @@ static bool isEnumType(const QString& name, const SpectableFile& file)
 
 QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
                                   int line, QStringList& msgs,
-                                  const SpectableFile* file)
+                                  const SpectableFile* file,
+                                  const QString& objectRef)
 {
+    const QString ref = objectRef + "." + field;
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int" || t == "long")
-                                          return QString("Integer.parseInt(this.%1)").arg(field);
+        return QString("Integer.parseInt(%1)").arg(ref);
     if (t == "float"   || t == "decimal"
-     || t == "double")                    return QString("Double.parseDouble(this.%1)").arg(field);
+     || t == "double")
+        return QString("Double.parseDouble(%1)").arg(ref);
     if (t == "boolean" || t == "yesno"
-     || t == "bool")                      return QString(
-        "(this.%1.equalsIgnoreCase(\"true\") || this.%1.equalsIgnoreCase(\"t\") "
-        "|| this.%1.equalsIgnoreCase(\"yes\") || this.%1.equalsIgnoreCase(\"y\") "
-        "|| this.%1.equals(\"1\"))").arg(field);
-    if (t == "date")                      return QString("LocalDate.parse(this.%1)").arg(field);
-    if (t == "time")                      return QString("LocalTime.parse(this.%1)").arg(field);
-    if (t == "datetime")                  return QString("LocalDateTime.parse(this.%1)").arg(field);
-    if (t == "duration")                  return QString("Duration.parse(this.%1)").arg(field);
+     || t == "bool")
+        return QString("(%1.equalsIgnoreCase(\"true\") || %1.equalsIgnoreCase(\"t\") "
+                       "|| %1.equalsIgnoreCase(\"yes\") || %1.equalsIgnoreCase(\"y\") "
+                       "|| %1.equals(\"1\"))").arg(ref);
+    if (t == "date")      return QString("LocalDate.parse(%1)").arg(ref);
+    if (t == "time")      return QString("LocalTime.parse(%1)").arg(ref);
+    if (t == "datetime")  return QString("LocalDateTime.parse(%1)").arg(ref);
+    if (t == "duration")  return QString("Duration.parse(%1)").arg(ref);
     if (t == "string" || t == "text"
-     || t == "character" || t == "char")  return QString("this.%1").arg(field);
+     || t == "character" || t == "char")
+        return ref;
     if (file && isEnumType(specType.trimmed(), *file))
-        return QString("%1.valueOf(this.%2)").arg(specType.trimmed()).arg(field);
+        return QString("%1.valueOf(%2)").arg(specType.trimmed()).arg(ref);
     if (file && isDataType(specType.trimmed(), *file))
-        return QString("new %1(this.%2)").arg(specType.trimmed()).arg(field);
+        return QString("new %1(%2)").arg(specType.trimmed()).arg(ref);
     msgs << QString("WARNING:%1:Unknown type '%2' for field '%3' — no parse conversion available")
                 .arg(line).arg(specType.trimmed()).arg(field);
-    return QString("this.%1").arg(field);
+    return ref;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,22 +355,6 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
 
     s << "package " << pkg << ";\n\n";
 
-    // Check if we need time imports
-    bool needsDate = false, needsTime = false, needsDt = false, needsDur = false;
-    bool needsCollections = false;
-    for (const Field& f : as.fields) {
-        const QString t = f.type.toLower();
-        if (t == "date")     needsDate = true;
-        if (t == "time")     needsTime = true;
-        if (t == "datetime") needsDt   = true;
-        if (t == "duration") needsDur  = true;
-        if (f.multiples)     needsCollections = true;
-    }
-    if (needsDate) s << "import java.time.LocalDate;\n";
-    if (needsTime) s << "import java.time.LocalTime;\n";
-    if (needsDt)   s << "import java.time.LocalDateTime;\n";
-    if (needsDur)  s << "import java.time.Duration;\n";
-    if (needsCollections) s << "import java.util.Collections;\n";
     s << "import java.util.Objects;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
     s << "\n";
@@ -387,21 +375,6 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     for (const Field& f : as.fields)
         s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "    }\n\n";
-
-    // toTyped()
-    s << "    public " << tn << " to" << tn << "() {\n";
-    s << "        return new " << tn << "(\n";
-    for (int i = 0; i < as.fields.size(); ++i) {
-        const Field& f = as.fields[i];
-        const QString expr = parseExpr(toCamelCase(f.name), f.type, as.line, msgs, &file);
-        if (f.multiples)
-            s << "            Collections.singletonList(" << expr << ")";
-        else
-            s << "            " << expr;
-        if (i < as.fields.size() - 1) s << ",";
-        s << "\n";
-    }
-    s << "        );\n    }\n\n";
 
     // equals()
     s << "    @Override\n    public boolean equals(Object o) {\n";
@@ -439,29 +412,31 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
 // Typed class
 // ---------------------------------------------------------------------------
 
-QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs) const
+QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, const QStringList& extraImports, QStringList& msgs, const SpectableFile& file) const
 {
-    const QString cn = as.name + "Typed";
+    const QString cn  = as.name + "Typed";
+    const QString csn = as.name + "String";
     QString out;
     QTextStream s(&out);
 
     s << "package " << pkg << ";\n\n";
 
     bool needsDate = false, needsTime = false, needsDt = false, needsDur = false;
-    bool needsList = false;
+    bool needsList = false, needsCollections = false;
     for (const Field& f : as.fields) {
         const QString t = f.type.toLower();
         if (t == "date")     needsDate = true;
         if (t == "time")     needsTime = true;
         if (t == "datetime") needsDt   = true;
         if (t == "duration") needsDur  = true;
-        if (f.multiples)     needsList = true;
+        if (f.multiples)     needsList = true, needsCollections = true;
     }
-    if (needsDate) s << "import java.time.LocalDate;\n";
-    if (needsTime) s << "import java.time.LocalTime;\n";
-    if (needsDt)   s << "import java.time.LocalDateTime;\n";
-    if (needsDur)  s << "import java.time.Duration;\n";
-    if (needsList) s << "import java.util.List;\n";
+    if (needsDate)        s << "import java.time.LocalDate;\n";
+    if (needsTime)        s << "import java.time.LocalTime;\n";
+    if (needsDt)          s << "import java.time.LocalDateTime;\n";
+    if (needsDur)         s << "import java.time.Duration;\n";
+    if (needsList)        s << "import java.util.List;\n";
+    if (needsCollections) s << "import java.util.Collections;\n";
     s << "import java.util.Objects;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
     s << "\n";
@@ -476,6 +451,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     }
     s << "\n";
 
+    // Constructor from typed values
     s << "    public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
@@ -488,6 +464,17 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << ") {\n";
     for (const Field& f : as.fields)
         s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
+    s << "    }\n\n";
+
+    // Constructor from String class
+    s << "    public " << cn << "(" << csn << " s) {\n";
+    for (const Field& f : as.fields) {
+        const QString expr = parseExpr(toCamelCase(f.name), f.type, as.line, msgs, &file, "s");
+        if (f.multiples)
+            s << "        this." << toCamelCase(f.name) << " = Collections.singletonList(" << expr << ");\n";
+        else
+            s << "        this." << toCamelCase(f.name) << " = " << expr << ";\n";
+    }
     s << "    }\n\n";
 
     // equals()
@@ -561,7 +548,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             s << "    // Tags: " << tags.join(", ") << "\n";
     };
 
-    s << "\npublic class Test_" << className << " {\n\n";
+    s << "\npublic class " << className << "_Test {\n\n";
 
     int objectCounter = 0;
 
@@ -743,7 +730,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
             const QString meth      = kind + "_" + toClassName(nb.name);
-            const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);
+            const QString glueMeth  = "Examples_" + kind + "_" + toClassName(nb.name);
             const QString glueClass = className + "_glue";
             const AttrSet* as = nb.examples.attrSetName.isEmpty()
                 ? nullptr
@@ -832,7 +819,7 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
     // Named blocks — emit ExamplesBusinessRule_*, ExamplesCalculation_*, ExamplesDataType_*
     for (const NamedBlock& nb : file.namedBlocks) {
         if (!nb.hasExamples) continue;
-        const QString meth = "Examples" + nb.kind + "_" + toClassName(nb.name);
+        const QString meth = "Examples_" + nb.kind + "_" + toClassName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
         const AttrSet* as = nb.examples.attrSetName.isEmpty()
@@ -1068,7 +1055,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             continue;
         }
         writeFile(domainDir.filePath(as.name + "String.java"), genStringClass(as, domainPkg, m_extraImports, msgs, file), msgs);
-        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, m_extraImports, msgs),  msgs);
+        writeFile(domainDir.filePath(as.name + "Typed.java"),  genTypedClass(as, domainPkg, m_extraImports, msgs, file),  msgs);
     }
 
     {
@@ -1078,7 +1065,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         const bool testHasErrors = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!testHasErrors)
-            writeFile(dir.filePath("Test_" + className + ".java"), testContent, msgs);
+            writeFile(dir.filePath(className + "_Test.java"), testContent, msgs);
     }
 
     {

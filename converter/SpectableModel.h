@@ -89,6 +89,7 @@ struct NamedBlock {
     QStringList  generatorTags;  // $Tags — consumed by generator for filtering only
     ExamplesBlock examples;
     bool         hasExamples = false;
+    bool         isContext   = false;  // from a context file — used for isEnumType lookup only
     int          line        = 0;
 };
 

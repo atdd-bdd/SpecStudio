@@ -95,6 +95,7 @@ int main(int argc, char* argv[])
         SpectableFile ctx = parser.parse(ctxPath);
         for (AttrSet& as : ctx.attrSets)         { as.isContext = true; file.attrSets.push_back(as); }
         for (Define& def : ctx.defines)           { def.isContext = true; file.defines.push_back(def); }
+        for (NamedBlock& nb : ctx.namedBlocks)    { nb.isContext = true; file.namedBlocks.push_back(nb); }
         for (const QString& dt : ctx.dataTypeNames)
             if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
     }

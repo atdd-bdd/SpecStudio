@@ -572,7 +572,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
             if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
             const QString meth      = kind + "_" + toClassName(nb.name);
-            const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);
+            const QString glueMeth  = "Examples_" + kind + "_" + toClassName(nb.name);
             const QString glueClass = className + "_glue";
             const AttrSet* as = nb.examples.attrSetName.isEmpty()
                 ? nullptr
@@ -664,7 +664,7 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
     // Named blocks — emit ExamplesBusinessRule_*, ExamplesCalculation_*, ExamplesDataType_*
     for (const NamedBlock& nb : file.namedBlocks) {
         if (!nb.hasExamples) continue;
-        const QString meth = "Examples" + nb.kind + "_" + toClassName(nb.name);
+        const QString meth = "Examples_" + nb.kind + "_" + toClassName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
         const AttrSet* as = nb.examples.attrSetName.isEmpty()
