@@ -725,10 +725,13 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
     // ── BusinessRule / Calculation / DataType tests ──────────────────────────
     static const QStringList namedKinds = { "BusinessRule", "Calculation", "DataType" };
+    QSet<QString> seenNamedBlocks;  // kind:name — first definition wins; extras get a warning
     for (const QString& kind : namedKinds) {
         bool hasKind = false;
         for (const NamedBlock& nb : file.namedBlocks)
-            if (nb.hasExamples && nb.kind == kind) { hasKind = true; break; }
+            if (nb.hasExamples && nb.kind == kind
+                && !seenNamedBlocks.contains(kind + ":" + nb.name.toLower()))
+                { hasKind = true; break; }
         if (!hasKind) continue;
 
         s << "    // -------------------------\n";
@@ -737,6 +740,13 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
+            const QString blockKey = kind + ":" + nb.name.toLower();
+            if (seenNamedBlocks.contains(blockKey)) {
+                errors << QString("WARNING:%1:%2 '%3' is declared in multiple files — only the first definition is tested")
+                              .arg(nb.line).arg(kind).arg(nb.name);
+                continue;
+            }
+            seenNamedBlocks.insert(blockKey);
             const QStringList effectiveGenTags = file.generatorTags + nb.generatorTags;
             if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
