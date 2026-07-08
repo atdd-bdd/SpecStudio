@@ -186,7 +186,8 @@ static QString cellLiteral(const QString& val, const QString& specType)
 // Examples-table row resolution for NamedBlock (BusinessRule / Calc / DataType)
 // ---------------------------------------------------------------------------
 
-static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const AttrSet* as)
+static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const AttrSet* as,
+                                                 QStringList& warnings)
 {
     QVector<QStringList> result;
     if (block.examples.header.isEmpty() && block.examples.rows.isEmpty())
@@ -205,6 +206,16 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
     QVector<int> colMap;
     for (const QString& h : block.examples.header)
         colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+
+    // Warn about AttrSet fields not present in the examples table header
+    for (const Field& f : as->fields) {
+        bool found = false;
+        for (const QString& h : block.examples.header)
+            if (h.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
+        if (!found)
+            warnings << QString("WARNING:%1:%2 '%3' Examples table is missing column '%4' — empty string will be used")
+                        .arg(block.examples.line).arg(block.kind).arg(block.name).arg(f.name);
+    }
 
     for (const QStringList& dr : block.examples.rows) {
         QStringList row(fieldCount);
@@ -745,7 +756,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 ++objectCounter;
                 const QString listType = nb.examples.attrSetName + "String";
                 const QString listVar  = QString("objectList%1").arg(objectCounter);
-                const QVector<QStringList> rows = resolveExamplesRows(nb, as);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, as, errors);
                 s << "        List<" << listType << "> " << listVar
                   << " = new ArrayList<>();\n";
                 for (const QStringList& row : rows) {
@@ -760,7 +771,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             } else {
                 ++objectCounter;
                 const QString listVar = QString("stringListList%1").arg(objectCounter);
-                const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr, errors);
                 s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";
                 for (const QStringList& row : rows) {
                     s << "        " << listVar << ".add(List.of(";
