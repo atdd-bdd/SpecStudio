@@ -535,12 +535,13 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
     };
 
     for (const Scenario& sc : file.scenarios) {
-        if (!TagFilter::matches(m_tagFilter, sc.generatorTags)) continue;
+        const QStringList effectiveGenTags = file.generatorTags + sc.generatorTags;
+        if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
         const QString meth = "Test_Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
         const QString glueVar   = glueClass[0].toLower() + glueClass.mid(1) + "_object";
 
-        emitCsCategories(sc.tags);
+        emitCsCategories(file.tags + sc.tags);
         s << "[TestMethod]\n";
         s << "public void " << meth << "(){\n";
         s << "     " << glueClass << " " << glueVar << " = new " << glueClass << "();\n\n";
@@ -567,7 +568,8 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
-            if (!TagFilter::matches(m_tagFilter, nb.generatorTags)) continue;
+            const QStringList effectiveGenTags = file.generatorTags + nb.generatorTags;
+            if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
             const QString meth      = kind + "_" + toClassName(nb.name);
             const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);

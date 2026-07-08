@@ -688,7 +688,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 
         // Specification
         if (firstWord.compare("Specification", Qt::CaseInsensitive) == 0) {
-            result.specName = trimmed.mid(firstWord.length()).trimmed();
+            result.specName       = trimmed.mid(firstWord.length()).trimmed();
+            result.tags           = pendingTags;          pendingTags.clear();
+            result.generatorTags  = pendingGeneratorTags; pendingGeneratorTags.clear();
             continue;
         }
 

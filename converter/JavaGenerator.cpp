@@ -709,11 +709,12 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         s << "    // -------------------------\n";
     }
     for (const Scenario& sc : file.scenarios) {
-        if (!TagFilter::matches(m_tagFilter, sc.generatorTags)) continue;
+        const QStringList effectiveGenTags = file.generatorTags + sc.generatorTags;
+        if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
         const QString meth      = "Scenario_" + toClassName(sc.name);
         const QString glueClass = className + "_glue";
 
-        emitTags(sc.tags);
+        emitTags(file.tags + sc.tags);
         s << "    @Test\n";
         s << "    public void " << meth << "() {\n";
         s << "        " << glueClass << " glue = new " << glueClass << "();\n\n";
@@ -738,7 +739,8 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
-            if (!TagFilter::matches(m_tagFilter, nb.generatorTags)) continue;
+            const QStringList effectiveGenTags = file.generatorTags + nb.generatorTags;
+            if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
             const QString meth      = kind + "_" + toClassName(nb.name);
             const QString glueMeth  = "Examples" + kind + "_" + toClassName(nb.name);

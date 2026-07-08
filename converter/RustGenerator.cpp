@@ -512,11 +512,13 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
         s << "// --- Scenario Tests ---\n\n";
 
     for (const Scenario& sc : file.scenarios) {
-        if (!TagFilter::matches(m_tagFilter, sc.generatorTags)) continue;
+        const QStringList effectiveGenTags = file.generatorTags + sc.generatorTags;
+        if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
         const QString fn = "scenario_" + toIdentifier(sc.name);
 
-        if (!sc.tags.isEmpty())
-            s << "// Tags: " << sc.tags.join(", ") << "\n";
+        const QStringList allTags = file.tags + sc.tags;
+        if (!allTags.isEmpty())
+            s << "// Tags: " << allTags.join(", ") << "\n";
         s << "#[test]\n";
         s << "fn " << fn << "() {\n";
         s << "    let mut glue = " << glueStruct << "::new();\n";
@@ -538,7 +540,8 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
 
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
-            if (!TagFilter::matches(m_tagFilter, nb.generatorTags)) continue;
+            const QStringList effectiveGenTags = file.generatorTags + nb.generatorTags;
+            if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
             const QString fn      = ks + "_" + toIdentifier(nb.name);
             const QString glueFn  = "examples_" + ks + "_" + toIdentifier(nb.name);

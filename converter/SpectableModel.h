@@ -96,6 +96,8 @@ struct NamedBlock {
 struct SpectableFile {
     QString                specName;
     QString                filePath;
+    QStringList            tags;           // @Tags before Specification line — applied to all blocks
+    QStringList            generatorTags;  // $Tags before Specification line — applied to all blocks
     QVector<AttrSet>       attrSets;
     QVector<Define>        defines;
     QStringList            dataTypeNames;  // user-declared DataType names

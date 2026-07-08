@@ -61,8 +61,9 @@ bool TagFilter::Parser::parsePrimary()
         return result;
     }
 
-    const QString tag = tokens[pos].toUpper();
+    QString tag = tokens[pos].toUpper();
     consume();
+    if (tag.startsWith('$')) tag = tag.mid(1);
     return tagsUpper.contains(tag);
 }
 
