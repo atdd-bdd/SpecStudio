@@ -435,6 +435,20 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             case State::InAttrDef:
                 if (attrHeaders.isEmpty()) {
                     attrHeaders = cells;
+                    // Warn on unrecognised header columns
+                    static const QStringList knownHeaders = {
+                        "attribute", "name", "type", "datatype",
+                        "default", "notes", "in-out", "in/out", "multiples"
+                    };
+                    for (const QString& h : cells) {
+                        if (!h.startsWith('#') && !knownHeaders.contains(h.toLower())) {
+                            ParseMessage pm;
+                            pm.line    = lineNum;
+                            pm.warning = true;
+                            pm.text    = QString("Unrecognized Attributes/Entity column header '%1' — will be ignored").arg(h);
+                            result.messages.push_back(pm);
+                        }
+                    }
                 } else if (curAttr) {
                     // Map cells to fields using header positions
                     Field fd;
