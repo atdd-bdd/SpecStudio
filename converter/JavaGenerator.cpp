@@ -251,6 +251,8 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         if (useKV) {
             const int startIdx = def->transposed ? 1 : 0;
             QStringList row(fieldCount);
+            for (int i = 0; i < attrSet->fields.size(); ++i)
+                row[i] = attrSet->fields[i].defaultValue;
             for (int ri = startIdx; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
                 if (r.size() < 2) continue;
@@ -267,6 +269,8 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
                 QStringList row(fieldCount);
+                for (int i = 0; i < attrSet->fields.size(); ++i)
+                    row[i] = attrSet->fields[i].defaultValue;
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -290,6 +294,8 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
             QStringList row(fieldCount);
+            for (int i = 0; i < attrSet->fields.size(); ++i)
+                row[i] = attrSet->fields[i].defaultValue;
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -306,6 +312,8 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
             QStringList row(fieldCount);
+            for (int i = 0; i < attrSet->fields.size(); ++i)
+                row[i] = attrSet->fields[i].defaultValue;
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
