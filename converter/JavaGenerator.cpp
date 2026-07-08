@@ -6,6 +6,7 @@
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QMap>
+#include <QSet>
 #include <algorithm>
 
 static QString resolveCell(const QString& cell)
@@ -669,31 +670,15 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
                 const QString meth = toMethodName(step.keyword, step.text);
 
-                if (isTypedGrid) {
-                    const QString boxed = javaBoxedType(step.attrSetName);
-                    s << "        List<List<" << boxed << ">> " << listVar
-                      << " = new ArrayList<>();\n";
-                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                        s << "        " << listVar << ".add(List.of(";
-                        const QStringList& r = tbl.rows[ri];
-                        for (int ci = 0; ci < r.size(); ++ci) {
-                            if (ci) s << ", ";
-                            s << cellLiteral(resolveValue(r[ci], file), step.attrSetName);
-                        }
-                        s << "));\n";
+                s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";
+                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                    s << "        " << listVar << ".add(List.of(";
+                    const QStringList& r = tbl.rows[ri];
+                    for (int ci = 0; ci < r.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << resolveValue(r[ci], file) << "\"";
                     }
-                } else {
-                    s << "        List<List<String>> " << listVar
-                      << " = new ArrayList<>();\n";
-                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                        s << "        " << listVar << ".add(List.of(";
-                        const QStringList& r = tbl.rows[ri];
-                        for (int ci = 0; ci < r.size(); ++ci) {
-                            if (ci) s << ", ";
-                            s << "\"" << resolveValue(r[ci], file) << "\"";
-                        }
-                        s << "));\n";
-                    }
+                    s << "));\n";
                 }
                 s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
             }
@@ -825,9 +810,9 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, step.attrSetName + "String" });
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, "List<List<" + javaBoxedType(step.attrSetName) + ">>" });
+                sigs.push_back({ meth, "List<List<String>>", step.attrSetName });
             } else {
-                sigs.push_back({ meth, "List<String>" });
+                sigs.push_back({ meth, "List<List<String>>" });
             }
         }
     };
@@ -855,6 +840,43 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
     return sigs;
 }
 
+static QString cellConvertExpr(const QString& specType, const SpectableFile& file)
+{
+    const QString t = specType.trimmed().toLower();
+    if (t == "integer" || t == "int" || t == "long")
+        return "Integer.parseInt(cell)";
+    if (t == "float" || t == "decimal" || t == "double")
+        return "Double.parseDouble(cell)";
+    if (t == "boolean" || t == "yesno" || t == "bool")
+        return "Boolean.parseBoolean(cell)";
+    if (t == "string" || t == "text" || t == "character" || t == "char")
+        return "cell";
+    if (isEnumType(specType.trimmed(), file))
+        return specType.trimmed() + ".valueOf(cell)";
+    if (isDataType(specType.trimmed(), file))
+        return "new " + specType.trimmed() + "(cell)";
+    return "cell";
+}
+
+static QString genGridConverter(const QString& dataType, const SpectableFile& file)
+{
+    const QString boxed  = javaBoxedType(dataType);
+    const QString cellEx = cellConvertExpr(dataType, file);
+    QString out;
+    QTextStream s(&out);
+    s << "    public static List<List<" << boxed << ">> toListList" << boxed
+      << "(List<List<String>> values) {\n";
+    s << "        List<List<" << boxed << ">> result = new ArrayList<>();\n";
+    s << "        for (List<String> row : values) {\n";
+    s << "            List<" << boxed << "> typedRow = new ArrayList<>();\n";
+    s << "            for (String cell : row) { typedRow.add(" << cellEx << "); }\n";
+    s << "            result.add(typedRow);\n";
+    s << "        }\n";
+    s << "        return result;\n";
+    s << "    }\n";
+    return out;
+}
+
 QString JavaGenerator::genStubMethod(const GlueSig& sig)
 {
     QString out;
@@ -868,6 +890,17 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
     if (sig.paramType == "docstring") {
         s << "    public void " << sig.method << "(String value) {\n";
         s << "        System.out.println(value);\n";
+        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        s << "    }\n";
+        return out;
+    }
+    if (!sig.gridDataType.isEmpty()) {
+        const QString boxed = javaBoxedType(sig.gridDataType);
+        s << "    public void " << sig.method << "(List<List<String>> values) {\n";
+        s << "        List<List<" << boxed << ">> typedValues = toListList" << boxed << "(values);\n";
+        s << "        for (List<" << boxed << "> value : typedValues) {\n";
+        s << "            System.out.println(value);\n";
+        s << "        }\n";
         s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
@@ -894,6 +927,7 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
 
 bool JavaGenerator::appendMissingStubs(const QString& gluePath,
                                         const QVector<GlueSig>& sigs,
+                                        const SpectableFile& file,
                                         QStringList& msgs)
 {
     QFile f(gluePath);
@@ -906,6 +940,15 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
         const QString signature = QStringLiteral("public void %1(").arg(sig.method);
         if (!content.contains(signature))
             stubs += "\n" + genStubMethod(sig);
+    }
+    QSet<QString> seenConverters;
+    for (const GlueSig& sig : sigs) {
+        if (sig.gridDataType.isEmpty()) continue;
+        const QString boxed = javaBoxedType(sig.gridDataType);
+        if (seenConverters.contains(boxed)) continue;
+        seenConverters.insert(boxed);
+        if (!content.contains(QStringLiteral("toListList%1(").arg(boxed)))
+            stubs += "\n" + genGridConverter(sig.gridDataType, file);
     }
     if (stubs.isEmpty()) return false;
 
@@ -937,6 +980,7 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
 
     s << "package " << specPkg << ";\n\n";
     s << "import java.util.List;\n";
+    s << "import java.util.ArrayList;\n";
     s << "import " << domainPkg << ".*;\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     const bool glueJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
@@ -954,6 +998,15 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
 
     for (const GlueSig& sig : sigs)
         s << genStubMethod(sig) << "\n";
+
+    QSet<QString> seenConverters;
+    for (const GlueSig& sig : sigs) {
+        if (sig.gridDataType.isEmpty()) continue;
+        const QString boxed = javaBoxedType(sig.gridDataType);
+        if (seenConverters.contains(boxed)) continue;
+        seenConverters.insert(boxed);
+        s << "\n" << genGridConverter(sig.gridDataType, file);
+    }
 
     s << "}\n";
     return out;
@@ -1095,7 +1148,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             writeFile(gluePath, genGlueFile(augmented, specPkg, domainPkg, className), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, augmented, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }
