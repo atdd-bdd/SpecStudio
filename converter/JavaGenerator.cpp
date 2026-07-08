@@ -941,16 +941,28 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
         if (!content.contains(signature))
             stubs += "\n" + genStubMethod(sig);
     }
+    bool needsArrayList = false;
     QSet<QString> seenConverters;
     for (const GlueSig& sig : sigs) {
         if (sig.gridDataType.isEmpty()) continue;
         const QString boxed = javaBoxedType(sig.gridDataType);
         if (seenConverters.contains(boxed)) continue;
         seenConverters.insert(boxed);
-        if (!content.contains(QStringLiteral("toListList%1(").arg(boxed)))
+        if (!content.contains(QStringLiteral("toListList%1(").arg(boxed))) {
             stubs += "\n" + genGridConverter(sig.gridDataType, file);
+            needsArrayList = true;
+        }
     }
     if (stubs.isEmpty()) return false;
+
+    // Inject ArrayList import if a converter was added and it isn't already imported
+    if (needsArrayList && !content.contains("import java.util.ArrayList")) {
+        const int listImport = content.indexOf("import java.util.List");
+        if (listImport >= 0) {
+            const int lineEnd = content.indexOf('\n', listImport);
+            content.insert(lineEnd + 1, "import java.util.ArrayList;\n");
+        }
+    }
 
     // Insert before the final closing "}\n" of the class
     const int closingClass = content.lastIndexOf("\n}");
