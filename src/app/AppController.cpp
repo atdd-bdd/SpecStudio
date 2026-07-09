@@ -652,10 +652,11 @@ void AppController::onBuildCurrentFile()
     for (const QString& imp : cfg.imports)
         args << "--import" << imp;
     if (!cfg.tagFilter.isEmpty())       args << "--tag-filter" << cfg.tagFilter;
-    // Pass all other project .spectable files as global context
+    // Pass other .spectable files from the same project as context
     if (m_solution) {
-        for (auto* proj : m_solution->projects())
-            for (auto* pf : proj->files())
+        auto* ownerProj = m_solution->projectForFile(ed->filePath());
+        if (ownerProj)
+            for (auto* pf : ownerProj->files())
                 if (pf->type() == FileType::SpecTable && pf->absolutePath() != ed->filePath())
                     args << "--context" << pf->absolutePath();
     }
