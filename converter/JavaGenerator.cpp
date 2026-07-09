@@ -1201,7 +1201,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             specSubDir = parts.join('/');
         }
     } else {
-        specPkg = joinPkg(opts.packagePrefix, "specifications." + className.toLower());
+        specPkg = opts.packagePrefix;
     }
     const QString testPkg = joinPkg(specPkg, "tests");
 
