@@ -721,17 +721,31 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
                 s << "        List<" << listType << "> " << listVar
                   << " = new ArrayList<>();\n";
+                // Use multi-line constructor if any field is an AttrSet type (sub-object)
+                bool hasSubObject = false;
+                for (const Field& f : as->fields)
+                    if (isAttrSetType(f.type, file)) { hasSubObject = true; break; }
+
                 for (const QStringList& row : rows) {
-                    s << "        " << listVar << ".add(new " << listType << "(";
-                    for (int ci = 0; ci < as->fields.size() && ci < row.size(); ++ci) {
-                        if (ci) s << ", ";
-                        const Field& f = as->fields[ci];
-                        if (isAttrSetType(f.type, file))
-                            s << resolveAttrCellExpr(row[ci], f.type, file, errors);
-                        else
+                    if (hasSubObject) {
+                        s << "        " << listVar << ".add(new " << listType << "(\n";
+                        for (int ci = 0; ci < as->fields.size() && ci < row.size(); ++ci) {
+                            const Field& f = as->fields[ci];
+                            s << "                ";
+                            if (isAttrSetType(f.type, file))
+                                s << resolveAttrCellExpr(row[ci], f.type, file, errors);
+                            else
+                                s << "\"" << row[ci] << "\"";
+                            s << (ci + 1 < as->fields.size() && ci + 1 < row.size() ? ",\n" : "));\n");
+                        }
+                    } else {
+                        s << "        " << listVar << ".add(new " << listType << "(";
+                        for (int ci = 0; ci < as->fields.size() && ci < row.size(); ++ci) {
+                            if (ci) s << ", ";
                             s << "\"" << row[ci] << "\"";
+                        }
+                        s << "));\n";
                     }
-                    s << "));\n";
                 }
                 const QString meth = toMethodName(step.keyword, step.text);
                 s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
@@ -789,7 +803,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     for (const QString& kind : namedKinds) {
         bool hasKind = false;
         for (const NamedBlock& nb : file.namedBlocks)
-            if (nb.hasExamples && nb.kind == kind
+            if (nb.hasExamples && nb.kind == kind && !nb.isContext
                 && !seenNamedBlocks.contains(kind + ":" + nb.name.toLower()))
                 { hasKind = true; break; }
         if (!hasKind) continue;
@@ -799,7 +813,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         s << "    // -------------------------\n";
 
         for (const NamedBlock& nb : file.namedBlocks) {
-            if (!nb.hasExamples || nb.kind != kind) continue;
+            if (!nb.hasExamples || nb.kind != kind || nb.isContext) continue;
             const QString blockKey = kind + ":" + nb.name.toLower();
             if (seenNamedBlocks.contains(blockKey)) {
                 errors << QString("WARNING:%1:%2 '%3' is declared in multiple files — only the first definition is tested")
