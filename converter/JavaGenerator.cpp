@@ -93,6 +93,14 @@ static bool isEnumType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+static bool isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0)
+            return true;
+    return false;
+}
+
 QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
                                   int line, QStringList& msgs,
                                   const SpectableFile* file,
@@ -122,6 +130,8 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
         return QString("%1.valueOf(%2)").arg(specType.trimmed()).arg(ref);
     if (file && isDataType(specType.trimmed(), *file))
         return QString("new %1(%2)").arg(specType.trimmed()).arg(ref);
+    if (file && isAttrSetType(specType.trimmed(), *file))
+        return QString("new %1Typed(%2)").arg(specType.trimmed()).arg(ref);
     msgs << QString("WARNING:%1:Unknown type '%2' for field '%3' — no parse conversion available")
                 .arg(line).arg(specType.trimmed()).arg(field);
     return ref;
@@ -374,15 +384,18 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
 
     s << "public class " << cn << " {\n";
 
-    for (const Field& f : as.fields)
-        s << "    public String " << toCamelCase(f.name) << ";\n";
+    for (const Field& f : as.fields) {
+        const QString fType = isAttrSetType(f.type, file) ? f.type + "String" : "String";
+        s << "    public " << fType << " " << toCamelCase(f.name) << ";\n";
+    }
     s << "\n";
 
     // Constructor
     s << "    public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << "String " << toCamelCase(as.fields[i].name);
+        const QString fType = isAttrSetType(as.fields[i].type, file) ? as.fields[i].type + "String" : "String";
+        s << fType << " " << toCamelCase(as.fields[i].name);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
@@ -457,10 +470,12 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "public class " << cn << " {\n";
 
     for (const Field& f : as.fields) {
+        const QString jt = isAttrSetType(f.type, file) ? f.type + "Typed"
+                         : (f.multiples ? javaBoxedType(f.type) : javaType(f.type));
         if (f.multiples)
-            s << "    public List<" << javaBoxedType(f.type) << "> " << toCamelCase(f.name) << ";\n";
+            s << "    public List<" << jt << "> " << toCamelCase(f.name) << ";\n";
         else
-            s << "    public " << javaType(f.type) << " " << toCamelCase(f.name) << ";\n";
+            s << "    public " << jt << " " << toCamelCase(f.name) << ";\n";
     }
     s << "\n";
 
@@ -469,10 +484,12 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
+        const QString jt = isAttrSetType(f.type, file) ? f.type + "Typed"
+                         : (f.multiples ? javaBoxedType(f.type) : javaType(f.type));
         if (f.multiples)
-            s << "List<" << javaBoxedType(f.type) << "> " << toCamelCase(f.name);
+            s << "List<" << jt << "> " << toCamelCase(f.name);
         else
-            s << javaType(f.type) << " " << toCamelCase(f.name);
+            s << jt << " " << toCamelCase(f.name);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
@@ -512,6 +529,59 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << ");\n    }\n}\n";
 
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Resolve a step table cell for an AttrSet-typed field.
+// If the cell is "=DefineRef" and the define is a table, resolves it against
+// the sub-AttrSet and returns "new XxxString(\"v1\", \"v2\", ...)".
+// ---------------------------------------------------------------------------
+
+static QString resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
+                                    const SpectableFile& file, QStringList& /*errors*/)
+{
+    if (cellValue.startsWith('=')) {
+        const QString defineName = cellValue.mid(1).trimmed();
+        for (const Define& d : file.defines) {
+            if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                continue;
+            for (const AttrSet& subAs : file.attrSets) {
+                if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+
+                QStringList row(subAs.fields.size());
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    row[i] = subAs.fields[i].defaultValue;
+
+                if (d.transposed) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                QString expr = "new " + fieldType + "String(";
+                for (int i = 0; i < row.size(); ++i) {
+                    if (i) expr += ", ";
+                    expr += "\"" + row[i] + "\"";
+                }
+                expr += ")";
+                return expr;
+            }
+        }
+    }
+    return "\"" + cellValue + "\"";
 }
 
 // ---------------------------------------------------------------------------
@@ -653,9 +723,13 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                   << " = new ArrayList<>();\n";
                 for (const QStringList& row : rows) {
                     s << "        " << listVar << ".add(new " << listType << "(";
-                    for (int ci = 0; ci < row.size(); ++ci) {
+                    for (int ci = 0; ci < as->fields.size() && ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << row[ci] << "\"";
+                        const Field& f = as->fields[ci];
+                        if (isAttrSetType(f.type, file))
+                            s << resolveAttrCellExpr(row[ci], f.type, file, errors);
+                        else
+                            s << "\"" << row[ci] << "\"";
                     }
                     s << "));\n";
                 }
