@@ -897,7 +897,7 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "" });                  // void / no parameter
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, step.attrSetName + "String" });
+                sigs.push_back({ meth, step.attrSetName + "String", "", true });
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, "List<List<String>>", step.attrSetName });
             } else {
@@ -921,7 +921,7 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             ? nullptr
             : findAttrSet(nb.examples.attrSetName, file);
         if (as)
-            sigs.push_back({ meth, nb.examples.attrSetName + "String" });
+            sigs.push_back({ meth, nb.examples.attrSetName + "String", "", true });
         else
             sigs.push_back({ meth, "List<List<String>>" });
     }
@@ -991,6 +991,18 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
         s << "        List<List<" << boxed << ">> typedValues = toListList" << boxed << "(values);\n";
         s << "        for (List<" << boxed << "> value : typedValues) {\n";
         s << "            System.out.println(value);\n";
+        s << "        }\n";
+        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        s << "    }\n";
+        return out;
+    }
+    if (sig.isAttrSet) {
+        const QString strType   = sig.paramType;   // e.g. ShoppingCartString
+        const QString typedType = strType.left(strType.length() - 6) + "Typed";
+        s << "    public void " << sig.method << "(List<" << strType << "> values) {\n";
+        s << "        for (" << strType << " value : values) {\n";
+        s << "            " << typedType << " typed = new " << typedType << "(value);\n";
+        s << "            System.out.println(typed);\n";
         s << "        }\n";
         s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
