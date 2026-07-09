@@ -920,6 +920,9 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
         if (nb.kind == "DataType" &&
             nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0) {
             sigs.push_back({ meth, "ValidValuesString", "", false, nb.name });
+        } else if (nb.kind == "DataType" &&
+                   nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0) {
+            sigs.push_back({ meth, "EnumerationValuesString", "", false, nb.name });
         } else {
             const AttrSet* as = nb.examples.attrSetName.isEmpty()
                 ? nullptr
@@ -1016,6 +1019,22 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
         s << "            assertEquals(\" Value \" + vvt.value,\n";
         s << "                vvt.isValid.toBoolean(), !error);\n";
         s << "        }\n";
+        s << "    }\n";
+        return out;
+    }
+    if (!sig.dataTypeName.isEmpty() && sig.paramType == "EnumerationValuesString") {
+        const QString dt = sig.dataTypeName;
+        s << "    public void " << sig.method << "(List<EnumerationValuesString> values) {\n";
+        s << "        for (EnumerationValuesString value : values) {\n";
+        s << "            System.out.println(value);\n";
+        s << "            try {\n";
+        s << "                " << dt << ".valueOf(value.value);\n";
+        s << "            } catch (IllegalArgumentException e) {\n";
+        s << "                fail(\"Value \" + value.value + \" not in " << dt << "\");\n";
+        s << "            }\n";
+        s << "        }\n";
+        s << "        int count = " << dt << ".values().length;\n";
+        s << "        assertEquals(\"Number of " << dt << "s \", values.size(), count);\n";
         s << "    }\n";
         return out;
     }
