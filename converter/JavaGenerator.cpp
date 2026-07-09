@@ -913,17 +913,22 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
 
     // Named blocks — emit ExamplesBusinessRule_*, ExamplesCalculation_*, ExamplesDataType_*
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "Examples_" + nb.kind + "_" + toClassName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
-        const AttrSet* as = nb.examples.attrSetName.isEmpty()
-            ? nullptr
-            : findAttrSet(nb.examples.attrSetName, file);
-        if (as)
-            sigs.push_back({ meth, nb.examples.attrSetName + "String", "", true });
-        else
-            sigs.push_back({ meth, "List<List<String>>" });
+        if (nb.kind == "DataType" &&
+            nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0) {
+            sigs.push_back({ meth, "ValidValuesString", "", false, nb.name });
+        } else {
+            const AttrSet* as = nb.examples.attrSetName.isEmpty()
+                ? nullptr
+                : findAttrSet(nb.examples.attrSetName, file);
+            if (as)
+                sigs.push_back({ meth, nb.examples.attrSetName + "String", "", true });
+            else
+                sigs.push_back({ meth, "List<List<String>>" });
+        }
     }
 
     return sigs;
@@ -993,6 +998,24 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
         s << "            System.out.println(value);\n";
         s << "        }\n";
         s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        s << "    }\n";
+        return out;
+    }
+    if (!sig.dataTypeName.isEmpty() && sig.paramType == "ValidValuesString") {
+        s << "    public void " << sig.method << "(List<ValidValuesString> values) {\n";
+        s << "        for (ValidValuesString value : values) {\n";
+        s << "            boolean error = false;\n";
+        s << "            System.out.println(value);\n";
+        s << "            ValidValuesTyped vvt = new ValidValuesTyped(value);\n";
+        s << "            try {\n";
+        s << "                new " << sig.dataTypeName << "(vvt.value);\n";
+        s << "            }\n";
+        s << "            catch(NumberFormatException e){\n";
+        s << "                error = true;\n";
+        s << "            }\n";
+        s << "            assertEquals(\" Value \" + vvt.value,\n";
+        s << "                vvt.isValid.toBoolean(), !error);\n";
+        s << "        }\n";
         s << "    }\n";
         return out;
     }
@@ -1067,6 +1090,30 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
         }
     }
 
+    // Inject assertEquals import if a ValidValues DataType stub was added
+    bool addedValidValues = false;
+    for (const GlueSig& sig : sigs) {
+        const QString signature = QStringLiteral("public void %1(").arg(sig.method);
+        if (!sig.dataTypeName.isEmpty() && !content.contains(signature)) {
+            addedValidValues = true; break;
+        }
+    }
+    if (addedValidValues && !content.contains("assertEquals")) {
+        const int failImport = content.indexOf("import static");
+        if (failImport >= 0) {
+            const int lineEnd = content.indexOf('\n', failImport);
+            // Insert assertEquals import on the next line after the fail import
+            const int nextLine = content.indexOf('\n', lineEnd + 1);
+            const QString assertLine = content.mid(lineEnd + 1,
+                content.indexOf('\n', lineEnd + 1) - lineEnd - 1);
+            // Derive assertEquals import from the existing fail import line
+            QString eqImport = content.mid(failImport,
+                content.indexOf('\n', failImport) - failImport);
+            eqImport.replace("fail", "assertEquals");
+            content.insert(lineEnd + 1, eqImport + "\n");
+        }
+    }
+
     // Insert before the final closing "}\n" of the class
     const int closingClass = content.lastIndexOf("\n}");
     if (closingClass < 0) {
@@ -1102,12 +1149,22 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
                          && (m_framework.compare("JUnit", Qt::CaseInsensitive) == 0
                              || m_framework.toLower().startsWith("junit5")
                              || m_framework.toLower() == "junit 5");
-    if (m_framework.compare("TestNG", Qt::CaseInsensitive) == 0)
-        s << "import static org.testng.Assert.fail;\n\n";
-    else if (glueJUnit5)
-        s << "import static org.junit.jupiter.api.Assertions.fail;\n\n";
-    else
-        s << "import static org.junit.Assert.fail;\n\n";
+    bool hasValidValuesStub = false;
+    for (const GlueSig& g : sigs)
+        if (!g.dataTypeName.isEmpty()) { hasValidValuesStub = true; break; }
+    if (m_framework.compare("TestNG", Qt::CaseInsensitive) == 0) {
+        s << "import static org.testng.Assert.fail;\n";
+        if (hasValidValuesStub) s << "import static org.testng.Assert.assertEquals;\n";
+        s << "\n";
+    } else if (glueJUnit5) {
+        s << "import static org.junit.jupiter.api.Assertions.fail;\n";
+        if (hasValidValuesStub) s << "import static org.junit.jupiter.api.Assertions.assertEquals;\n";
+        s << "\n";
+    } else {
+        s << "import static org.junit.Assert.fail;\n";
+        if (hasValidValuesStub) s << "import static org.junit.Assert.assertEquals;\n";
+        s << "\n";
+    }
     s << "public class " << glueClass << " {\n";
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
