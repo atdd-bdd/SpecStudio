@@ -18,6 +18,11 @@ struct SpecConfig
     QStringList imports;                     // extra import/using statements for all generated files
     QString     tagFilter;                   // boolean $tag expression — only matching blocks generated
 
+    // Production class generation (Java only)
+    bool    createProductionClasses  = false; // generate production stubs for DataTypes if not present
+    QString productionClassesDir;             // output folder for production classes
+    QString productionClassesPackage;         // Java package for production classes
+
     // Load from a .specconfig JSON file; returns defaults if the file cannot be read
     static SpecConfig load(const QString& filePath);
 

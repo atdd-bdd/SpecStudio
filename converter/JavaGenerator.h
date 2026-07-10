@@ -16,6 +16,9 @@ public:
         QString     framework     = "JUnit";  // "JUnit", "TestNG"
         QStringList extraImports;             // injected after auto-imports in every generated file
         QString     tagFilter;               // boolean tag expression; empty = generate all
+        bool        createProductionClasses = false; // generate production stubs for DataTypes
+        QString     productionClassesDir;            // output folder for production classes
+        QString     productionClassesPackage;        // Java package for production classes
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);

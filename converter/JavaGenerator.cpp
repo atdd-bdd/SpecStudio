@@ -1241,6 +1241,96 @@ static QString genYesNoClass(const QString& pkg, const QStringList& extraImports
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Production class generation helpers
+// ---------------------------------------------------------------------------
+
+// Infer a Java primitive type from ValidValues example values.
+// Returns "long", "double", or "" (String-only, no second constructor).
+static QString inferJavaType(const NamedBlock& nb)
+{
+    int valueCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
+            { valueCol = i; break; }
+    if (valueCol < 0 || nb.examples.rows.isEmpty()) return {};
+
+    bool allLong = true, allDouble = true;
+    for (const QStringList& row : nb.examples.rows) {
+        if (valueCol >= row.size()) continue;
+        const QString v = row[valueCol].trimmed();
+        if (v.isEmpty()) continue;
+        bool ok;
+        v.toLongLong(&ok);  if (!ok) allLong = false;
+        v.toDouble(&ok);    if (!ok) allDouble = false;
+    }
+    if (allLong)   return "long";
+    if (allDouble) return "double";
+    return {};
+}
+
+static QString genProductionClass(const NamedBlock& nb, const QString& pkg,
+                                   const QStringList& extraImports)
+{
+    const QString name      = nb.name;
+    const QString javaType  = inferJavaType(nb);
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.Objects;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\npublic class " << name << " {\n";
+    s << "    public final String value;\n\n";
+    s << "    public " << name << "(String value) {\n";
+    s << "        this.value = value != null ? value : \"\";\n";
+    s << "    }\n";
+    if (!javaType.isEmpty()) {
+        const QString boxed = (javaType == "long") ? "Long" : "Double";
+        s << "\n    public " << name << "(" << javaType << " numericValue) {\n";
+        s << "        this.value = " << boxed << ".toString(numericValue);\n";
+        s << "    }\n";
+    }
+    s << "\n    @Override\n";
+    s << "    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof " << name << ")) return false;\n";
+    s << "        return Objects.equals(value, ((" << name << ") o).value);\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public int hashCode() { return Objects.hash(value); }\n\n";
+    s << "    @Override\n";
+    s << "    public String toString() { return \"" << name << "{\" + value + \"}\"; }\n";
+    s << "}\n";
+    return out;
+}
+
+static QString genProductionEnum(const NamedBlock& nb, const QString& pkg,
+                                  const QStringList& extraImports)
+{
+    // Collect Value column entries
+    int valueCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
+            { valueCol = i; break; }
+
+    QStringList constants;
+    if (valueCol >= 0)
+        for (const QStringList& row : nb.examples.rows)
+            if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
+                constants << row[valueCol].trimmed();
+
+    const QString name = nb.name;
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\npublic enum " << name << " {\n";
+    for (int i = 0; i < constants.size(); ++i)
+        s << "    " << constants[i] << (i + 1 < constants.size() ? "," : ";") << "\n";
+    s << "}\n";
+    return out;
+}
+
 bool JavaGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
 {
     QFile f(path);
@@ -1263,6 +1353,13 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     m_framework    = opts.framework;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
+
+    // Auto-inject production package import so Typed and glue files can reference production types
+    if (opts.createProductionClasses && !opts.productionClassesPackage.isEmpty()) {
+        const QString prodImport = "import " + opts.productionClassesPackage + ".*;";
+        if (!m_extraImports.contains(prodImport))
+            m_extraImports.prepend(prodImport);
+    }
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1377,6 +1474,32 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, augmented, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+        }
+    }
+
+    // Production class generation
+    if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
+        const QString prodPkg = opts.productionClassesPackage;
+        QDir prodDir(opts.productionClassesDir);
+        if (!prodDir.exists()) prodDir.mkpath(".");
+
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (nb.isContext || !nb.hasExamples) continue;
+            const bool isValidValues =
+                nb.kind == "DataType" &&
+                nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0;
+            const bool isEnum =
+                nb.kind == "DataType" &&
+                nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+            if (!isValidValues && !isEnum) continue;
+
+            const QString prodPath = prodDir.filePath(nb.name + ".java");
+            if (QFile::exists(prodPath)) continue;   // never overwrite existing production classes
+
+            if (isValidValues)
+                writeFile(prodPath, genProductionClass(nb, prodPkg, {}), msgs);
+            else
+                writeFile(prodPath, genProductionEnum(nb, prodPkg, {}), msgs);
         }
     }
 

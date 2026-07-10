@@ -28,6 +28,12 @@ SpecConfig SpecConfig::load(const QString& filePath)
             cfg.imports << v.toString();
     }
     if (o.contains("tagFilter")) cfg.tagFilter = o["tagFilter"].toString();
+    if (o.contains("createProductionClasses"))
+        cfg.createProductionClasses = o["createProductionClasses"].toBool();
+    if (o.contains("productionClassesDir"))
+        cfg.productionClassesDir = o["productionClassesDir"].toString();
+    if (o.contains("productionClassesPackage"))
+        cfg.productionClassesPackage = o["productionClassesPackage"].toString();
     return cfg;
 }
 
@@ -52,6 +58,12 @@ bool SpecConfig::save(const QString& filePath) const
     }
     if (!tagFilter.isEmpty())
         o["tagFilter"] = tagFilter;
+    if (createProductionClasses)
+        o["createProductionClasses"] = true;
+    if (!productionClassesDir.isEmpty())
+        o["productionClassesDir"] = productionClassesDir;
+    if (!productionClassesPackage.isEmpty())
+        o["productionClassesPackage"] = productionClassesPackage;
 
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;

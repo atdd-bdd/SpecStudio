@@ -67,6 +67,16 @@ int main(int argc, char* argv[])
         "expr", "");
     cli.addOption(tagFilterOpt);
 
+    QCommandLineOption prodDirOpt("prod-dir",
+        "Output folder for production classes (Java only). "
+        "When set, generates a production class/enum for each DataType if not already present.",
+        "dir", "");
+    cli.addOption(prodDirOpt);
+
+    QCommandLineOption prodPkgOpt("prod-package",
+        "Java package for generated production classes.", "package", "");
+    cli.addOption(prodPkgOpt);
+
     cli.process(app);
 
     const QStringList pos = cli.positionalArguments();
@@ -126,6 +136,9 @@ int main(int argc, char* argv[])
         opts.framework     = framework;
         opts.extraImports  = cli.values(importOpt);
         opts.tagFilter     = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.productionClassesPackage = cli.value(prodPkgOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {

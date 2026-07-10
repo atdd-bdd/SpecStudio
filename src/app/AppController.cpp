@@ -652,6 +652,11 @@ void AppController::onBuildCurrentFile()
     for (const QString& imp : cfg.imports)
         args << "--import" << imp;
     if (!cfg.tagFilter.isEmpty())       args << "--tag-filter" << cfg.tagFilter;
+    if (cfg.createProductionClasses && !cfg.productionClassesDir.isEmpty()) {
+        args << "--prod-dir" << cfg.productionClassesDir;
+        if (!cfg.productionClassesPackage.isEmpty())
+            args << "--prod-package" << cfg.productionClassesPackage;
+    }
     // Pass other .spectable files from the same project as context
     if (m_solution) {
         auto* ownerProj = m_solution->projectForFile(ed->filePath());
@@ -702,6 +707,11 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 for (const QString& imp : cfg.imports)
                     args << "--import" << imp;
                 if (!cfg.tagFilter.isEmpty()) args << "--tag-filter" << cfg.tagFilter;
+                if (cfg.createProductionClasses && !cfg.productionClassesDir.isEmpty()) {
+                    args << "--prod-dir" << cfg.productionClassesDir;
+                    if (!cfg.productionClassesPackage.isEmpty())
+                        args << "--prod-package" << cfg.productionClassesPackage;
+                }
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();

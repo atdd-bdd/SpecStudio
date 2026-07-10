@@ -119,6 +119,43 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     root->addWidget(glueGroup);
 
+    // ── Production classes group ──────────────────────────────────────────────
+    auto* prodGroup  = new QGroupBox(tr("Production Classes (Java only)"), inner);
+    auto* prodLayout = new QVBoxLayout(prodGroup);
+
+    m_createProdClasses = new QCheckBox(
+        tr("Create production classes if they do not exist"), prodGroup);
+    auto* prodHint = new QLabel(
+        tr("When checked, generates a production class for each DataType (ValidValues → class, "
+           "Enumeration → enum) in the specified folder, only if the file is not already present."),
+        prodGroup);
+    prodHint->setWordWrap(true);
+    prodHint->setStyleSheet("color: gray; font-size: 11px;");
+    prodLayout->addWidget(m_createProdClasses);
+    prodLayout->addWidget(prodHint);
+
+    m_prodClassesDetails = new QWidget(prodGroup);
+    auto* prodForm = new QFormLayout(m_prodClassesDetails);
+    prodForm->setContentsMargins(0, 8, 0, 0);
+    prodForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+    m_prodClassesDir = new QLineEdit(m_prodClassesDetails);
+    m_prodClassesDir->setPlaceholderText(tr("e.g.  C:/my/project/src/main/java/com/example"));
+    m_browseProdClassesDir = new QPushButton(tr("Browse…"), m_prodClassesDetails);
+    m_browseProdClassesDir->setFixedWidth(90);
+    auto* prodDirRow = new QHBoxLayout;
+    prodDirRow->addWidget(m_prodClassesDir);
+    prodDirRow->addWidget(m_browseProdClassesDir);
+    prodForm->addRow(tr("Folder for production classes:"), prodDirRow);
+
+    m_prodClassesPackage = new QLineEdit(m_prodClassesDetails);
+    m_prodClassesPackage->setPlaceholderText(tr("e.g.  com.example.domain"));
+    prodForm->addRow(tr("Package for production classes:"), m_prodClassesPackage);
+
+    prodLayout->addWidget(m_prodClassesDetails);
+    m_prodClassesDetails->setVisible(false);
+    root->addWidget(prodGroup);
+
     // ── Converter path group ──────────────────────────────────────────────────
     auto* convGroup = new QGroupBox(tr("Converter"), inner);
     auto* convForm  = new QFormLayout(convGroup);
@@ -195,6 +232,13 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     connect(m_tagFilter,  &QLineEdit::textChanged,      this, &SpecConfigEditor::markDirty);
     connect(browseOut, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseOutputDir);
     connect(m_browseConverter, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseConverter);
+    connect(m_browseProdClassesDir, &QPushButton::clicked,
+            this, &SpecConfigEditor::onBrowseProdClassesDir);
+    connect(m_createProdClasses, &QCheckBox::toggled,
+            this, &SpecConfigEditor::onCreateProdClassesToggled);
+    connect(m_createProdClasses, &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
+    connect(m_prodClassesDir,    &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
+    connect(m_prodClassesPackage, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
 
     load(filePath);
 }
@@ -263,6 +307,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     block(m_language); block(m_framework); block(m_outputDir);
     block(m_namespace); block(m_overwriteGlue); block(m_copySpectable);
     block(m_converterPath); block(m_imports); block(m_tagFilter);
+    block(m_createProdClasses); block(m_prodClassesDir); block(m_prodClassesPackage);
 
     m_outputDir->setText(cfg.outputDirectory);
 
@@ -284,9 +329,15 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_imports->setPlainText(cfg.imports.join("\n"));
     m_tagFilter->setText(cfg.tagFilter);
 
+    m_createProdClasses->setChecked(cfg.createProductionClasses);
+    m_prodClassesDir->setText(cfg.productionClassesDir);
+    m_prodClassesPackage->setText(cfg.productionClassesPackage);
+    m_prodClassesDetails->setVisible(cfg.createProductionClasses);
+
     unblock(m_language); unblock(m_framework); unblock(m_outputDir);
     unblock(m_namespace); unblock(m_overwriteGlue); unblock(m_copySpectable);
     unblock(m_converterPath); unblock(m_imports); unblock(m_tagFilter);
+    unblock(m_createProdClasses); unblock(m_prodClassesDir); unblock(m_prodClassesPackage);
 }
 
 SpecConfig SpecConfigEditor::configFromForm() const
@@ -303,5 +354,20 @@ SpecConfig SpecConfigEditor::configFromForm() const
     for (const QString& line : impText.split('\n'))
         if (!line.trimmed().isEmpty()) cfg.imports << line.trimmed();
     cfg.tagFilter = m_tagFilter->text().trimmed();
+    cfg.createProductionClasses  = m_createProdClasses->isChecked();
+    cfg.productionClassesDir     = m_prodClassesDir->text().trimmed();
+    cfg.productionClassesPackage = m_prodClassesPackage->text().trimmed();
     return cfg;
+}
+
+void SpecConfigEditor::onBrowseProdClassesDir()
+{
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, tr("Select Production Classes Folder"), QString());
+    if (!dir.isEmpty()) m_prodClassesDir->setText(dir);
+}
+
+void SpecConfigEditor::onCreateProdClassesToggled(bool checked)
+{
+    m_prodClassesDetails->setVisible(checked);
 }

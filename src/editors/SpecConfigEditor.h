@@ -24,6 +24,8 @@ private slots:
     void onLanguageChanged(const QString& language);
     void onBrowseOutputDir();
     void onBrowseConverter();
+    void onBrowseProdClassesDir();
+    void onCreateProdClassesToggled(bool checked);
     void markDirty();
 
 private:
@@ -41,4 +43,10 @@ private:
     QPlainTextEdit* m_imports      = nullptr;
     QLineEdit*    m_tagFilter      = nullptr;
     QLabel*       m_statusLabel    = nullptr;
+
+    QCheckBox*    m_createProdClasses    = nullptr;
+    QWidget*      m_prodClassesDetails   = nullptr;
+    QLineEdit*    m_prodClassesDir       = nullptr;
+    QPushButton*  m_browseProdClassesDir = nullptr;
+    QLineEdit*    m_prodClassesPackage   = nullptr;
 };
