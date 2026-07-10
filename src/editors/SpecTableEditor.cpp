@@ -634,7 +634,25 @@ void SpecTableEditor::autoInsertTableHeader()
         }
     }
 
-    // ── Case 2: Step line with : AttrSetName ──────────────────────────────────
+    // ── Case 2: Examples: ValidValues / EnumerationValues ────────────────────
+    {
+        static QRegularExpression reExamples(
+            R"(^\s*Examples:\s*(ValidValues|EnumerationValues)\s*$)",
+            QRegularExpression::CaseInsensitiveOption);
+        auto m = reExamples.match(prevLine);
+        if (m.hasMatch()) {
+            const QString kind = m.captured(1).toLower();
+            const QString hdr = (kind == "validvalues")
+                ? indent + "| Value | IsValid |"
+                : indent + "| Value |";
+            tc.movePosition(QTextCursor::StartOfBlock);
+            tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            tc.insertText(hdr);
+            return;
+        }
+    }
+
+    // ── Case 3: Step line with : AttrSetName ──────────────────────────────────
     {
         static QRegularExpression reStep(
             R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
