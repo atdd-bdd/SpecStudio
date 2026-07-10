@@ -538,6 +538,20 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     }
     s << ");\n    }\n\n";
 
+    // toXxxString() — convert this Typed instance back to its String equivalent
+    s << "    public " << csn << " to" << csn << "() {\n";
+    s << "        return new " << csn << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        const QString field = toCamelCase(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << field << ".to" << as.fields[i].type << "String()";
+        else
+            s << "String.valueOf(" << field << ")";
+    }
+    s << ");\n";
+    s << "    }\n\n";
+
     // Static conversion helpers
     s << "    public static List<" << cn << "> fromStringList(List<" << csn << "> list) {\n";
     s << "        List<" << cn << "> result = new ArrayList<>();\n";
@@ -547,13 +561,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
 
     s << "    public static List<" << csn << "> toStringList(List<" << cn << "> list) {\n";
     s << "        List<" << csn << "> result = new ArrayList<>();\n";
-    s << "        for (" << cn << " t : list)\n";
-    s << "            result.add(new " << csn << "(";
-    for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        s << "String.valueOf(t." << toCamelCase(as.fields[i].name) << ")";
-    }
-    s << "));\n";
+    s << "        for (" << cn << " t : list) result.add(t.to" << csn << "());\n";
     s << "        return result;\n";
     s << "    }\n}\n";
 
