@@ -20,7 +20,7 @@ private:
     static bool        isPipeRow(const QString& trimmed);
     static bool        isDefineLine(const QString& trimmed, QString& defineName);
     static bool        isStepLine(const QString& trimmed, QString& kw, QString& text,
-                                  QString& attrSet, bool& transposed);
+                                  QString& attrSet, bool& transposed, bool& compareOnly);
     static bool        isContinuation(const QString& line);
     static bool        isSkipKeyword(const QString& firstWord);
 };

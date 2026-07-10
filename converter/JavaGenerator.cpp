@@ -290,11 +290,12 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
         const bool useKV = def->transposed || step.transposed;
+        const QString fillVal = step.compareOnly ? "?DNC?" : QString();
         if (useKV) {
             const int startIdx = def->transposed ? 1 : 0;
             QStringList row(fieldCount);
             for (int i = 0; i < attrSet->fields.size(); ++i)
-                row[i] = attrSet->fields[i].defaultValue;
+                row[i] = step.compareOnly ? fillVal : attrSet->fields[i].defaultValue;
             for (int ri = startIdx; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
                 if (r.size() < 2) continue;
@@ -312,7 +313,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
                 QStringList row(fieldCount);
                 for (int i = 0; i < attrSet->fields.size(); ++i)
-                    row[i] = attrSet->fields[i].defaultValue;
+                    row[i] = step.compareOnly ? fillVal : attrSet->fields[i].defaultValue;
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -328,6 +329,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
     for (int i = 0; i < attrSet->fields.size(); ++i)
         fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
+    const QString fillVal = step.compareOnly ? "?DNC?" : QString();
     if (step.table.transposed) {
         // Each row = [AttrName, Value [, Value2, ...]]
         // Extra columns are additional list items; each value column = one result row.
@@ -337,7 +339,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         for (int col = 1; col < numCols; ++col) {
             QStringList row(fieldCount);
             for (int i = 0; i < attrSet->fields.size(); ++i)
-                row[i] = attrSet->fields[i].defaultValue;
+                row[i] = step.compareOnly ? fillVal : attrSet->fields[i].defaultValue;
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -355,7 +357,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
             QStringList row(fieldCount);
             for (int i = 0; i < attrSet->fields.size(); ++i)
-                row[i] = attrSet->fields[i].defaultValue;
+                row[i] = step.compareOnly ? fillVal : attrSet->fields[i].defaultValue;
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -383,6 +385,7 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     s << "\n";
 
     s << "public class " << cn << " {\n";
+    s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
     for (const Field& f : as.fields) {
         const QString fType = isAttrSetType(f.type, file) ? f.type + "String" : "String";
@@ -402,7 +405,7 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
         s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "    }\n\n";
 
-    // equals()
+    // equals() — DNCString on either side skips the field comparison
     s << "    @Override\n    public boolean equals(Object o) {\n";
     s << "        if (this == o) return true;\n";
     s << "        if (!(o instanceof " << cn << ")) return false;\n";
@@ -411,7 +414,13 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << "\n            && ";
         const QString field = toCamelCase(as.fields[i].name);
-        s << "Objects.equals(" << field << ", that." << field << ")";
+        if (isAttrSetType(as.fields[i].type, file)) {
+            // sub-object field — delegate to its own equals (no DNC at this level)
+            s << "Objects.equals(" << field << ", that." << field << ")";
+        } else {
+            s << "(DNCString.equals(" << field << ") || DNCString.equals(that." << field << ")"
+              << " || Objects.equals(" << field << ", that." << field << "))";
+        }
     }
     s << ";\n    }\n\n";
 
@@ -461,7 +470,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     if (needsTime)        s << "import java.time.LocalTime;\n";
     if (needsDt)          s << "import java.time.LocalDateTime;\n";
     if (needsDur)         s << "import java.time.Duration;\n";
-    if (needsList)        s << "import java.util.List;\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.List;\n";
     if (needsCollections) s << "import java.util.Collections;\n";
     s << "import java.util.Objects;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
@@ -526,7 +536,26 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         if (i) s << ", ";
         s << toCamelCase(as.fields[i].name);
     }
-    s << ");\n    }\n}\n";
+    s << ");\n    }\n\n";
+
+    // Static conversion helpers
+    s << "    public static List<" << cn << "> fromStringList(List<" << csn << "> list) {\n";
+    s << "        List<" << cn << "> result = new ArrayList<>();\n";
+    s << "        for (" << csn << " s : list) result.add(new " << cn << "(s));\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+
+    s << "    public static List<" << csn << "> toStringList(List<" << cn << "> list) {\n";
+    s << "        List<" << csn << "> result = new ArrayList<>();\n";
+    s << "        for (" << cn << " t : list)\n";
+    s << "            result.add(new " << csn << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << "String.valueOf(t." << toCamelCase(as.fields[i].name) << ")";
+    }
+    s << "));\n";
+    s << "        return result;\n";
+    s << "    }\n}\n";
 
     return out;
 }

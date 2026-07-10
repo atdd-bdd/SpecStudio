@@ -48,7 +48,8 @@ struct Step {
     QString   keyword;      // Given / When / Then  (And/But normalized to previous)
     QString   text;         // step description before ':'
     QString   attrSetName;  // attribute set name after ':' (empty if none)
-    bool      transposed = false;
+    bool      transposed   = false;
+    bool      compareOnly  = false;  // CompareOnly modifier — unlisted fields filled with DNCString
     StepTable table;
     bool      hasTable   = false;
     QString   defineRef;    // "=DefineName" in place of a table

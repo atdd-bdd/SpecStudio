@@ -50,13 +50,13 @@ bool SpectableParser::isDefineLine(const QString& trimmed, QString& defineName)
 
 bool SpectableParser::isStepLine(const QString& trimmed,
                                   QString& kw, QString& text,
-                                  QString& attrSet, bool& transposed)
+                                  QString& attrSet, bool& transposed, bool& compareOnly)
 {
     static QRegularExpression reStep(
         R"(^\s*(Given|When|Then|And|But)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reAttr(
-        R"(\s*:\s*(\w+)(?:\s+(Transposed))?\s*$)",
+        R"(\s*:\s*(\w+)(?:\s+(Transposed|CompareOnly))?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     auto m = reStep.match(trimmed);
@@ -67,13 +67,16 @@ bool SpectableParser::isStepLine(const QString& trimmed,
 
     auto ma = reAttr.match(rest);
     if (ma.hasMatch()) {
-        attrSet    = ma.captured(1);
-        transposed = !ma.captured(2).isEmpty();
-        text       = rest.left(ma.capturedStart()).trimmed();
+        attrSet     = ma.captured(1);
+        const QString mod = ma.captured(2).toLower();
+        transposed  = (mod == "transposed");
+        compareOnly = (mod == "compareonly");
+        text        = rest.left(ma.capturedStart()).trimmed();
     } else {
-        attrSet    = {};
-        transposed = false;
-        text       = rest;
+        attrSet     = {};
+        transposed  = false;
+        compareOnly = false;
+        text        = rest;
     }
     return true;
 }
@@ -775,15 +778,16 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         if (state == State::InScenario || state == State::InBackground
                                        || state == State::InCleanup) {
             QString kw, text, attrSet;
-            bool    trans = false;
-            if (isStepLine(trimmed, kw, text, attrSet, trans)) {
+            bool    trans = false, cmpOnly = false;
+            if (isStepLine(trimmed, kw, text, attrSet, trans, cmpOnly)) {
                 lastKw = normalizeKeyword(kw, lastKw);
                 Step st;
-                st.keyword     = lastKw;
-                st.text        = text;
-                st.attrSetName = attrSet;
-                st.transposed  = trans;
-                st.line        = lineNum;
+                st.keyword      = lastKw;
+                st.text         = text;
+                st.attrSetName  = attrSet;
+                st.transposed   = trans;
+                st.compareOnly  = cmpOnly;
+                st.line         = lineNum;
 
                 if (state == State::InScenario && curScen) {
                     curScen->steps.push_back(st);
