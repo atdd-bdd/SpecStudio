@@ -1238,7 +1238,7 @@ void SpecTableEditor::refreshDynamicCompletions()
     // Dedicated list for the Type column dropdown in Attributes/Entity tables
     static const QStringList builtInTypes = {
         "Boolean", "Character", "Date", "DateTime", "Duration",
-        "Float", "Integer", "String", "Text", "Time", "YesNo"
+        "Float", "Integer", "Scientific", "String", "Text", "Time", "YesNo"
     };
     QStringList typeWords = builtInTypes;
     for (const QString& n : syms.dataTypes.keys()) typeWords << n;
