@@ -143,7 +143,10 @@ void MainWindow::setupMenuBar()
     connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::populateRecentMenu);
     fileMenu->addSeparator();
     auto* actSave         = fileMenu->addAction(tr("Save"),     QKeySequence::Save);
+    auto* actSaveAs       = fileMenu->addAction(tr("Save As..."));
     auto* actSaveAll      = fileMenu->addAction(tr("Save All"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    fileMenu->addSeparator();
+    auto* actRefreshFile  = fileMenu->addAction(tr("Refresh"));
     fileMenu->addSeparator();
     auto* actPrint        = fileMenu->addAction(tr("Print..."), QKeySequence::Print);
     fileMenu->addSeparator();
@@ -154,7 +157,9 @@ void MainWindow::setupMenuBar()
     connect(actNewFile,      &QAction::triggered, m_controller, [this]{ m_controller->onNewFile(); });
     connect(actOpenSolution, &QAction::triggered, m_controller, &AppController::onOpenSolution);
     connect(actSave,         &QAction::triggered, m_controller, &AppController::onSave);
+    connect(actSaveAs,       &QAction::triggered, m_controller, &AppController::onSaveAs);
     connect(actSaveAll,      &QAction::triggered, m_controller, &AppController::onSaveAll);
+    connect(actRefreshFile,  &QAction::triggered, m_controller, &AppController::onRefreshSolution);
     connect(actPrint,        &QAction::triggered, m_controller, &AppController::onPrint);
     connect(actSettings,     &QAction::triggered, m_controller, &AppController::onSettings);
 
@@ -271,10 +276,10 @@ void MainWindow::setupMenuBar()
     // ---- Analyze ----
     auto* analyzeMenu = menuBar()->addMenu(tr("&Analyze"));
 
-    auto* actAnalyzeProject  = analyzeMenu->addAction(tr("Project"),  QKeySequence(Qt::Key_F7));
+    m_analyzeProjectMenu = analyzeMenu->addMenu(tr("Project"));
+    connect(m_analyzeProjectMenu, &QMenu::aboutToShow, this, &MainWindow::populateAnalyzeMenu);
     auto* actAnalyzeSolution = analyzeMenu->addAction(tr("Solution"), QKeySequence(Qt::SHIFT | Qt::Key_F7));
 
-    connect(actAnalyzeProject,  &QAction::triggered, m_controller, &AppController::onAnalyze);
     connect(actAnalyzeSolution, &QAction::triggered, m_controller, &AppController::onAnalyzeSolution);
 }
 
@@ -370,6 +375,24 @@ void MainWindow::populateConfigMenu()
     if (!anyFound) {
         auto* none = m_configMenu->addAction(tr("(no .specconfig files found)"));
         none->setEnabled(false);
+    }
+}
+
+void MainWindow::populateAnalyzeMenu()
+{
+    m_analyzeProjectMenu->clear();
+
+    Solution* sol = m_controller->currentSolution();
+    if (!sol || sol->projects().isEmpty()) {
+        auto* none = m_analyzeProjectMenu->addAction(tr("(no projects)"));
+        none->setEnabled(false);
+        return;
+    }
+
+    for (Project* p : sol->projects()) {
+        auto* act = m_analyzeProjectMenu->addAction(p->name());
+        connect(act, &QAction::triggered, m_controller,
+                [this, p] { m_controller->onAnalyzeProject(p->rootPath()); });
     }
 }
 

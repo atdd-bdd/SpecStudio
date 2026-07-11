@@ -47,8 +47,9 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkCleanup               (filePath, diags);
     checkTableColumnConsistency(filePath, diags);
     checkStepTableContents     (filePath, visible, diags);
-    checkDomainTermDuplicates  (filePath, diags);
-    checkUnrecognizedLines     (filePath, diags);
+    checkDomainTermDuplicates       (filePath, diags);
+    checkUnrecognizedLines          (filePath, diags);
+    checkStepsWithTableButNoAttrSet (filePath, diags);
 
     return diags;
 }
@@ -625,6 +626,45 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
         if (!known.contains(firstWord.toLower()))
             out.append(makeDiag(filePath, lineNum,
                 QStringLiteral("Unrecognized keyword '%1'").arg(firstWord),
+                Diagnostic::Severity::Warning));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check 9 — Given/When/Then step has a following table but no ': AttrSet' suffix
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkStepsWithTableButNoAttrSet(const QString& filePath,
+                                                          QList<Diagnostic>& out) const
+{
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    // A step line that does NOT end with ': SomeName'
+    static QRegularExpression reStepNoAttr(
+        R"(^\s*(?:Given|When|Then|And|But)\b(?:(?!:\s*\w+\s*$).)+$)",
+        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow(R"(^\s*\|)");
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines.append(in.readLine());
+
+    for (int i = 0; i < lines.size() - 1; ++i) {
+        if (!reStepNoAttr.match(lines[i]).hasMatch()) continue;
+
+        // Look ahead (skipping blanks and comments) for a table row
+        bool hasTable = false;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            const QString& next = lines[j];
+            if (next.trimmed().isEmpty() || next.trimmed().startsWith('#')) continue;
+            if (reRow.match(next).hasMatch()) { hasTable = true; }
+            break;
+        }
+        if (hasTable)
+            out.append(makeDiag(filePath, i + 1,
+                QStringLiteral("Step has a data table but no AttributeSet, Entity, or DataType — "
+                               "add ': <Name>' to specify which, or create a new one"),
                 Diagnostic::Severity::Warning));
     }
 }

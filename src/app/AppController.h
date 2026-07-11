@@ -29,6 +29,7 @@ public slots:
     void onNewFile(const QString& projectRootHint = {});
     void onOpenSolution();
     void onSave();
+    void onSaveAs();
     void onSaveAll();
     void onPrint();
     void onSettings();
@@ -41,6 +42,7 @@ public slots:
     void onBuildSolution();
     void onSetActiveBuildConfig(const QString& configAbsPath);
     void onAnalyze();
+    void onAnalyzeProject(const QString& projectRootPath);
     void onAnalyzeSolution();
     void onFindAllUsages();
     void onFindAll(const QString& term, bool caseSensitive, bool useRegex);
@@ -48,6 +50,8 @@ public slots:
     void onRenameFile(const QString& absolutePath);
     void onMoveFile(const QString& absolutePath);
     void onDeleteFile(const QString& absolutePath);
+    void onCopyFile(const QString& absolutePath);
+    void onPasteFile(const QString& targetProjectRoot);
     void onRenameProject(const QString& projectRootPath);
     void onMoveProject(const QString& projectRootPath);
     void onOpenFile(const QString& absolutePath);
@@ -83,4 +87,5 @@ private:
     BuildController*   m_builder        = nullptr;
     QString            m_buildAccum;    // accumulates build output for diagnostic parsing
     QString            m_buildLogPath;  // path to write build.log; set before each build
+    QString            m_copiedFilePath;
 };

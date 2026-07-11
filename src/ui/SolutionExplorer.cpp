@@ -50,13 +50,27 @@ SolutionExplorer::SolutionExplorer(QWidget* parent)
             connect(actMove, &QAction::triggered, this, [this, projectRoot] {
                 emit projectMoveRequested(projectRoot);
             });
+            menu.addSeparator();
+            auto* actPaste = menu.addAction(tr("Paste..."));
+            connect(actPaste, &QAction::triggered, this, [this, projectRoot] {
+                emit filePasteRequested(projectRoot);
+            });
         }
 
         if (isFile) {
             menu.addSeparator();
+            auto* actCopy   = menu.addAction(tr("Copy"));
+            auto* actPaste  = menu.addAction(tr("Paste..."));
+            menu.addSeparator();
             auto* actRename = menu.addAction(tr("Rename..."));
             auto* actMove   = menu.addAction(tr("Move..."));
             auto* actDelete = menu.addAction(tr("Delete"));
+            connect(actCopy, &QAction::triggered, this, [this, filePath] {
+                emit fileCopyRequested(filePath);
+            });
+            connect(actPaste, &QAction::triggered, this, [this, projectRoot] {
+                emit filePasteRequested(projectRoot);
+            });
             connect(actRename, &QAction::triggered, this, [this, filePath] {
                 emit fileRenameRequested(filePath);
             });

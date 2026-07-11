@@ -37,6 +37,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QTimer>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileDialog>
@@ -77,6 +78,10 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, &AppController::onRenameProject);
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::projectMoveRequested,
             this, &AppController::onMoveProject);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileCopyRequested,
+            this, &AppController::onCopyFile);
+    connect(mainWindow->solutionExplorer(), &SolutionExplorer::filePasteRequested,
+            this, &AppController::onPasteFile);
     connect(mainWindow->editorTabs(), &EditorTabWidget::fileOpenRequested,
             this, &AppController::onOpenFile);
 
@@ -112,6 +117,11 @@ void AppController::setSolution(Solution* solution)
         // Record in recent solutions list
         QString sspecPath = solution->rootPath() + QDir::separator() + solution->name() + ".sspec";
         m_settings->addRecentSolution(sspecPath);
+        // Auto-analyze the first project after load
+        QTimer::singleShot(0, this, [this] {
+            if (m_solution && !m_solution->projects().isEmpty())
+                doAnalyze({ m_solution->projects().first() });
+        });
     } else {
         m_mainWindow->statusBarMgr()->clearAll();
     }
@@ -334,6 +344,31 @@ void AppController::onSave()
             }
         }
     }
+}
+
+void AppController::onSaveAs()
+{
+    auto* tabs = m_mainWindow->editorTabs();
+    auto* ed   = tabs->currentEditor();
+    if (!ed) return;
+
+    const QString oldPath = ed->filePath();
+    const QString dir     = QFileInfo(oldPath).absolutePath();
+    const QString filter  = QString("Files (*%1);;All Files (*)").arg(QFileInfo(oldPath).suffix().isEmpty()
+                                ? "" : "." + QFileInfo(oldPath).suffix());
+    const QString newPath = QFileDialog::getSaveFileName(
+        m_mainWindow, tr("Save As"), dir, filter);
+    if (newPath.isEmpty()) return;
+
+    // Flush in-memory content to the original path, then copy to new path
+    ed->save();
+    QFile::remove(newPath);  // remove if exists (user confirmed in dialog)
+    if (!QFile::copy(oldPath, newPath)) {
+        QMessageBox::critical(m_mainWindow, tr("Save As Failed"),
+            tr("Could not write to '%1'.").arg(newPath));
+        return;
+    }
+    onOpenFile(newPath);
 }
 
 void AppController::onSaveAll()
@@ -861,6 +896,18 @@ void AppController::onAnalyze()
     doAnalyze({ active });
 }
 
+void AppController::onAnalyzeProject(const QString& projectRootPath)
+{
+    if (!m_solution) return;
+    for (auto* p : m_solution->projects()) {
+        if (p->rootPath() == projectRootPath) {
+            for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
+            doAnalyze({ p });
+            return;
+        }
+    }
+}
+
 void AppController::onAnalyzeSolution()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
@@ -1051,6 +1098,55 @@ void AppController::onDeleteFile(const QString& absolutePath)
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
     }
+}
+
+void AppController::onCopyFile(const QString& absolutePath)
+{
+    m_copiedFilePath = absolutePath;
+    m_mainWindow->outputPanel()->appendBuildOutput(
+        tr("Copied: %1").arg(QFileInfo(absolutePath).fileName()));
+}
+
+void AppController::onPasteFile(const QString& targetProjectRoot)
+{
+    if (m_copiedFilePath.isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("Paste"),
+            tr("Nothing copied. Right-click a file and choose Copy first."));
+        return;
+    }
+
+    const QFileInfo srcInfo(m_copiedFilePath);
+    bool ok;
+    const QString newName = QInputDialog::getText(
+        m_mainWindow, tr("Paste File"),
+        tr("New file name:"), QLineEdit::Normal, srcInfo.fileName(), &ok);
+    if (!ok || newName.trimmed().isEmpty()) return;
+
+    const QString destPath = targetProjectRoot + QDir::separator() + newName.trimmed();
+    if (QFile::exists(destPath)) {
+        QMessageBox::warning(m_mainWindow, tr("Paste Failed"),
+            tr("'%1' already exists.").arg(newName.trimmed()));
+        return;
+    }
+
+    if (!QFile::copy(m_copiedFilePath, destPath)) {
+        QMessageBox::critical(m_mainWindow, tr("Paste Failed"),
+            tr("Could not copy '%1'.").arg(srcInfo.fileName()));
+        return;
+    }
+
+    if (m_solution) {
+        for (auto* proj : m_solution->projects()) {
+            proj->scanFiles();
+            connect(proj->git(), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            proj->git()->commitAll(tr("Add %1 (copied from %2)").arg(newName.trimmed(), srcInfo.fileName()));
+        }
+        m_treeModel->refresh();
+        m_mainWindow->solutionExplorer()->treeView()->expandAll();
+    }
+    onOpenFile(destPath);
 }
 
 void AppController::onRefreshSolution()

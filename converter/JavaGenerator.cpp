@@ -1596,6 +1596,16 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         }
     }
 
+    // Item 11: warn if Specification name doesn't match the filename
+    if (!file.specName.isEmpty() && !file.filePath.isEmpty()) {
+        const QString baseName  = QFileInfo(file.filePath).completeBaseName();
+        const QString specFlat  = file.specName.simplified().remove(' ').toLower();
+        const QString fileFlat  = baseName.simplified().remove(' ').toLower();
+        if (specFlat != fileFlat)
+            msgs << QString("INFO:0:Specification name '%1' does not match file name '%2'")
+                    .arg(file.specName, baseName);
+    }
+
     const QString className   = toClassName(file.specName);
     const QString domainPkg   = joinPkg(opts.packagePrefix, "common");
 

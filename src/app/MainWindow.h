@@ -52,12 +52,14 @@ private:
 
     void populateRecentMenu();
     void populateConfigMenu();
+    void populateAnalyzeMenu();
 
     void stubAction(const QString& name);
 
     AppController*     m_controller      = nullptr;
-    QMenu*             m_recentMenu      = nullptr;
-    QMenu*             m_configMenu      = nullptr;
+    QMenu*             m_recentMenu         = nullptr;
+    QMenu*             m_configMenu         = nullptr;
+    QMenu*             m_analyzeProjectMenu = nullptr;
     FindReplaceDialog* m_findReplaceDlg  = nullptr;
     SolutionExplorer*  m_solutionExplorer = nullptr;
     QSplitter*         m_splitter        = nullptr;

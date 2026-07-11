@@ -27,6 +27,8 @@ signals:
     void fileRenameRequested(const QString& absolutePath);
     void fileDeleteRequested(const QString& absolutePath);
     void fileMoveRequested(const QString& absolutePath);
+    void fileCopyRequested(const QString& absolutePath);
+    void filePasteRequested(const QString& targetProjectRoot);
     void projectRenameRequested(const QString& projectRootPath);
     void projectMoveRequested(const QString& projectRootPath);
 
