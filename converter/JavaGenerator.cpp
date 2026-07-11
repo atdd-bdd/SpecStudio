@@ -9,6 +9,17 @@
 #include <QSet>
 #include <algorithm>
 
+static QString toCamelCase(const QString& fieldName)
+{
+    const QStringList parts = fieldName.split(QRegularExpression(R"([\s_]+)"),
+                                               Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return fieldName;
+    QString result = parts[0][0].toLower() + parts[0].mid(1);
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    return result;
+}
+
 static QString resolveCell(const QString& cell)
 {
     QString s = cell;
@@ -41,39 +52,39 @@ static QString joinPkg(const QString& prefix, const QString& suffix)
 QString JavaGenerator::javaType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
-    if (t == "integer" || t == "int")          return "int";
-    if (t == "float"   || t == "decimal")      return "double";
-    if (t == "yesno")                          return "YesNo";
+    if (t == "integer" || t == "int")                          return "int";
+    if (t == "float" || t == "decimal" || t == "scientific")   return "double";
+    if (t == "yesno")                                          return "YesNo";
     if (t == "boolean" || t == "bool")         return "boolean";
     if (t == "date")                           return "LocalDate";
     if (t == "time")                           return "LocalTime";
     if (t == "datetime")                       return "LocalDateTime";
     if (t == "duration")                       return "Duration";
-    if (t == "string" || t == "text"
-     || t == "character" || t == "char")       return "String";
+    if (t == "string" || t == "text")           return "String";
+    if (t == "character" || t == "char")        return "char";
     return specType.trimmed();
 }
 
 static QString javaBoxedType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
-    if (t == "integer" || t == "int")          return "Integer";
-    if (t == "float"   || t == "decimal")      return "Double";
+    if (t == "integer" || t == "int")                          return "Integer";
+    if (t == "float" || t == "decimal" || t == "scientific")   return "Double";
     if (t == "yesno")                          return "YesNo";
     if (t == "boolean" || t == "bool")         return "Boolean";
     if (t == "date")                           return "LocalDate";
     if (t == "time")                           return "LocalTime";
     if (t == "datetime")                       return "LocalDateTime";
     if (t == "duration")                       return "Duration";
-    if (t == "string" || t == "text"
-     || t == "character" || t == "char")       return "String";
+    if (t == "string" || t == "text")           return "String";
+    if (t == "character" || t == "char")        return "Character";
     return specType.trimmed();
 }
 
 static bool isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo"
     };
     for (const QString& b : builtins)
@@ -110,7 +121,7 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int" || t == "long")
         return QString("Integer.parseInt(%1)").arg(ref);
-    if (t == "float"   || t == "decimal"
+    if (t == "float" || t == "decimal" || t == "scientific"
      || t == "double")
         return QString("Double.parseDouble(%1)").arg(ref);
     if (t == "yesno")
@@ -123,9 +134,10 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
     if (t == "time")      return QString("LocalTime.parse(%1)").arg(ref);
     if (t == "datetime")  return QString("LocalDateTime.parse(%1)").arg(ref);
     if (t == "duration")  return QString("Duration.parse(%1)").arg(ref);
-    if (t == "string" || t == "text"
-     || t == "character" || t == "char")
+    if (t == "string" || t == "text")
         return ref;
+    if (t == "character" || t == "char")
+        return QString("%1.isEmpty() ? '\\0' : %1.charAt(0)").arg(ref);
     if (file && isEnumType(specType.trimmed(), *file))
         return QString("%1.valueOf(%2)").arg(specType.trimmed()).arg(ref);
     if (file && isDataType(specType.trimmed(), *file))
@@ -160,14 +172,7 @@ QString JavaGenerator::toMethodName(const QString& keyword, const QString& stepT
 
 QString JavaGenerator::toCamelCase(const QString& fieldName)
 {
-    // "Transfer Amount" → "transferAmount", "FirstName" → "firstName"
-    const QStringList parts = fieldName.split(QRegularExpression(R"([\s_]+)"),
-                                               Qt::SkipEmptyParts);
-    if (parts.isEmpty()) return fieldName;
-    QString result = parts[0][0].toLower() + parts[0].mid(1);
-    for (int i = 1; i < parts.size(); ++i)
-        result += parts[i][0].toUpper() + parts[i].mid(1);
-    return result;
+    return ::toCamelCase(fieldName);
 }
 
 // ---------------------------------------------------------------------------
@@ -1344,17 +1349,30 @@ static QString genProductionClass(const NamedBlock& nb, const QString& pkg,
 static QString genProductionEnum(const NamedBlock& nb, const QString& pkg,
                                   const QStringList& extraImports)
 {
-    // Collect Value column entries
-    int valueCol = -1;
-    for (int i = 0; i < nb.examples.header.size(); ++i)
-        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
-            { valueCol = i; break; }
+    // Locate Value and optional Notes columns
+    int valueCol = -1, notesCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i) {
+        const QString h = nb.examples.header[i].trimmed().toLower();
+        if (h == "value") valueCol = i;
+        if (h == "notes") notesCol = i;
+    }
 
-    QStringList constants;
-    if (valueCol >= 0)
-        for (const QStringList& row : nb.examples.rows)
-            if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
-                constants << row[valueCol].trimmed();
+    // Collect constant name + optional description pairs
+    struct Constant { QString name; QString note; };
+    QList<Constant> constants;
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            const QString note = (notesCol >= 0 && notesCol < row.size())
+                                 ? row[notesCol].trimmed() : QString();
+            constants << Constant{v, note};
+        }
+    }
+
+    const bool hasNotes = notesCol >= 0 && std::any_of(
+        constants.begin(), constants.end(), [](const Constant& c){ return !c.note.isEmpty(); });
 
     const QString name = nb.name;
     QString out;
@@ -1362,8 +1380,174 @@ static QString genProductionEnum(const NamedBlock& nb, const QString& pkg,
     s << "package " << pkg << ";\n";
     for (const QString& imp : extraImports) s << imp << "\n";
     s << "\npublic enum " << name << " {\n";
-    for (int i = 0; i < constants.size(); ++i)
-        s << "    " << constants[i] << (i + 1 < constants.size() ? "," : ";") << "\n";
+
+    if (hasNotes) {
+        for (int i = 0; i < constants.size(); ++i) {
+            // Escape any double-quotes in the note
+            QString escaped = constants[i].note;
+            escaped.replace("\\", "\\\\").replace("\"", "\\\"");
+            s << "    " << constants[i].name << "(\"" << escaped << "\")"
+              << (i + 1 < constants.size() ? "," : ";") << "\n";
+        }
+        s << "\n";
+        s << "    public final String description;\n\n";
+        s << "    " << name << "(String description) { this.description = description; }\n";
+    } else {
+        for (int i = 0; i < constants.size(); ++i)
+            s << "    " << constants[i].name
+              << (i + 1 < constants.size() ? "," : "") << "\n";
+    }
+
+    s << "}\n";
+    return out;
+}
+
+// Production field type: DataType/Entity names pass through; built-ins use javaType()
+static QString prodFieldType(const Field& f, const SpectableFile& file)
+{
+    if (isAttrSetType(f.type, file)) return f.type;         // sub-entity → same name
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(f.type, Qt::CaseInsensitive) == 0) return f.type; // user DataType
+    return JavaGenerator::javaType(f.type);                 // built-in
+}
+
+static QString genProductionEntity(const AttrSet& as, const QString& pkg,
+                                    const SpectableFile& file)
+{
+    const QString name = as.name;
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.Objects;\n\n";
+
+    s << "public class " << name << " {\n";
+
+    // Fields
+    for (const Field& f : as.fields)
+        s << "    public final " << prodFieldType(f, file) << " " << toCamelCase(f.name) << ";\n";
+    s << "\n";
+
+    // Constructor
+    s << "    public " << name << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << prodFieldType(as.fields[i], file) << " " << toCamelCase(as.fields[i].name);
+    }
+    s << ") {\n";
+    for (const Field& f : as.fields)
+        s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
+    s << "    }\n\n";
+
+    // Builder inner class
+    s << "    public static class Builder {\n";
+    for (const Field& f : as.fields)
+        s << "        private " << prodFieldType(f, file) << " " << toCamelCase(f.name) << ";\n";
+    s << "\n";
+    for (const Field& f : as.fields) {
+        const QString fn = toCamelCase(f.name);
+        const QString ft = prodFieldType(f, file);
+        s << "        public Builder " << fn << "(" << ft << " " << fn << ") "
+          << "{ this." << fn << " = " << fn << "; return this; }\n";
+    }
+    s << "\n        public " << name << " build() {\n";
+    s << "            return new " << name << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << toCamelCase(as.fields[i].name);
+    }
+    s << ");\n        }\n    }\n\n";
+
+    // equals()
+    s << "    @Override\n    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof " << name << ")) return false;\n";
+    s << "        " << name << " that = (" << name << ") o;\n";
+    s << "        return ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << "\n            && ";
+        const QString fn = toCamelCase(as.fields[i].name);
+        s << "Objects.equals(" << fn << ", that." << fn << ")";
+    }
+    s << ";\n    }\n\n";
+
+    // hashCode()
+    s << "    @Override\n    public int hashCode() {\n        return Objects.hash(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << toCamelCase(as.fields[i].name);
+    }
+    s << ");\n    }\n\n";
+
+    // toString()
+    s << "    @Override\n    public String toString() {\n        return \"" << name << "{\"";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << " + \", \"";
+        const QString fn = toCamelCase(as.fields[i].name);
+        s << " + \"" << as.fields[i].name << "=\" + " << fn;
+    }
+    s << " + \"}\";\n    }\n}\n";
+
+    return out;
+}
+
+static QString genProductionHelper(const QVector<AttrSet>& entities, const QString& prodPkg,
+                                    const QString& commonPkg, const SpectableFile& file)
+{
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << commonPkg << ";\n\n";
+    s << "import " << prodPkg << ".*;\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.List;\n\n";
+
+    s << "public class ProductionHelper {\n\n";
+
+    for (const AttrSet& as : entities) {
+        const QString en = as.name;    // entity name = production class name
+        const QString tn = en + "Typed";
+        const QString sn = en + "String";
+
+        // TypedToProduction
+        s << "    public static " << en << " " << en << "TypedToProduction(" << tn << " t) {\n";
+        s << "        return new " << en << "(";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << ",\n            ";
+            const QString fn = toCamelCase(as.fields[i].name);
+            if (isAttrSetType(as.fields[i].type, file))
+                s << as.fields[i].type << "TypedToProduction(t." << fn << ")";
+            else
+                s << "t." << fn;
+        }
+        s << ");\n    }\n\n";
+
+        // ProductionToTyped
+        s << "    public static " << tn << " " << en << "ProductionToTyped(" << en << " p) {\n";
+        s << "        return new " << tn << "(";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << ",\n            ";
+            const QString fn = toCamelCase(as.fields[i].name);
+            if (isAttrSetType(as.fields[i].type, file))
+                s << as.fields[i].type << "ProductionToTyped(p." << fn << ")";
+            else
+                s << "p." << fn;
+        }
+        s << ");\n    }\n\n";
+
+        // List TypedToProduction
+        s << "    public static List<" << en << "> " << en << "TypedListToProduction(List<" << tn << "> list) {\n";
+        s << "        List<" << en << "> result = new ArrayList<>();\n";
+        s << "        for (" << tn << " t : list) result.add(" << en << "TypedToProduction(t));\n";
+        s << "        return result;\n    }\n\n";
+
+        // List ProductionToTyped
+        s << "    public static List<" << tn << "> " << en << "ProductionToTypedList(List<" << en << "> list) {\n";
+        s << "        List<" << tn << "> result = new ArrayList<>();\n";
+        s << "        for (" << en << " p : list) result.add(" << en << "ProductionToTyped(p));\n";
+        s << "        return result;\n    }\n\n";
+    }
+
     s << "}\n";
     return out;
 }
@@ -1520,6 +1704,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
+        // DataType ValidValues / EnumerationValues → production class / enum
         for (const NamedBlock& nb : file.namedBlocks) {
             if (nb.isContext || !nb.hasExamples) continue;
             const bool isValidValues =
@@ -1537,6 +1722,23 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                 writeFile(prodPath, genProductionClass(nb, prodPkg, {}), msgs);
             else
                 writeFile(prodPath, genProductionEnum(nb, prodPkg, {}), msgs);
+        }
+
+        // Entity → production class with Builder (only if file does not exist)
+        QVector<AttrSet> prodEntities;
+        for (const AttrSet& as : file.attrSets) {
+            if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
+            prodEntities << as;
+            const QString prodPath = prodDir.filePath(as.name + ".java");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genProductionEntity(as, prodPkg, file), msgs);
+        }
+
+        // ProductionHelper in common/ (only if file does not exist)
+        if (!prodEntities.isEmpty() && !prodPkg.isEmpty()) {
+            const QString helperPath = domainDir.filePath("ProductionHelper.java");
+            if (!QFile::exists(helperPath))
+                writeFile(helperPath, genProductionHelper(prodEntities, prodPkg, domainPkg, file), msgs);
         }
     }
 

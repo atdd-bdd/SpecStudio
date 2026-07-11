@@ -23,12 +23,12 @@ public:
 
     QStringList generate(const SpectableFile& file, const Options& opts);
 
+    static QString javaType(const QString& specType);
+
 private:
     QString     m_framework;
     QStringList m_extraImports;
     QString     m_tagFilter;
-
-    static QString javaType(const QString& specType);
     static QString parseExpr(const QString& field, const QString& specType,
                               int line, QStringList& msgs,
                               const SpectableFile* file = nullptr,
