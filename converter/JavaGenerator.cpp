@@ -1661,6 +1661,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             AttrSet sa;
             sa.name = asName;
             const bool isValidValues = asName.compare("ValidValues", Qt::CaseInsensitive) == 0;
+            const bool isEnumValues  = asName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
             for (const QString& col : nb.examples.header) {
                 const QString c = col.trimmed();
                 if (!c.isEmpty()) {
@@ -1668,6 +1669,17 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                     f.type = (isValidValues && c.compare("isvalid", Qt::CaseInsensitive) == 0)
                              ? "YesNo" : "String";
                     sa.fields.push_back(f);
+                }
+            }
+            // Always include Notes for ValidValues / EnumerationValues so the
+            // constructor signature is stable even when the column is omitted.
+            if (isValidValues || isEnumValues) {
+                bool hasNotes = false;
+                for (const Field& f : sa.fields)
+                    if (f.name.compare("notes", Qt::CaseInsensitive) == 0) { hasNotes = true; break; }
+                if (!hasNotes) {
+                    Field nf; nf.name = "Notes"; nf.type = "String"; nf.defaultValue = "";
+                    sa.fields.push_back(nf);
                 }
             }
             if (!sa.fields.isEmpty())
