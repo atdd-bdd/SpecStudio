@@ -1018,6 +1018,32 @@ static QString genGridConverter(const QString& dataType, const SpectableFile& fi
     return out;
 }
 
+static QString genTableHelperClass(const QVector<JavaGenerator::GlueSig>& sigs,
+                                    const QString& pkg, const SpectableFile& file)
+{
+    QSet<QString> seen;
+    QStringList methods;
+    for (const JavaGenerator::GlueSig& sig : sigs) {
+        if (sig.gridDataType.isEmpty()) continue;
+        const QString boxed = javaBoxedType(sig.gridDataType);
+        if (seen.contains(boxed)) continue;
+        seen.insert(boxed);
+        methods << genGridConverter(sig.gridDataType, file);
+    }
+    if (methods.isEmpty()) return {};
+
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.List;\n\n";
+    s << "public class TableHelper {\n";
+    for (const QString& m : methods)
+        s << "\n" << m;
+    s << "}\n";
+    return out;
+}
+
 QString JavaGenerator::genStubMethod(const GlueSig& sig)
 {
     QString out;
@@ -1038,7 +1064,7 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
     if (!sig.gridDataType.isEmpty()) {
         const QString boxed = javaBoxedType(sig.gridDataType);
         s << "    public void " << sig.method << "(List<List<String>> values) {\n";
-        s << "        List<List<" << boxed << ">> typedValues = toListList" << boxed << "(values);\n";
+        s << "        List<List<" << boxed << ">> typedValues = TableHelper.toListList" << boxed << "(values);\n";
         s << "        for (List<" << boxed << "> value : typedValues) {\n";
         s << "            System.out.println(value);\n";
         s << "        }\n";
@@ -1128,28 +1154,7 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
         if (!content.contains(signature))
             stubs += "\n" + genStubMethod(sig);
     }
-    bool needsArrayList = false;
-    QSet<QString> seenConverters;
-    for (const GlueSig& sig : sigs) {
-        if (sig.gridDataType.isEmpty()) continue;
-        const QString boxed = javaBoxedType(sig.gridDataType);
-        if (seenConverters.contains(boxed)) continue;
-        seenConverters.insert(boxed);
-        if (!content.contains(QStringLiteral("toListList%1(").arg(boxed))) {
-            stubs += "\n" + genGridConverter(sig.gridDataType, file);
-            needsArrayList = true;
-        }
-    }
     if (stubs.isEmpty()) return false;
-
-    // Inject ArrayList import if a converter was added and it isn't already imported
-    if (needsArrayList && !content.contains("import java.util.ArrayList")) {
-        const int listImport = content.indexOf("import java.util.List");
-        if (listImport >= 0) {
-            const int lineEnd = content.indexOf('\n', listImport);
-            content.insert(lineEnd + 1, "import java.util.ArrayList;\n");
-        }
-    }
 
     // Inject assertEquals import if a ValidValues DataType stub was added
     bool addedValidValues = false;
@@ -1231,15 +1236,6 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
 
     for (const GlueSig& sig : sigs)
         s << genStubMethod(sig) << "\n";
-
-    QSet<QString> seenConverters;
-    for (const GlueSig& sig : sigs) {
-        if (sig.gridDataType.isEmpty()) continue;
-        const QString boxed = javaBoxedType(sig.gridDataType);
-        if (seenConverters.contains(boxed)) continue;
-        seenConverters.insert(boxed);
-        s << "\n" << genGridConverter(sig.gridDataType, file);
-    }
 
     s << "}\n";
     return out;
@@ -1587,6 +1583,19 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         return msgs;
     }
 
+    // Item 6: validate field types in every Attributes/Entity declaration
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+        for (const Field& f : as.fields) {
+            if (f.type.isEmpty())
+                msgs << QString("WARNING:%1:Field '%2' in '%3' has no type specified")
+                        .arg(as.line).arg(f.name).arg(as.name);
+            else if (!isDataType(f.type, file) && !isAttrSetType(f.type, file))
+                msgs << QString("WARNING:%1:Field '%2' in '%3' has unknown type '%4'")
+                        .arg(as.line).arg(f.name).arg(as.name).arg(f.type);
+        }
+    }
+
     const QString className   = toClassName(file.specName);
     const QString domainPkg   = joinPkg(opts.packagePrefix, "common");
 
@@ -1696,6 +1705,14 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             if (appendMissingStubs(gluePath, sigs, augmented, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
+    }
+
+    // Generate TableHelper.java in common/ with toListListXxx static converters
+    {
+        const QVector<GlueSig> sigs = collectGlueSigs(augmented);
+        const QString helperContent = genTableHelperClass(sigs, domainPkg, augmented);
+        if (!helperContent.isEmpty())
+            writeFile(domainDir.filePath("TableHelper.java"), helperContent, msgs);
     }
 
     // Production class generation

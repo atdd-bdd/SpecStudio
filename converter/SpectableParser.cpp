@@ -519,10 +519,30 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 
             case State::InExamplesTable:
                 if (curNamedBlock) {
-                    if (curNamedBlock->examples.header.isEmpty())
+                    if (curNamedBlock->examples.header.isEmpty()) {
                         curNamedBlock->examples.header = cells;  // first row = column headers
-                    else
+                        // Warn if headers don't match the built-in ValidValues/EnumerationValues columns
+                        const QString asn = curNamedBlock->examples.attrSetName;
+                        QStringList expectedCols;
+                        if (asn.compare("ValidValues", Qt::CaseInsensitive) == 0)
+                            expectedCols = { "value", "isvalid", "notes" };
+                        else if (asn.compare("EnumerationValues", Qt::CaseInsensitive) == 0)
+                            expectedCols = { "value", "notes" };
+                        if (!expectedCols.isEmpty()) {
+                            for (const QString& h : cells) {
+                                if (!h.startsWith('#') && !expectedCols.contains(h.toLower())) {
+                                    ParseMessage pm;
+                                    pm.line    = lineNum;
+                                    pm.warning = true;
+                                    pm.text    = QString("Unrecognized %1 column '%2' — expected columns: %3")
+                                                     .arg(asn, h, expectedCols.join(", "));
+                                    result.messages.push_back(pm);
+                                }
+                            }
+                        }
+                    } else {
                         curNamedBlock->examples.rows.push_back(cells);
+                    }
                 }
                 break;
 

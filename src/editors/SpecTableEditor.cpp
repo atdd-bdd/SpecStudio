@@ -180,6 +180,20 @@ void SpecTableEditor::showHoverPreview(const QPoint& viewportPos, const QPoint& 
                 tipText += "</tr>";
             }
             tipText += "</table>";
+        } else if (word.compare("ValidValues", Qt::CaseInsensitive) == 0) {
+            tipText = QStringLiteral(
+                "<b>ValidValues</b> (built-in)<br>"
+                "<table border='1' cellpadding='3' style='margin-top:4px'>"
+                "<tr style='background:#e0e0e0'><th>Value</th><th>IsValid</th><th>Notes</th></tr>"
+                "<tr><td>example</td><td>true/false</td><td>optional</td></tr>"
+                "</table>");
+        } else if (word.compare("EnumerationValues", Qt::CaseInsensitive) == 0) {
+            tipText = QStringLiteral(
+                "<b>EnumerationValues</b> (built-in)<br>"
+                "<table border='1' cellpadding='3' style='margin-top:4px'>"
+                "<tr style='background:#e0e0e0'><th>Value</th><th>Notes</th></tr>"
+                "<tr><td>CONSTANT_NAME</td><td>optional</td></tr>"
+                "</table>");
         } else {
             tipText = QStringLiteral("<b>AttributeSet:</b> %1 (built-in)").arg(word.toHtmlEscaped());
         }

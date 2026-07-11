@@ -25,6 +25,8 @@ public:
 
     static QString javaType(const QString& specType);
 
+    struct GlueSig { QString method; QString paramType; QString gridDataType; bool isAttrSet = false; QString dataTypeName; };
+
 private:
     QString     m_framework;
     QStringList m_extraImports;
@@ -53,7 +55,6 @@ private:
     QString genGlueFile(const SpectableFile& file, const QString& specPkg,
                         const QString& domainPkg, const QString& className) const;
 
-    struct GlueSig { QString method; QString paramType; QString gridDataType; bool isAttrSet = false; QString dataTypeName; };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
     static QString genStubMethod(const GlueSig& sig);
     static bool appendMissingStubs(const QString& gluePath,
