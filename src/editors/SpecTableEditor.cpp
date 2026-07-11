@@ -415,7 +415,7 @@ bool SpecTableEditor::handleTableTabKey()
                 if (!cellValue.isEmpty()) {
                     static const QStringList builtInTypes = {
                         "Boolean", "Character", "Date", "DateTime", "Duration",
-                        "Float", "Integer", "String", "Text", "Time", "YesNo"
+                        "Float", "Integer", "Scientific", "String", "Text", "Time", "YesNo"
                     };
                     const SpecTableSymbols& syms = m_index->projectSymbols();
                     const bool known =
@@ -438,6 +438,16 @@ bool SpecTableEditor::handleTableTabKey()
                                         "| Value  |\n"
                                         "| Value1 |\n"
                                         "| Value2 |").arg(cellValue));
+                            // Navigate cursor to the newly created DataType line
+                            QTextCursor found = textEdit()->document()->find(
+                                QStringLiteral("DataType ") + cellValue,
+                                end.position(),
+                                QTextDocument::FindBackward);
+                            if (!found.isNull()) {
+                                found.movePosition(QTextCursor::StartOfBlock);
+                                textEdit()->setTextCursor(found);
+                                textEdit()->ensureCursorVisible();
+                            }
                         }
                     }
                 }
