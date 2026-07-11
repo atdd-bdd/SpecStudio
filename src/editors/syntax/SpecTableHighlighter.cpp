@@ -40,12 +40,12 @@ void SpecTableHighlighter::buildRules()
     QTextCharFormat modFmt;
     modFmt.setForeground(QColor("#C586C0")); // VS purple
     modFmt.setFontWeight(QFont::Bold);
-    addRule(R"(\bTransposed\b)", modFmt);
+    addRule(R"(\b(Transposed|CompareOnly)\b)", modFmt);
 
     // --- Built-in DataType names ---
     QTextCharFormat builtinFmt;
     builtinFmt.setForeground(QColor("#4FC1FF")); // light blue
-    addRule(R"(\b(Character|String|Text|Integer|Float|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
+    addRule(R"(\b(Character|String|Text|Integer|Float|Scientific|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
             builtinFmt);
 
     // --- Built-in AttributeSet names ---
@@ -57,7 +57,7 @@ void SpecTableHighlighter::buildRules()
     // --- AttributeSet reference after colon  ": SomeName [Transposed]" ---
     QTextCharFormat attrRefFmt;
     attrRefFmt.setForeground(QColor("#808080")); // dark grey
-    addRule(R"(:\s*(\w+)(?:\s+Transposed)?\s*$)", attrRefFmt);
+    addRule(R"(:\s*(\w+)(?:\s+(?:Transposed|CompareOnly))?\s*$)", attrRefFmt);
 
     // --- Value references  =Name ---
     QTextCharFormat valueRefFmt;
