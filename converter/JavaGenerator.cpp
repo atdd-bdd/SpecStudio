@@ -1575,8 +1575,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
 
-    // Auto-inject production package import so Typed and glue files can reference production types
-    if (opts.createProductionClasses && !opts.productionClassesPackage.isEmpty()) {
+    // Inject production package import into Typed/glue files whenever the package is configured
+    if (!opts.productionClassesPackage.isEmpty()) {
         const QString prodImport = "import " + opts.productionClassesPackage + ".*;";
         if (!m_extraImports.contains(prodImport))
             m_extraImports.prepend(prodImport);
