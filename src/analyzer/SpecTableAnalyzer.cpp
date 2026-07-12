@@ -132,17 +132,17 @@ void SpecTableAnalyzer::checkStepRefs(const QString& filePath,
 
     // "Given/When/Then ... : AttributeSet"
     static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     // "When applying BusinessRule X : Y"
     static QRegularExpression reBizRuleStep(
-        R"(^\s*(?:Given|When|Then|And|But)\b.*applying\s+BusinessRule\s+(\w+)\s*:\s*(\w+)\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.*applying\s+BusinessRule\s+(\w+)\s*:\s*(\w+)\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     // "When applying Calculation X : Y"
     static QRegularExpression reCalcStep(
-        R"(^\s*(?:Given|When|Then|And|But)\b.*applying\s+Calculation\s+(\w+)\s*:\s*(\w+)\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.*applying\s+Calculation\s+(\w+)\s*:\s*(\w+)\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);
@@ -340,7 +340,7 @@ void SpecTableAnalyzer::checkCleanup(const QString& filePath,
     static QRegularExpression reTopLevel(
         R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
         QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reInvalidStep(R"(^\s*(Given|When|But)\b)",
+    static QRegularExpression reInvalidStep(R"(^\s*(Given|When|WhenThen)\b)",
                                             QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);
@@ -477,7 +477,7 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
     static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reApplying(
         R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
@@ -594,7 +594,7 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
         "import", "insert",
         "examples",
         "description", "details", "constraint", "notes",
-        "given", "when", "then", "and", "but"
+        "given", "when", "then", "and", "whenthen"
     };
 
     QFile f(filePath);
@@ -641,7 +641,7 @@ void SpecTableAnalyzer::checkStepsWithTableButNoAttrSet(const QString& filePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
     static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|But)\b)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b)",
         QRegularExpression::CaseInsensitiveOption);
     // Capture everything after the last ':' in the line
     static QRegularExpression reColonSuffix(R"(:\s*([\w][\w\s]*)\s*$)");

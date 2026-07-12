@@ -26,8 +26,10 @@ bool SpectableParser::isPipeRow(const QString& trimmed)
 QString SpectableParser::normalizeKeyword(const QString& kw, const QString& last)
 {
     const QString kwLow = kw.toLower();
-    if (kwLow == "and" || kwLow == "but")
+    if (kwLow == "and")
         return last.isEmpty() ? "Given" : last;
+    if (kwLow == "whenthen")
+        return QStringLiteral("WhenThen");
     return kw[0].toUpper() + kw.mid(1).toLower();
 }
 
@@ -53,7 +55,7 @@ bool SpectableParser::isStepLine(const QString& trimmed,
                                   QString& attrSet, bool& transposed, bool& compareOnly)
 {
     static QRegularExpression reStep(
-        R"(^\s*(Given|When|Then|And|But)\s+(.+)$)",
+        R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reAttr(
         R"(\s*:\s*(\w+)(?:\s+(Transposed|CompareOnly))?\s*$)",

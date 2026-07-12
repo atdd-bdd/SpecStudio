@@ -29,7 +29,7 @@ void ProjectIndex::parseFile(const QString& absolutePath)
     QTextStream in(&f);
     static QRegularExpression reScenario(R"(^\s*Scenario(?:\s+Outline)?:\s*(.+)$)",
                                          QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reStep(R"(^\s*(?:Given|When|Then|And|But)\s+(.+)$)",
+    static QRegularExpression reStep(R"(^\s*(?:Given|When|Then|And|WhenThen)\s+(.+)$)",
                                      QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reData(R"(^\s*Data\s+(\w+)\b)",
                                      QRegularExpression::CaseInsensitiveOption);

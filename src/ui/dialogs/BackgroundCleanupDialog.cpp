@@ -92,7 +92,7 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
     };
 
     static QRegularExpression reStep(
-        R"(^\s*(Given|When|Then|And|But)\s+(.+)$)",
+        R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reAttr(
         R"(\s*:\s*(\w[\w\s]*\w|\w+)(?:\s+(Transposed))?\s*$)",
@@ -239,9 +239,10 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
             if (sm.hasMatch()) {
                 QString kw   = sm.captured(1);
                 QString rest = sm.captured(2).trimmed();
-                if (kw.compare("And", Qt::CaseInsensitive) == 0
-                 || kw.compare("But", Qt::CaseInsensitive) == 0)
+                if (kw.compare("And", Qt::CaseInsensitive) == 0)
                     kw = lastKw.isEmpty() ? "Given" : lastKw;
+                else if (kw.compare("WhenThen", Qt::CaseInsensitive) == 0)
+                    kw = QStringLiteral("WhenThen");
                 else
                     kw = kw[0].toUpper() + kw.mid(1).toLower();
                 lastKw = kw;

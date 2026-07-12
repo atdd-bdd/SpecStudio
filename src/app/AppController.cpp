@@ -699,6 +699,13 @@ void AppController::onBuildCurrentFile()
                 if (pf->type() == FileType::SpecTable && pf->absolutePath() != ed->filePath())
                     args << "--context" << pf->absolutePath();
     }
+    if (!QDir(outDir).exists() && !QDir().mkpath(outDir)) {
+        m_mainWindow->outputPanel()->appendBuildOutput(
+            tr("Cannot create output directory: %1").arg(outDir));
+        QMessageBox::warning(m_mainWindow, tr("Not Written"),
+            tr("Output directory could not be created:\n%1\n\nNo files were written.").arg(outDir));
+        return;
+    }
     m_buildAccum += "FILE:" + ed->filePath() + "\n";
     m_builder->run(converter, args);
 }
@@ -748,6 +755,14 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();
+                if (!QDir(outDir).exists() && !QDir().mkpath(outDir)) {
+                    m_mainWindow->outputPanel()->appendBuildOutput(
+                        tr("Cannot create output directory: %1 — skipping").arg(outDir));
+                    QMessageBox::warning(m_mainWindow, tr("Not Written"),
+                        tr("Output directory could not be created:\n%1\n\nFile was not written: %2")
+                        .arg(outDir, pf->fileName()));
+                    continue;
+                }
                 m_buildAccum += "FILE:" + pf->absolutePath() + "\n";
                 m_builder->run(converter, args);
             }
@@ -1547,7 +1562,7 @@ void AppController::findStepUsages(const QString& keyword, const QString& stepTe
     // optionally trailed by : AttrSetName. Search is case-insensitive for keyword.
     const QString escapedText = QRegularExpression::escape(stepText);
     const QRegularExpression re(
-        QStringLiteral(R"(^\s*(?:Given|When|Then|And|But)\s+%1\s*(?::.*)?$)").arg(escapedText),
+        QStringLiteral(R"(^\s*(?:Given|When|Then|And|WhenThen)\s+%1\s*(?::.*)?$)").arg(escapedText),
         QRegularExpression::CaseInsensitiveOption);
 
     const QString termLabel = keyword + " " + stepText;
@@ -1641,6 +1656,17 @@ void AppController::onOpenFile(const QString& absolutePath)
         connect(ste, &SpecTableEditor::symbolAtCursor,
                 this, &AppController::onSymbolAtCursor, Qt::UniqueConnection);
     }
+}
+
+void AppController::onOpenFileDialog()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        m_mainWindow,
+        tr("Open File"),
+        {},
+        tr("SpecTable / Text / Markdown (*.spectable *.txt *.md);;All Files (*)"));
+    if (!path.isEmpty())
+        onOpenFile(path);
 }
 
 void AppController::openRecentSolution(const QString& sspecPath)

@@ -11,7 +11,7 @@ static const QStringList k_builtinAttributeSets = { "EnumerationValues", "ValidV
 
 // Built-in DataType names that need no declaration
 static const QStringList k_builtinDataTypes = {
-    "Character", "String", "Text", "Integer", "Float",
+    "Character", "String", "Text", "Integer", "Float", "Scientific",
     "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
 };
 

@@ -138,6 +138,7 @@ void MainWindow::setupMenuBar()
     auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
     auto* actNewFile      = fileMenu->addAction(tr("New File..."),     QKeySequence::New);
     auto* actOpenSolution = fileMenu->addAction(tr("Open Solution/Project..."));
+    auto* actOpenFile     = fileMenu->addAction(tr("Open File..."), QKeySequence(Qt::CTRL | Qt::Key_O));
     fileMenu->addSeparator();
     m_recentMenu = fileMenu->addMenu(tr("Recent Solutions"));
     connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::populateRecentMenu);
@@ -156,6 +157,7 @@ void MainWindow::setupMenuBar()
     connect(actNewProject,   &QAction::triggered, m_controller, &AppController::onNewProject);
     connect(actNewFile,      &QAction::triggered, m_controller, [this]{ m_controller->onNewFile(); });
     connect(actOpenSolution, &QAction::triggered, m_controller, &AppController::onOpenSolution);
+    connect(actOpenFile,     &QAction::triggered, m_controller, &AppController::onOpenFileDialog);
     connect(actSave,         &QAction::triggered, m_controller, &AppController::onSave);
     connect(actSaveAs,       &QAction::triggered, m_controller, &AppController::onSaveAs);
     connect(actSaveAll,      &QAction::triggered, m_controller, &AppController::onSaveAll);

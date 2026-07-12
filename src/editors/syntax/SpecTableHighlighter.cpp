@@ -29,7 +29,7 @@ void SpecTableHighlighter::buildRules()
     QTextCharFormat stepFmt;
     stepFmt.setForeground(QColor("#4EC9B0")); // VS teal
     stepFmt.setFontWeight(QFont::Bold);
-    addRule(R"(^\s*(Given|When|Then|And|But)\b)", stepFmt);
+    addRule(R"(^\s*(Given|When|Then|And|WhenThen)\b)", stepFmt);
 
     // --- "applying BusinessRule" / "applying Calculation" modifier ---
     QTextCharFormat applyFmt;
@@ -45,7 +45,7 @@ void SpecTableHighlighter::buildRules()
     // --- Built-in DataType names ---
     QTextCharFormat builtinFmt;
     builtinFmt.setForeground(QColor("#4FC1FF")); // light blue
-    addRule(R"(\b(Character|String|Text|Integer|Float|Scientific|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
+    addRule(R"(\b(Character|String|Text|Integer|Scientific|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
             builtinFmt);
 
     // --- Built-in AttributeSet names ---

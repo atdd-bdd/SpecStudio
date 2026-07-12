@@ -41,10 +41,10 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
         "Description ", "Details ", "Constraint ",
         "Examples: EnumerationValues", "Examples: ValidValues", "Examples: ",
         "Transposed",
-        "Given ", "When ", "Then ", "And ", "But ",
+        "Given ", "When ", "Then ", "And ", "WhenThen ",
         "applying BusinessRule ", "applying Calculation ",
         // Built-in DataTypes
-        "Character", "String", "Text", "Integer", "Float",
+        "Character", "String", "Text", "Integer", "Scientific",
         "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo",
         // Built-in AttributeSets
         "EnumerationValues", "ValidValues",
@@ -679,7 +679,7 @@ void SpecTableEditor::autoInsertTableHeader()
     // ── Case 3: Step line with : AttrSetName ──────────────────────────────────
     {
         static QRegularExpression reStep(
-            R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
             QRegularExpression::CaseInsensitiveOption);
         static QRegularExpression reApplying(
             R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
@@ -1095,12 +1095,12 @@ void SpecTableEditor::importCsv()
     const QString lineText = tc.block().text();
 
     static QRegularExpression reStepLine(
-        R"(^\s*(?:Given|When|Then|And|But)\b)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b)",
         QRegularExpression::CaseInsensitiveOption);
     if (!reStepLine.match(lineText).hasMatch()) return;
 
     static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
     auto m = reStepAttr.match(lineText);
     const QString attrSetName = m.hasMatch() ? m.captured(1) : QString();
@@ -1328,7 +1328,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     if (!isKnown && !isAttrSet) {
         // Suggest creating an AttributeSet when the word is used as one in the current step
         static QRegularExpression reStepAttr(
-            R"(^\s*(?:Given|When|Then|And|But)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
             QRegularExpression::CaseInsensitiveOption);
         const QString lineText = textEdit()->textCursor().block().text();
         auto sm = reStepAttr.match(lineText);
@@ -1455,10 +1455,10 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         });
     }
 
-    // Import CSV / Find Step Usages (shown when cursor is on a Given/When/Then/And/But line)
+    // Import CSV / Find Step Usages (shown when cursor is on a step line)
     {
         static QRegularExpression reStep(
-            R"(^\s*(Given|When|Then|And|But)\s+(.+?)(?:\s*:.*)?$)",
+            R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+?)(?:\s*:.*)?$)",
             QRegularExpression::CaseInsensitiveOption);
         const QString lineText = textEdit()->textCursor().block().text();
         auto sm = reStep.match(lineText);

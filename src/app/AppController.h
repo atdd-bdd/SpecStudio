@@ -55,6 +55,7 @@ public slots:
     void onRenameProject(const QString& projectRootPath);
     void onMoveProject(const QString& projectRootPath);
     void onOpenFile(const QString& absolutePath);
+    void onOpenFileDialog();
     void openRecentSolution(const QString& sspecPath);
     void onRefreshSolution();
 
