@@ -1,14 +1,43 @@
 #include "OutputPanel.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QListWidget>
+#include <QMenu>
+#include <QShortcut>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextEdit>
+
+static void addCopySupport(QListWidget* list)
+{
+    auto copySelected = [list]() {
+        QStringList lines;
+        for (auto* item : list->selectedItems())
+            lines << item->text();
+        if (!lines.isEmpty())
+            QApplication::clipboard()->setText(lines.join('\n'));
+    };
+
+    auto* shortcut = new QShortcut(QKeySequence::Copy, list);
+    QObject::connect(shortcut, &QShortcut::activated, list, copySelected);
+
+    list->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(list, &QListWidget::customContextMenuRequested,
+                     list, [list, copySelected](const QPoint& pos) {
+        QMenu menu(list);
+        auto* act = menu.addAction(QObject::tr("Copy"));
+        act->setShortcut(QKeySequence::Copy);
+        act->setEnabled(!list->selectedItems().isEmpty());
+        QObject::connect(act, &QAction::triggered, list, copySelected);
+        menu.exec(list->mapToGlobal(pos));
+    });
+}
 
 OutputPanel::OutputPanel(QWidget* parent)
     : QDockWidget(tr("Output"), parent)
@@ -23,6 +52,7 @@ OutputPanel::OutputPanel(QWidget* parent)
     m_buildOut->setFontFamily("Courier New");
 
     m_analysisList = new QListWidget(m_tabs);
+    m_analysisList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     connect(m_analysisList, &QListWidget::itemActivated, this,
             [this](QListWidgetItem* item) {
                 int idx = m_analysisList->row(item);
@@ -30,8 +60,10 @@ OutputPanel::OutputPanel(QWidget* parent)
                     emit diagnosticActivated(m_diagnostics[idx].filePath,
                                              m_diagnostics[idx].line);
             });
+    addCopySupport(m_analysisList);
 
     m_findList = new QListWidget(m_tabs);
+    m_findList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     connect(m_findList, &QListWidget::itemActivated, this,
             [this](QListWidgetItem* item) {
                 int idx = m_findList->row(item);
@@ -39,6 +71,7 @@ OutputPanel::OutputPanel(QWidget* parent)
                     emit diagnosticActivated(m_findResults[idx].filePath,
                                              m_findResults[idx].line);
             });
+    addCopySupport(m_findList);
 
     m_diffView = new QTextEdit(m_tabs);
     m_diffView->setReadOnly(true);

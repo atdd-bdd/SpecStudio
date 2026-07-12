@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QDialog>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QTextStream>
@@ -1312,7 +1313,7 @@ void SpecTableEditor::refreshDynamicCompletions()
     // Dedicated list for the Type column dropdown in Attributes/Entity tables
     static const QStringList builtInTypes = {
         "Boolean", "Character", "Date", "DateTime", "Duration",
-        "Float", "Integer", "Scientific", "String", "Text", "Time", "YesNo"
+        "Integer", "Scientific", "String", "Text", "Time", "YesNo"
     };
     QStringList typeWords = builtInTypes;
     for (const QString& n : syms.dataTypes.keys()) typeWords << n;
@@ -1346,6 +1347,32 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
             dlg->show();
         });
         menu->addSeparator();
+    }
+
+    // Browse Import file (shown when cursor is on an Import "..." line)
+    {
+        static QRegularExpression reImport(
+            "^\\s*Import\\s+\"([^\"]*)\"",
+            QRegularExpression::CaseInsensitiveOption);
+        const QString lineText = textEdit()->textCursor().block().text();
+        auto im = reImport.match(lineText);
+        if (im.hasMatch()) {
+            auto* browseAct = menu->addAction(tr("Browse Import File..."));
+            connect(browseAct, &QAction::triggered, this, [this] {
+                const QString dir = QFileInfo(filePath()).absolutePath();
+                const QString picked = QFileDialog::getOpenFileName(
+                    this, tr("Select Import File"), dir,
+                    tr("SpecTable Files (*.spectable);;All Files (*)"));
+                if (picked.isEmpty()) return;
+                // Replace the quoted path with a path relative to this file
+                const QString rel = QDir(dir).relativeFilePath(picked);
+                QTextCursor tc = textEdit()->textCursor();
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                tc.insertText(QStringLiteral("Import \"%1\"").arg(rel));
+            });
+            menu->addSeparator();
+        }
     }
 
     // Run Examples (shown when cursor is inside a BusinessRule or Calculation block)

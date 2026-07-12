@@ -130,9 +130,9 @@ void SpecTableAnalyzer::checkStepRefs(const QString& filePath,
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
-    // "Given/When/Then ... : AttributeSet"
+    // "Given/When/Then ... : AttributeSet [Transposed|CompareOnly]"
     static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(?:\s+(?:Transposed|CompareOnly))?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     // "When applying BusinessRule X : Y"
