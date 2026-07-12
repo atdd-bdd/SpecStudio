@@ -817,6 +817,70 @@ void SpecTableEditor::autoInsertTableHeader()
 }
 
 // ---------------------------------------------------------------------------
+// Insert header row for the step the cursor is currently on
+// (context-menu action when the step has : AttrSetName but no table below)
+// ---------------------------------------------------------------------------
+
+void SpecTableEditor::insertTableHeaderForCurrentStep()
+{
+    QTextCursor tc = textEdit()->textCursor();
+    const QString stepLine = tc.block().text();
+
+    static QRegularExpression reStep(
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reApplying(
+        R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+
+    auto m = reStep.match(stepLine);
+    if (!m.hasMatch() || reApplying.match(stepLine).hasMatch()) return;
+
+    const QString name      = m.captured(1);
+    const bool    transposed = !m.captured(2).trimmed().isEmpty();
+
+    QString indent;
+    for (const QChar ch : stepLine) { if (!ch.isSpace()) break; indent += ch; }
+
+    if (!m_index) return;
+    const SpecTableSymbols& syms = m_index->projectSymbols();
+    if (!syms.hasAttributeSet(name)) return;
+
+    QString tableText;
+    if (syms.dataTypes.contains(name) && !syms.attributes.contains(name)
+                                      && !syms.entities.contains(name)) {
+        tableText = indent + "|   |   |   |\n" + indent + "|   |   |   |";
+    } else {
+        const QVector<QStringList> attrDef = m_index->attributeRows(name);
+        if (attrDef.size() < 2) return;
+        QStringList attrNames;
+        for (int r = 1; r < attrDef.size(); ++r)
+            if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
+        if (attrNames.isEmpty()) return;
+
+        if (transposed) {
+            QStringList lines;
+            for (const QString& a : attrNames)
+                lines << (indent + "| " + a + " |  |");
+            tableText = lines.join("\n");
+        } else {
+            QString hdr = indent + "|", data = indent + "|";
+            for (const QString& a : attrNames) {
+                hdr  += " " + a + " |";
+                data += " " + QString(a.length(), ' ') + " |";
+            }
+            tableText = hdr + "\n" + data;
+        }
+    }
+
+    if (tableText.isEmpty()) return;
+
+    tc.movePosition(QTextCursor::EndOfBlock);
+    tc.insertText("\n" + tableText);
+    textEdit()->setTextCursor(tc);
+}
+
+// ---------------------------------------------------------------------------
 // Edit multi-line comment — join continuation lines into a single string,
 // let the user edit it, then reflow at the current viewport width.
 // ---------------------------------------------------------------------------
@@ -1455,17 +1519,30 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         });
     }
 
-    // Import CSV / Find Step Usages (shown when cursor is on a step line)
+    // Import CSV / Find Step Usages / Insert Table Header (shown when cursor is on a step line)
     {
         static QRegularExpression reStep(
             R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+?)(?:\s*:.*)?$)",
             QRegularExpression::CaseInsensitiveOption);
-        const QString lineText = textEdit()->textCursor().block().text();
+        static QRegularExpression reStepAttr(
+            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            QRegularExpression::CaseInsensitiveOption);
+        const QTextBlock curBlock = textEdit()->textCursor().block();
+        const QString lineText = curBlock.text();
         auto sm = reStep.match(lineText);
         if (sm.hasMatch()) {
             QString kw   = sm.captured(1);
             QString text = sm.captured(2).trimmed();
             menu->addSeparator();
+            // Insert Table Header — shown when step has : AttrSet but no table below
+            const bool hasAttr = reStepAttr.match(lineText).hasMatch();
+            const bool hasTable = curBlock.next().isValid()
+                                  && curBlock.next().text().trimmed().startsWith('|');
+            if (hasAttr && !hasTable) {
+                auto* insHdrAct = menu->addAction(tr("Insert Table Header"));
+                connect(insHdrAct, &QAction::triggered,
+                        this, &SpecTableEditor::insertTableHeaderForCurrentStep);
+            }
             auto* csvAct = menu->addAction(tr("Import CSV..."));
             connect(csvAct, &QAction::triggered, this, &SpecTableEditor::importCsv);
             auto* stepAct = menu->addAction(tr("Find Step Usages: %1 %2...").arg(kw, text));
