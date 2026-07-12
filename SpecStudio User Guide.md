@@ -396,6 +396,37 @@ Opening a `.specconfig` file shows a form with these sections:
 
 - **SpecTableConverter path** — leave blank to auto-detect. SpecStudio searches next to its own executable, then in the Visual Studio dev-build location.
 
+### External Spectables (Cross-Project Types)
+
+When multiple projects share common DataTypes, Entities, or AttributeSets, you can declare those definitions in one project's `.spectable` file and reference them from another project's `.specconfig`:
+
+```json
+"externalSpectables": [
+    {
+        "file": "../SharedTypes/Types.spectable",
+        "productionDir": "C:/my/project/src/main/java/com/example/types",
+        "codeImports": [
+            "import com.example.types.*;",
+            "import com.example.domain.Money;"
+        ]
+    }
+]
+```
+
+Each entry has:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `file` | Yes | Path to the external `.spectable` file. Relative paths are resolved from the `.specconfig` file's directory. |
+| `productionDir` | No | Directory containing (or for) the production classes for types in this file. Used by `--prod-dir` if set. |
+| `codeImports` | No | Import/using statements added to every generated file. Wildcards are allowed (e.g. `import com.example.*`). |
+
+**Effect on Analysis:** When you run Analyze, the Analysis panel shows an `[I]` info line listing the types imported from each external file (e.g. `[I] External: Dollar, AccountType, SomeTypes`). If the file cannot be found, a `[W]` warning is shown instead.
+
+**Effect on Build:** The external file is passed to the converter as `--context` (so its types are recognised during code generation) and its `codeImports` are added as `--import` statements.
+
+**In the SpecConfig Editor:** Open the `.specconfig` file and use the **External Spectables** section at the bottom. Click **Add…** to browse for a `.spectable` file, then fill in the production directory and code imports in the detail pane below the list. Click **Remove** to delete the selected entry.
+
 ### Config File Format (JSON)
 
 ```json
@@ -407,7 +438,14 @@ Opening a `.specconfig` file shows a form with these sections:
     "namespace": "com.example",
     "overwriteGlue": false,
     "tagFilter": "NOT $Skip",
-    "converterPath": ""
+    "converterPath": "",
+    "externalSpectables": [
+        {
+            "file": "../SharedTypes/Types.spectable",
+            "productionDir": "C:/shared/src/main/java/com/example/types",
+            "codeImports": ["import com.example.types.*;"]
+        }
+    ]
 }
 ```
 

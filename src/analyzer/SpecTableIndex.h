@@ -91,11 +91,20 @@ public:
     // Parse filePath and all files it Import-s. Returns combined symbols.
     SpecTableSymbols buildFor(const QString& filePath) const;
 
-    // Parse the entire project directory.
-    void rebuildProject(const QStringList& specTableFiles);
+    // Parse the entire project directory. externalFiles are parsed for symbol visibility
+    // only — their symbols are available project-wide but marked as external.
+    void rebuildProject(const QStringList& specTableFiles,
+                        const QStringList& externalFiles = {});
 
     // Symbols visible project-wide (union of all files in rebuildProject).
     const SpecTableSymbols& projectSymbols() const { return m_project; }
+
+    // Returns symbols declared directly in filePath (no transitive imports).
+    // Only populated after rebuildProject() has been called.
+    SpecTableSymbols symbolsForFile(const QString& filePath) const;
+
+    // Returns true if filePath was loaded as an external file in the last rebuildProject().
+    bool isExternalFile(const QString& absFilePath) const;
 
     // Import / Insert paths declared in a file (absolute).
     QStringList importsFor(const QString& filePath) const;
@@ -122,4 +131,5 @@ private:
     mutable QMap<QString, QStringList>      m_fileInserts; // absolute paths (data files, not parsed)
 
     SpecTableSymbols m_project;
+    QSet<QString>    m_externalFilePaths; // absolute paths of files added as external
 };

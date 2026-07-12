@@ -699,6 +699,20 @@ void AppController::onBuildCurrentFile()
                 if (pf->type() == FileType::SpecTable && pf->absolutePath() != ed->filePath())
                     args << "--context" << pf->absolutePath();
     }
+    // External spectables from config — add as context (symbols) and their code imports
+    {
+        const QString cfgDir = cfgPath.isEmpty()
+            ? QFileInfo(ed->filePath()).dir().absolutePath()
+            : QFileInfo(cfgPath).absolutePath();
+        for (const ExternalSpectable& es : cfg.externalSpectables) {
+            const QString abs = QFileInfo(es.file).isAbsolute()
+                ? es.file : QDir(cfgDir).absoluteFilePath(es.file);
+            if (QFile::exists(abs))
+                args << "--context" << abs;
+            for (const QString& imp : es.codeImports)
+                if (!imp.trimmed().isEmpty()) args << "--import" << imp.trimmed();
+        }
+    }
     if (!QDir(outDir).exists() && !QDir().mkpath(outDir)) {
         m_mainWindow->outputPanel()->appendBuildOutput(
             tr("Cannot create output directory: %1").arg(outDir));
@@ -755,6 +769,19 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();
+                // External spectables from config
+                {
+                    const QString cfgDir = cfgPath.isEmpty()
+                        ? proj->rootPath() : QFileInfo(cfgPath).absolutePath();
+                    for (const ExternalSpectable& es : cfg.externalSpectables) {
+                        const QString abs = QFileInfo(es.file).isAbsolute()
+                            ? es.file : QDir(cfgDir).absoluteFilePath(es.file);
+                        if (QFile::exists(abs))
+                            args << "--context" << abs;
+                        for (const QString& imp : es.codeImports)
+                            if (!imp.trimmed().isEmpty()) args << "--import" << imp.trimmed();
+                    }
+                }
                 if (!QDir(outDir).exists() && !QDir().mkpath(outDir)) {
                     m_mainWindow->outputPanel()->appendBuildOutput(
                         tr("Cannot create output directory: %1 — skipping").arg(outDir));
@@ -827,8 +854,53 @@ void AppController::doAnalyze(const QList<Project*>& targets)
         for (auto* file : proj->files())
             if (file->type() == FileType::SpecTable)
                 specTableFiles.append(file->absolutePath());
-        if (!specTableFiles.isEmpty()) {
-            m_specTableIndex->rebuildProject(specTableFiles);
+
+        // Resolve external spectables from config
+        QStringList externalFiles;
+        {
+            QString cfgPath = m_settings->activeBuildConfig(proj->rootPath());
+            if (cfgPath.isEmpty() || !QFile::exists(cfgPath))
+                cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
+            if (!cfgPath.isEmpty()) {
+                const SpecConfig extCfg = SpecConfig::load(cfgPath);
+                const QString cfgDir = QFileInfo(cfgPath).absolutePath();
+                for (const ExternalSpectable& es : extCfg.externalSpectables) {
+                    const QString abs = QFileInfo(es.file).isAbsolute()
+                        ? es.file : QDir(cfgDir).absoluteFilePath(es.file);
+                    if (QFile::exists(abs)) {
+                        externalFiles << abs;
+                    } else {
+                        Diagnostic d;
+                        d.filePath = cfgPath;
+                        d.line     = 0;
+                        d.message  = tr("External spectable not found: %1").arg(es.file);
+                        d.severity = Diagnostic::Severity::Warning;
+                        all.append(d);
+                    }
+                }
+            }
+        }
+
+        if (!specTableFiles.isEmpty() || !externalFiles.isEmpty()) {
+            m_specTableIndex->rebuildProject(specTableFiles, externalFiles);
+
+            // Info diagnostics for each successfully loaded external file
+            for (const QString& extFile : externalFiles) {
+                const SpecTableSymbols sym = m_specTableIndex->symbolsForFile(extFile);
+                QStringList names;
+                for (auto it = sym.dataTypes.cbegin();  it != sym.dataTypes.cend();  ++it) names << it.key();
+                for (auto it = sym.entities.cbegin();   it != sym.entities.cend();   ++it) names << it.key();
+                for (auto it = sym.attributes.cbegin(); it != sym.attributes.cend(); ++it) names << it.key();
+                names.sort();
+                Diagnostic d;
+                d.filePath = extFile;
+                d.line     = 1;
+                d.message  = tr("External: %1").arg(
+                    names.isEmpty() ? tr("(no types found)") : names.join(", "));
+                d.severity = Diagnostic::Severity::Info;
+                all.append(d);
+            }
+
             for (const QString& f : specTableFiles)
                 all.append(m_specAnalyzer->analyzeFile(f));
         }

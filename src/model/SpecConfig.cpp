@@ -34,6 +34,18 @@ SpecConfig SpecConfig::load(const QString& filePath)
         cfg.productionClassesDir = o["productionClassesDir"].toString();
     if (o.contains("productionClassesPackage"))
         cfg.productionClassesPackage = o["productionClassesPackage"].toString();
+    if (o.contains("externalSpectables")) {
+        for (const QJsonValue& v : o["externalSpectables"].toArray()) {
+            const QJsonObject ev = v.toObject();
+            ExternalSpectable es;
+            es.file          = ev["file"].toString();
+            es.productionDir = ev["productionDir"].toString();
+            for (const QJsonValue& imp : ev["codeImports"].toArray())
+                es.codeImports << imp.toString();
+            if (!es.file.isEmpty())
+                cfg.externalSpectables << es;
+        }
+    }
     return cfg;
 }
 
@@ -64,6 +76,21 @@ bool SpecConfig::save(const QString& filePath) const
         o["productionClassesDir"] = productionClassesDir;
     if (!productionClassesPackage.isEmpty())
         o["productionClassesPackage"] = productionClassesPackage;
+    if (!externalSpectables.isEmpty()) {
+        QJsonArray extArr;
+        for (const ExternalSpectable& es : externalSpectables) {
+            QJsonObject ev;
+            ev["file"] = es.file;
+            if (!es.productionDir.isEmpty()) ev["productionDir"] = es.productionDir;
+            if (!es.codeImports.isEmpty()) {
+                QJsonArray imps;
+                for (const QString& imp : es.codeImports) imps << imp;
+                ev["codeImports"] = imps;
+            }
+            extArr << ev;
+        }
+        o["externalSpectables"] = extArr;
+    }
 
     QFile f(filePath);
     if (!f.open(QIODevice::WriteOnly)) return false;

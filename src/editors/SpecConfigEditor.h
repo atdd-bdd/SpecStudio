@@ -7,6 +7,7 @@ class QLineEdit;
 class QComboBox;
 class QCheckBox;
 class QLabel;
+class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 
@@ -26,11 +27,17 @@ private slots:
     void onBrowseConverter();
     void onBrowseProdClassesDir();
     void onCreateProdClassesToggled(bool checked);
+    void onExtSpecSelectionChanged();
+    void onExtSpecAdd();
+    void onExtSpecRemove();
+    void onBrowseExtSpecFile();
+    void onBrowseExtSpecProdDir();
     void markDirty();
 
 private:
     void populateFromConfig(const SpecConfig& cfg);
     SpecConfig configFromForm() const;
+    void saveCurrentExtSpecRow();
 
     QLineEdit*    m_outputDir      = nullptr;
     QComboBox*    m_language       = nullptr;
@@ -49,4 +56,18 @@ private:
     QLineEdit*    m_prodClassesDir       = nullptr;
     QPushButton*  m_browseProdClassesDir = nullptr;
     QLineEdit*    m_prodClassesPackage   = nullptr;
+
+    // External spectables
+    QListWidget*    m_extSpecList          = nullptr;
+    QPushButton*    m_extSpecAdd           = nullptr;
+    QPushButton*    m_extSpecRemove        = nullptr;
+    QWidget*        m_extSpecDetail        = nullptr;
+    QLineEdit*      m_extSpecFile          = nullptr;
+    QPushButton*    m_browseExtSpecFile    = nullptr;
+    QLineEdit*      m_extSpecProdDir       = nullptr;
+    QPushButton*    m_browseExtSpecProdDir = nullptr;
+    QPlainTextEdit* m_extSpecImports       = nullptr;
+    QList<ExternalSpectable> m_extSpectables;
+    int             m_extSpecCurrentRow    = -1;
+    bool            m_extSpecSyncing       = false;
 };

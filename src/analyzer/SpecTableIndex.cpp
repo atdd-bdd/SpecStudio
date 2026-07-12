@@ -10,12 +10,23 @@
 // SpecTableIndex
 // ---------------------------------------------------------------------------
 
-void SpecTableIndex::rebuildProject(const QStringList& specTableFiles)
+void SpecTableIndex::rebuildProject(const QStringList& specTableFiles,
+                                    const QStringList& externalFiles)
 {
     m_fileSymbols.clear();
     m_fileImports.clear();
     m_fileInserts.clear();
     m_project = {};
+    m_externalFilePaths.clear();
+
+    // Parse external files first so their symbols are available project-wide
+    for (const QString& f : externalFiles) {
+        const QString abs = QFileInfo(f).absoluteFilePath();
+        m_externalFilePaths.insert(abs);
+        QSet<QString> visited;
+        SpecTableSymbols sym;
+        parseFile(f, sym, visited);
+    }
 
     for (const QString& f : specTableFiles) {
         QSet<QString> visited;
@@ -36,6 +47,16 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles)
         for (auto it = sym.specifications.cbegin(); it != sym.specifications.cend(); ++it) m_project.specifications.insert(it.key(), it.value());
         for (auto it = sym.defines.cbegin();        it != sym.defines.cend();        ++it) m_project.defines.insert(it.key(), it.value());
     }
+}
+
+SpecTableSymbols SpecTableIndex::symbolsForFile(const QString& filePath) const
+{
+    return m_fileSymbols.value(QFileInfo(filePath).absoluteFilePath());
+}
+
+bool SpecTableIndex::isExternalFile(const QString& absFilePath) const
+{
+    return m_externalFilePaths.contains(QFileInfo(absFilePath).absoluteFilePath());
 }
 
 SpecTableSymbols SpecTableIndex::buildFor(const QString& filePath) const

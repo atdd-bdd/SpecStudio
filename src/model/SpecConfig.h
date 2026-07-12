@@ -1,7 +1,15 @@
 #pragma once
 
+#include <QList>
 #include <QString>
 #include <QStringList>
+
+// A cross-project .spectable file whose types are visible to this project.
+struct ExternalSpectable {
+    QString     file;          // path to the external .spectable (absolute or relative to config)
+    QString     productionDir; // production code folder for types declared in this file
+    QStringList codeImports;   // import/using statements for types in this file (wildcards OK)
+};
 
 // Configuration stored in a .specconfig JSON file at the project root.
 // Controls how SpecTableConverter is invoked for .spectable files.
@@ -22,6 +30,9 @@ struct SpecConfig
     bool    createProductionClasses  = false; // generate production stubs for DataTypes if not present
     QString productionClassesDir;             // output folder for production classes
     QString productionClassesPackage;         // Java package for production classes
+
+    // Cross-project type imports — external .spectable files whose types are visible here
+    QList<ExternalSpectable> externalSpectables;
 
     // Load from a .specconfig JSON file; returns defaults if the file cannot be read
     static SpecConfig load(const QString& filePath);

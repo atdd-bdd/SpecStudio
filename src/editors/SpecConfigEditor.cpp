@@ -3,6 +3,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -10,6 +11,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QScrollArea>
@@ -212,6 +214,67 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     root->addWidget(tfGroup);
 
+    // ── External Spectables group ─────────────────────────────────────────────
+    auto* extGroup  = new QGroupBox(tr("External Spectables (Cross-Project Types)"), inner);
+    auto* extLayout = new QVBoxLayout(extGroup);
+
+    auto* extHint = new QLabel(
+        tr("External .spectable files from other projects whose DataTypes, Entities, and "
+           "AttributeSets are visible in this project.\n"
+           "Each entry can specify a production code directory and code import statements "
+           "(wildcards are allowed, e.g. import com.example.types.*)."),
+        extGroup);
+    extHint->setWordWrap(true);
+    extHint->setStyleSheet("color: gray; font-size: 11px;");
+    extLayout->addWidget(extHint);
+
+    m_extSpecList = new QListWidget(extGroup);
+    m_extSpecList->setFixedHeight(100);
+    extLayout->addWidget(m_extSpecList);
+
+    auto* extBtnRow = new QHBoxLayout;
+    m_extSpecAdd    = new QPushButton(tr("Add…"), extGroup);
+    m_extSpecRemove = new QPushButton(tr("Remove"), extGroup);
+    m_extSpecRemove->setEnabled(false);
+    extBtnRow->addWidget(m_extSpecAdd);
+    extBtnRow->addWidget(m_extSpecRemove);
+    extBtnRow->addStretch();
+    extLayout->addLayout(extBtnRow);
+
+    // Detail pane (hidden until an item is selected)
+    m_extSpecDetail = new QWidget(extGroup);
+    auto* extDetailForm = new QFormLayout(m_extSpecDetail);
+    extDetailForm->setContentsMargins(0, 8, 0, 0);
+    extDetailForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
+
+    m_extSpecFile = new QLineEdit(m_extSpecDetail);
+    m_extSpecFile->setPlaceholderText(tr("Path to the external .spectable file"));
+    m_browseExtSpecFile = new QPushButton(tr("Browse…"), m_extSpecDetail);
+    m_browseExtSpecFile->setFixedWidth(90);
+    auto* extFileRow = new QHBoxLayout;
+    extFileRow->addWidget(m_extSpecFile);
+    extFileRow->addWidget(m_browseExtSpecFile);
+    extDetailForm->addRow(tr("File:"), extFileRow);
+
+    m_extSpecProdDir = new QLineEdit(m_extSpecDetail);
+    m_extSpecProdDir->setPlaceholderText(tr("Production code directory for types in this file (optional)"));
+    m_browseExtSpecProdDir = new QPushButton(tr("Browse…"), m_extSpecDetail);
+    m_browseExtSpecProdDir->setFixedWidth(90);
+    auto* extProdRow = new QHBoxLayout;
+    extProdRow->addWidget(m_extSpecProdDir);
+    extProdRow->addWidget(m_browseExtSpecProdDir);
+    extDetailForm->addRow(tr("Production dir:"), extProdRow);
+
+    m_extSpecImports = new QPlainTextEdit(m_extSpecDetail);
+    m_extSpecImports->setPlaceholderText(
+        tr("import com.example.types.*;\nimport com.example.domain.Money;"));
+    m_extSpecImports->setFixedHeight(80);
+    extDetailForm->addRow(tr("Code imports:"), m_extSpecImports);
+
+    extLayout->addWidget(m_extSpecDetail);
+    m_extSpecDetail->setVisible(false);
+    root->addWidget(extGroup);
+
     // ── Status bar ────────────────────────────────────────────────────────────
     m_statusLabel = new QLabel(inner);
     m_statusLabel->setStyleSheet("color: gray;");
@@ -239,6 +302,24 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     connect(m_createProdClasses, &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
     connect(m_prodClassesDir,    &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_prodClassesPackage, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
+
+    connect(m_extSpecList, &QListWidget::currentRowChanged,
+            this, &SpecConfigEditor::onExtSpecSelectionChanged);
+    connect(m_extSpecAdd,    &QPushButton::clicked, this, &SpecConfigEditor::onExtSpecAdd);
+    connect(m_extSpecRemove, &QPushButton::clicked, this, &SpecConfigEditor::onExtSpecRemove);
+    connect(m_browseExtSpecFile,    &QPushButton::clicked, this, &SpecConfigEditor::onBrowseExtSpecFile);
+    connect(m_browseExtSpecProdDir, &QPushButton::clicked, this, &SpecConfigEditor::onBrowseExtSpecProdDir);
+    connect(m_extSpecFile,    &QLineEdit::textChanged,      this, [this](const QString& text) {
+        if (!m_extSpecSyncing && m_extSpecCurrentRow >= 0
+            && m_extSpecCurrentRow < m_extSpecList->count()) {
+            const QString display = QFileInfo(text).fileName();
+            m_extSpecList->item(m_extSpecCurrentRow)->setText(display.isEmpty() ? text : display);
+            m_extSpecList->item(m_extSpecCurrentRow)->setToolTip(text);
+        }
+        if (!m_extSpecSyncing) markDirty();
+    });
+    connect(m_extSpecProdDir, &QLineEdit::textChanged,      this, [this]() { if (!m_extSpecSyncing) markDirty(); });
+    connect(m_extSpecImports, &QPlainTextEdit::textChanged, this, [this]() { if (!m_extSpecSyncing) markDirty(); });
 
     load(filePath);
 }
@@ -304,6 +385,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     auto block = [](QObject* o) { o->blockSignals(true); };
     auto unblock = [](QObject* o) { o->blockSignals(false); };
 
+    m_extSpecSyncing = true;
     block(m_language); block(m_framework); block(m_outputDir);
     block(m_namespace); block(m_overwriteGlue); block(m_copySpectable);
     block(m_converterPath); block(m_imports); block(m_tagFilter);
@@ -338,6 +420,18 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     unblock(m_namespace); unblock(m_overwriteGlue); unblock(m_copySpectable);
     unblock(m_converterPath); unblock(m_imports); unblock(m_tagFilter);
     unblock(m_createProdClasses); unblock(m_prodClassesDir); unblock(m_prodClassesPackage);
+
+    // Populate external spectables list
+    m_extSpectables = cfg.externalSpectables;
+    m_extSpecCurrentRow = -1;
+    m_extSpecList->clear();
+    for (const ExternalSpectable& es : m_extSpectables) {
+        auto* item = new QListWidgetItem(QFileInfo(es.file).fileName());
+        item->setToolTip(es.file);
+        m_extSpecList->addItem(item);
+    }
+    m_extSpecDetail->setVisible(false);
+    m_extSpecSyncing = false;
 }
 
 SpecConfig SpecConfigEditor::configFromForm() const
@@ -357,6 +451,17 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.createProductionClasses  = m_createProdClasses->isChecked();
     cfg.productionClassesDir     = m_prodClassesDir->text().trimmed();
     cfg.productionClassesPackage = m_prodClassesPackage->text().trimmed();
+
+    // External spectables: use in-memory list with current detail pane state merged in
+    cfg.externalSpectables = m_extSpectables;
+    if (m_extSpecCurrentRow >= 0 && m_extSpecCurrentRow < cfg.externalSpectables.size()) {
+        ExternalSpectable& es = cfg.externalSpectables[m_extSpecCurrentRow];
+        es.file         = m_extSpecFile->text().trimmed();
+        es.productionDir = m_extSpecProdDir->text().trimmed();
+        es.codeImports.clear();
+        for (const QString& ln : m_extSpecImports->toPlainText().split('\n'))
+            if (!ln.trimmed().isEmpty()) es.codeImports << ln.trimmed();
+    }
     return cfg;
 }
 
@@ -370,4 +475,121 @@ void SpecConfigEditor::onBrowseProdClassesDir()
 void SpecConfigEditor::onCreateProdClassesToggled(bool checked)
 {
     m_prodClassesDetails->setVisible(checked);
+}
+
+void SpecConfigEditor::saveCurrentExtSpecRow()
+{
+    if (m_extSpecCurrentRow < 0 || m_extSpecCurrentRow >= m_extSpectables.size()) return;
+    ExternalSpectable& es = m_extSpectables[m_extSpecCurrentRow];
+    es.file          = m_extSpecFile->text().trimmed();
+    es.productionDir = m_extSpecProdDir->text().trimmed();
+    es.codeImports.clear();
+    for (const QString& ln : m_extSpecImports->toPlainText().split('\n'))
+        if (!ln.trimmed().isEmpty()) es.codeImports << ln.trimmed();
+    // Sync list item display name
+    if (m_extSpecCurrentRow < m_extSpecList->count()) {
+        const QString display = QFileInfo(es.file).fileName();
+        m_extSpecList->item(m_extSpecCurrentRow)->setText(display.isEmpty() ? es.file : display);
+        m_extSpecList->item(m_extSpecCurrentRow)->setToolTip(es.file);
+    }
+}
+
+void SpecConfigEditor::onExtSpecSelectionChanged()
+{
+    if (m_extSpecSyncing) return;
+
+    // Save the row we're leaving
+    saveCurrentExtSpecRow();
+
+    const int newRow = m_extSpecList->currentRow();
+    m_extSpecCurrentRow = newRow;
+
+    m_extSpecSyncing = true;
+    if (newRow >= 0 && newRow < m_extSpectables.size()) {
+        const ExternalSpectable& es = m_extSpectables[newRow];
+        m_extSpecFile->setText(es.file);
+        m_extSpecProdDir->setText(es.productionDir);
+        m_extSpecImports->setPlainText(es.codeImports.join('\n'));
+        m_extSpecDetail->setVisible(true);
+        m_extSpecRemove->setEnabled(true);
+    } else {
+        m_extSpecDetail->setVisible(false);
+        m_extSpecRemove->setEnabled(false);
+    }
+    m_extSpecSyncing = false;
+}
+
+void SpecConfigEditor::onExtSpecAdd()
+{
+    const QString file = QFileDialog::getOpenFileName(
+        this, tr("Select External Spectable"),
+        QString(),
+        tr("SpecTable files (*.spectable);;All files (*)"));
+    if (file.isEmpty()) return;
+
+    // Save current row before switching
+    saveCurrentExtSpecRow();
+
+    ExternalSpectable es;
+    es.file = file;
+    m_extSpectables.append(es);
+
+    m_extSpecSyncing = true;
+    auto* item = new QListWidgetItem(QFileInfo(file).fileName());
+    item->setToolTip(file);
+    m_extSpecList->addItem(item);
+    m_extSpecCurrentRow = m_extSpectables.size() - 1;
+    m_extSpecList->setCurrentRow(m_extSpecCurrentRow);
+    m_extSpecFile->setText(file);
+    m_extSpecProdDir->clear();
+    m_extSpecImports->clear();
+    m_extSpecDetail->setVisible(true);
+    m_extSpecRemove->setEnabled(true);
+    m_extSpecSyncing = false;
+
+    markDirty();
+}
+
+void SpecConfigEditor::onExtSpecRemove()
+{
+    const int row = m_extSpecList->currentRow();
+    if (row < 0 || row >= m_extSpectables.size()) return;
+
+    m_extSpecSyncing = true;
+    m_extSpectables.removeAt(row);
+    delete m_extSpecList->takeItem(row);
+    m_extSpecCurrentRow = -1;
+    m_extSpecDetail->setVisible(false);
+    m_extSpecRemove->setEnabled(false);
+    m_extSpecSyncing = false;
+
+    if (!m_extSpectables.isEmpty()) {
+        const int selectRow = qMin(row, m_extSpectables.size() - 1);
+        m_extSpecList->setCurrentRow(selectRow);
+    }
+
+    markDirty();
+}
+
+void SpecConfigEditor::onBrowseExtSpecFile()
+{
+    const QString current = m_extSpecFile->text();
+    const QString startDir = current.isEmpty()
+        ? QFileInfo(filePath()).absolutePath() : QFileInfo(current).absolutePath();
+    const QString file = QFileDialog::getOpenFileName(
+        this, tr("Select External Spectable"),
+        startDir,
+        tr("SpecTable files (*.spectable);;All files (*)"));
+    if (!file.isEmpty())
+        m_extSpecFile->setText(file);
+}
+
+void SpecConfigEditor::onBrowseExtSpecProdDir()
+{
+    const QString current = m_extSpecProdDir->text();
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, tr("Select Production Code Directory"),
+        current.isEmpty() ? QString() : current);
+    if (!dir.isEmpty())
+        m_extSpecProdDir->setText(dir);
 }
