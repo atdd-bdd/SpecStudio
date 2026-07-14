@@ -156,7 +156,7 @@ This file is:
 * Fully parsed
 * Fully normalized
 * Defines expanded
-* Transposed tables rotated
+* Vertical tables rotated
 * Multiples validated
 * Background merged
 * Cleanup attached

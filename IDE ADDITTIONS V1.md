@@ -1,6 +1,6 @@
 Ken — here is the **updated, comprehensive IDE Feature Set for SpecTable v2.7.3**, fully aligned with:
 
-* **Transposed tables**
+* **Vertical tables**
 * **Cleanup block**
 * **Define tables without triple quotes**
 * **Examples: <AttributeSet>**
@@ -42,7 +42,7 @@ Shows a popup with:
 * Defaults
 * Notes
 * In/Out
-* Whether Transposed is used
+* Whether Vertical is used
 * Whether it’s a built‑in AttributeSet
 
 ### ✔ 1.2 Jump‑to‑Definition
@@ -95,10 +95,10 @@ IDE inserts:
     | Name | Age |
     |      |     |
 
-### ✔ 2.2 Auto‑Insert Transposed Tables
+### ✔ 2.2 Auto‑Insert Vertical Tables
 
 Typing:
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
 
 IDE inserts:
     | Name |      |
@@ -166,7 +166,7 @@ For built‑ins:
 * DateTime → ISO‑8601
 * Duration → ISO‑8601 duration
 
-### ✔ 3.4 Validate Transposed Tables
+### ✔ 3.4 Validate Vertical Tables
 
 * Must match AttributeSet
 * Must have exactly two columns
@@ -186,7 +186,7 @@ For built‑ins:
 
 * Only Then/And allowed
 * AttributeSets must match
-* Transposed allowed
+* Vertical allowed
 
 * * *
 
@@ -230,7 +230,7 @@ Opens a **non‑modal dialog** showing:
 
 * Background steps
 * Tables
-* Transposed tables
+* Vertical tables
 * Define references resolved
 
 This stays open while editing.
@@ -303,8 +303,8 @@ Edit entire columns at once.
 
 ### ✔ 7.3 Convert Between Table Types
 
-* Normal → Transposed
-* Transposed → Normal
+* Normal → Vertical
+* Vertical → Normal
 * AttributeSet → Grid (if DataType)
 
 ### ✔ 7.4 Snippets
@@ -328,7 +328,7 @@ Based on attribute names.
 
 Based on attribute name patterns.
 
-### ✔ 8.4 Suggest Transposed when appropriate
+### ✔ 8.4 Suggest Vertical when appropriate
 
 If user types a vertical table manually.
 
@@ -373,7 +373,7 @@ Shows which:
 
 ### ✔ 10.2 Generate Scenarios from English
 
-### ✔ 10.3 Suggest Transposed vs Normal
+### ✔ 10.3 Suggest Vertical vs Normal
 
 ### ✔ 10.4 Suggest DataTypes for new attributes
 

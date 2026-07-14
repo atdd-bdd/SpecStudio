@@ -479,7 +479,7 @@ Becomes:
         age = "42"
     };
 
-### ✔ Transposed table
+### ✔ Vertical table
 
     | Name | Ken |
     | Age  | 42  |
@@ -642,7 +642,7 @@ Generate:
 
 ### ✔ Arbitrary order allowed
 
-### ✔ Transposed tables normalized
+### ✔ Vertical tables normalized
 
 ### ✔ Background + Cleanup injected
 

@@ -36,11 +36,11 @@ void SpecTableHighlighter::buildRules()
     applyFmt.setForeground(QColor("#4EC9B0"));
     addRule(R"(\bapplying\b)", applyFmt);
 
-    // --- Transposed modifier keyword ---
+    // --- Vertical modifier keyword ---
     QTextCharFormat modFmt;
     modFmt.setForeground(QColor("#C586C0")); // VS purple
     modFmt.setFontWeight(QFont::Bold);
-    addRule(R"(\b(Transposed|CompareOnly)\b)", modFmt);
+    addRule(R"(\b(Vertical|CompareOnly)\b)", modFmt);
 
     // --- Built-in DataType names ---
     QTextCharFormat builtinFmt;
@@ -54,10 +54,10 @@ void SpecTableHighlighter::buildRules()
     builtinAttrFmt.setFontWeight(QFont::Bold);
     addRule(R"(\b(EnumerationValues|ValidValues)\b)", builtinAttrFmt);
 
-    // --- AttributeSet reference after colon  ": SomeName [Transposed]" ---
+    // --- AttributeSet reference after colon  ": SomeName [Vertical]" ---
     QTextCharFormat attrRefFmt;
     attrRefFmt.setForeground(QColor("#808080")); // dark grey
-    addRule(R"(:\s*(\w+)(?:\s+(?:Transposed|CompareOnly))?\s*$)", attrRefFmt);
+    addRule(R"(:\s*(\w+)(?:\s+(?:Vertical|CompareOnly))?\s*$)", attrRefFmt);
 
     // --- Value references  =Name ---
     QTextCharFormat valueRefFmt;

@@ -122,12 +122,12 @@ Use `=Name` anywhere text is allowed to reference a `Define` value.
 
 ---
 
-## 8. Transposed Tables
+## 8. Vertical Tables
 
-Add `Transposed` after the AttributeSet name in a step header.
+Add `Vertical` after the AttributeSet name in a step header.
 The table is written as key-value rows (no Attribute/Value header row).
 
-    Given customer info : Customer Transposed
+    Given customer info : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -243,10 +243,10 @@ Example:
     Then <desc> : <AttributeSet>
     | ...  |
 
-### Transposed table
+### Vertical table
 
     Scenario Customer Info
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -277,7 +277,7 @@ Example:
 
     Background:
     Description <summary>
-    Given <desc> : <AttributeSet> [Transposed]
+    Given <desc> : <AttributeSet> [Vertical]
     | ...  |
     And <desc> : <AttributeSet>
     | ...  |
@@ -299,7 +299,7 @@ Example:
 
 ## 19. Grammar Summary
 
-    StepHeader    ::= StepKeyword Text ":" AttributeSetName [ "Transposed" ]
+    StepHeader    ::= StepKeyword Text ":" AttributeSetName [ "Vertical" ]
     ExamplesBlock ::= "Examples:" AttributeSetName Table
     DefineBlock   ::= "Define" Identifier "=" ( Table | TextBlock | Text )
     DataTypeEnum  ::= "DataType" Identifier [ Description ] [ Details ]
@@ -314,7 +314,7 @@ Example:
 - `Description`, `Details`, `Constraint` are named comments with no runtime semantics.
 - Unnamed `#` comments may appear anywhere on any line.
 - `Examples:` requires a colon and an AttributeSet name.
-- `Transposed` may follow any AttributeSet name in a step header.
+- `Vertical` may follow any AttributeSet name in a step header.
 - `=Name` is a value reference that must resolve to a `Define` declaration.
 - `EnumerationValues` and `ValidValues` are built-in AttributeSets — no declaration needed.
 - Built-in DataTypes (`Character` … `YesNo`) need no `DataType` declaration.

@@ -41,7 +41,7 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
         "Scenario ", "ScenarioGroup ", "Background ", "Cleanup ",
         "Description ", "Details ", "Constraint ",
         "Examples: EnumerationValues", "Examples: ValidValues", "Examples: ",
-        "Transposed",
+        "Vertical",
         "Given ", "When ", "Then ", "And ", "WhenThen ",
         "applying BusinessRule ", "applying Calculation ",
         // Built-in DataTypes
@@ -680,7 +680,7 @@ void SpecTableEditor::autoInsertTableHeader()
     // ── Case 3: Step line with : AttrSetName ──────────────────────────────────
     {
         static QRegularExpression reStep(
-            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
             QRegularExpression::CaseInsensitiveOption);
         static QRegularExpression reApplying(
             R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
@@ -690,7 +690,7 @@ void SpecTableEditor::autoInsertTableHeader()
         if (!m.hasMatch() || reApplying.match(prevLine).hasMatch()) return;
 
         const QString name       = m.captured(1);
-        const bool    transposed = !m.captured(2).trimmed().isEmpty();
+        const bool    vertical = !m.captured(2).trimmed().isEmpty();
 
         if (!m_index) return;
         const SpecTableSymbols& syms = m_index->projectSymbols();
@@ -744,12 +744,12 @@ void SpecTableEditor::autoInsertTableHeader()
                     QString newLine = prev.selectedText();
                     newLine.replace(
                         QRegularExpression(R"(:\s*)" + QRegularExpression::escape(name)
-                                           + R"((\s+Transposed)?\s*$)",
+                                           + R"((\s+Vertical)?\s*$)",
                                            QRegularExpression::CaseInsensitiveOption),
-                        ": " + picked + (transposed ? " Transposed" : ""));
+                        ": " + picked + (vertical ? " Vertical" : ""));
                     prev.insertText(newLine);
                     // Then fall through to insert the header for the picked set
-                    QTimer::singleShot(0, this, [this, picked, transposed, indent]() {
+                    QTimer::singleShot(0, this, [this, picked, vertical, indent]() {
                         if (!m_index) return;
                         const QVector<QStringList> attrDef = m_index->attributeRows(picked);
                         if (attrDef.size() < 2) return;
@@ -758,7 +758,7 @@ void SpecTableEditor::autoInsertTableHeader()
                             if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
                         if (attrNames.isEmpty()) return;
                         QString tableText;
-                        if (transposed) {
+                        if (vertical) {
                             QStringList ls;
                             for (const QString& a : attrNames) ls << (indent + "| " + a + " |  |");
                             tableText = ls.join("\n");
@@ -794,7 +794,7 @@ void SpecTableEditor::autoInsertTableHeader()
                 if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
             if (attrNames.isEmpty()) return;
 
-            if (transposed) {
+            if (vertical) {
                 QStringList lines;
                 for (const QString& a : attrNames)
                     lines << (indent + "| " + a + " |  |");
@@ -828,7 +828,7 @@ void SpecTableEditor::insertTableHeaderForCurrentStep()
     const QString stepLine = tc.block().text();
 
     static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reApplying(
         R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
@@ -838,7 +838,7 @@ void SpecTableEditor::insertTableHeaderForCurrentStep()
     if (!m.hasMatch() || reApplying.match(stepLine).hasMatch()) return;
 
     const QString name      = m.captured(1);
-    const bool    transposed = !m.captured(2).trimmed().isEmpty();
+    const bool    vertical = !m.captured(2).trimmed().isEmpty();
 
     QString indent;
     for (const QChar ch : stepLine) { if (!ch.isSpace()) break; indent += ch; }
@@ -859,7 +859,7 @@ void SpecTableEditor::insertTableHeaderForCurrentStep()
             if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
         if (attrNames.isEmpty()) return;
 
-        if (transposed) {
+        if (vertical) {
             QStringList lines;
             for (const QString& a : attrNames)
                 lines << (indent + "| " + a + " |  |");
@@ -1165,7 +1165,7 @@ void SpecTableEditor::importCsv()
     if (!reStepLine.match(lineText).hasMatch()) return;
 
     static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
     auto m = reStepAttr.match(lineText);
     const QString attrSetName = m.hasMatch() ? m.captured(1) : QString();
@@ -1419,7 +1419,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     if (!isKnown && !isAttrSet) {
         // Suggest creating an AttributeSet when the word is used as one in the current step
         static QRegularExpression reStepAttr(
-            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
             QRegularExpression::CaseInsensitiveOption);
         const QString lineText = textEdit()->textCursor().block().text();
         auto sm = reStepAttr.match(lineText);
@@ -1432,8 +1432,8 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
                 {
                     static QRegularExpression reRow(R"(^\s*\|)");
                     const QTextBlock stepBlock = textEdit()->textCursor().block();
-                    const bool transposed = stepBlock.text().contains(
-                        QRegularExpression(R"(\bTransposed\b)", QRegularExpression::CaseInsensitiveOption));
+                    const bool vertical = stepBlock.text().contains(
+                        QRegularExpression(R"(\bVertical\b)", QRegularExpression::CaseInsensitiveOption));
                     bool foundFirstRow = false;
                     for (QTextBlock b = stepBlock.next(); b.isValid(); b = b.next()) {
                         if (b.text().trimmed().isEmpty()) continue;
@@ -1444,7 +1444,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
                             const QString c = parts[i].trimmed();
                             if (!c.isEmpty()) cells << c;
                         }
-                        if (transposed) {
+                        if (vertical) {
                             // Each row: | AttrName | Value | — take col 0
                             if (!cells.isEmpty()) attrNames << cells[0];
                         } else {
@@ -1452,7 +1452,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
                             attrNames = cells;
                             foundFirstRow = true;
                         }
-                        if (!transposed && foundFirstRow) break;
+                        if (!vertical && foundFirstRow) break;
                     }
                 }
 
@@ -1552,7 +1552,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
             R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+?)(?:\s*:.*)?$)",
             QRegularExpression::CaseInsensitiveOption);
         static QRegularExpression reStepAttr(
-            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
             QRegularExpression::CaseInsensitiveOption);
         const QTextBlock curBlock = textEdit()->textCursor().block();
         const QString lineText = curBlock.text();

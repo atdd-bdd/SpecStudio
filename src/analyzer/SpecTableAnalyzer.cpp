@@ -131,9 +131,9 @@ void SpecTableAnalyzer::checkStepRefs(const QString& filePath,
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
-    // "Given/When/Then ... : AttributeSet [Transposed|CompareOnly]"
+    // "Given/When/Then ... : AttributeSet [Vertical|CompareOnly]"
     static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(?:\s+(?:Transposed|CompareOnly))?\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(?:\s+(?:Vertical|CompareOnly))?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     // "When applying BusinessRule X : Y"
@@ -467,7 +467,7 @@ void SpecTableAnalyzer::validateDataTypeValue(const QString& filePath, int lineN
 // ---------------------------------------------------------------------------
 // Check 8 — Step table attribute names and DataType values
 //   Covers: attribute names match the AttributeSet (3.2),
-//           DataType values are valid (3.3), Transposed structure (3.4)
+//           DataType values are valid (3.3), Vertical structure (3.4)
 // ---------------------------------------------------------------------------
 
 void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
@@ -478,7 +478,7 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
 
     static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Transposed)?\s*$)",
+        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reApplying(
         R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
@@ -496,7 +496,7 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
         if (reApplying.match(lines[i]).hasMatch()) continue;
 
         const QString attrName   = m.captured(1);
-        const bool    transposed = !m.captured(2).trimmed().isEmpty();
+        const bool    vertical = !m.captured(2).trimmed().isEmpty();
 
         // Skip if unknown (already reported by checkStepRefs) or not an AttributeSet
         if (!visible.hasAttributeSet(attrName)) continue;
@@ -534,7 +534,7 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
         }
         if (tableRows.isEmpty()) continue;
 
-        if (transposed) {
+        if (vertical) {
             // Each row is | AttributeName | Value [| Value2 | ...] |
             // Extra columns are additional list items — all valid.
             for (const auto& row : tableRows) {
@@ -647,7 +647,7 @@ void SpecTableAnalyzer::checkStepsWithTableButNoAttrSet(const QString& filePath,
     // Capture everything after the last ':' in the line
     static QRegularExpression reColonSuffix(R"(:\s*([\w][\w\s]*)\s*$)");
     static QRegularExpression reRow(R"(^\s*\|)");
-    static const QSet<QString> knownModifiers = { "compareonly", "transposed" };
+    static const QSet<QString> knownModifiers = { "compareonly", "vertical" };
 
     QTextStream in(&f);
     QStringList lines;
@@ -684,7 +684,7 @@ void SpecTableAnalyzer::checkStepsWithTableButNoAttrSet(const QString& filePath,
             const QString modifier = words[1].toLower();
             if (!knownModifiers.contains(modifier))
                 out.append(makeDiag(filePath, i + 1,
-                    QStringLiteral("Unrecognized step modifier '%1' — expected CompareOnly or Transposed")
+                    QStringLiteral("Unrecognized step modifier '%1' — expected CompareOnly or Vertical")
                         .arg(words[1]),
                     Diagnostic::Severity::Warning));
         }

@@ -52,13 +52,13 @@ bool SpectableParser::isDefineLine(const QString& trimmed, QString& defineName)
 
 bool SpectableParser::isStepLine(const QString& trimmed,
                                   QString& kw, QString& text,
-                                  QString& attrSet, bool& transposed, bool& compareOnly)
+                                  QString& attrSet, bool& vertical, bool& compareOnly)
 {
     static QRegularExpression reStep(
         R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reAttr(
-        R"(\s*:\s*(\w+)(?:\s+(Transposed|CompareOnly))?\s*$)",
+        R"(\s*:\s*(\w+)(?:\s+(Vertical|CompareOnly))?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     auto m = reStep.match(trimmed);
@@ -71,12 +71,12 @@ bool SpectableParser::isStepLine(const QString& trimmed,
     if (ma.hasMatch()) {
         attrSet     = ma.captured(1);
         const QString mod = ma.captured(2).toLower();
-        transposed  = (mod == "transposed");
+        vertical  = (mod == "vertical");
         compareOnly = (mod == "compareonly");
         text        = rest.left(ma.capturedStart()).trimmed();
     } else {
         attrSet     = {};
-        transposed  = false;
+        vertical  = false;
         compareOnly = false;
         text        = rest;
     }
@@ -479,7 +479,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     curDefine->tableRows.push_back(cells);
                     if (curDefine->tableRows.size() == 1) {
                         QString h0 = cells.isEmpty() ? "" : cells[0].toLower();
-                        curDefine->transposed = (h0 == "attribute" || h0 == "name");
+                        curDefine->vertical = (h0 == "attribute" || h0 == "name");
                     }
                 }
                 break;
@@ -489,12 +489,12 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 curStep->hasTable = true;
                 state = State::InStepTable;
                 // Detect format
-                if (!curStep->transposed && cells.size() >= 2) {
+                if (!curStep->vertical && cells.size() >= 2) {
                     QString h0 = cells[0].toLower();
                     if (h0 == "attribute" || h0 == "name") {
-                        // Implicit transposed: | Attribute | Value | header
-                        curStep->transposed       = true;
-                        curStep->table.transposed = true;
+                        // Implicit vertical: | Attribute | Value | header
+                        curStep->vertical       = true;
+                        curStep->table.vertical = true;
                         curStep->table.hasHeader  = true;
                         // This row is the header — don't add to rows
                     } else {
@@ -502,9 +502,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         curStep->table.hasHeader = true;
                         curStep->table.rows.push_back(cells);
                     }
-                } else if (curStep->transposed) {
-                    // Explicit Transposed: no header row
-                    curStep->table.transposed = true;
+                } else if (curStep->vertical) {
+                    // Explicit Vertical: no header row
+                    curStep->table.vertical = true;
                     curStep->table.hasHeader  = false;
                     curStep->table.rows.push_back(cells);
                 } else {
@@ -807,7 +807,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 st.keyword      = lastKw;
                 st.text         = text;
                 st.attrSetName  = attrSet;
-                st.transposed   = trans;
+                st.vertical   = trans;
                 st.compareOnly  = cmpOnly;
                 st.line         = lineNum;
 

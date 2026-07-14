@@ -158,7 +158,7 @@ const Define* CSharpGenerator::findDefine(const QString& name, const SpectableFi
 
 // Returns list of value-rows, each in AttrSet field order.
 // For a normal table: header row tells us column→field mapping.
-// For a transposed table: each row is [AttrName, Value]; we collect one instance.
+// For a vertical table: each row is [AttrName, Value]; we collect one instance.
 // For a =DefineName ref: expand the define.
 QVector<QStringList> CSharpGenerator::resolveStepRows(
     const Step& step, const AttrSet* attrSet,
@@ -190,15 +190,15 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
         for (int i = 0; i < attrSet->fields.size(); ++i)
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
-        // A step with Transposed flag and a defineRef means the define rows are key=value pairs.
-        // Also, if the define was explicitly detected as transposed (via "Attribute"/"Name" header),
-        // treat as key=value. Otherwise if step.transposed, treat as key=value from row 0.
-        const bool useKV = def->transposed || step.transposed;
+        // A step with Vertical flag and a defineRef means the define rows are key=value pairs.
+        // Also, if the define was explicitly detected as vertical (via "Attribute"/"Name" header),
+        // treat as key=value. Otherwise if step.vertical, treat as key=value from row 0.
+        const bool useKV = def->vertical || step.vertical;
         if (useKV) {
             // key=value rows: each row is [FieldName, Value].
-            // If def->transposed: row 0 is the "Attribute/Name" header — skip it.
+            // If def->vertical: row 0 is the "Attribute/Name" header — skip it.
             // Otherwise: row 0 is the first data row — start from 0.
-            const int startIdx = def->transposed ? 1 : 0;
+            const int startIdx = def->vertical ? 1 : 0;
             QStringList row(fieldCount);
             for (int ri = startIdx; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -234,7 +234,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
     for (int i = 0; i < attrSet->fields.size(); ++i)
         fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
-    if (step.table.transposed) {
+    if (step.table.vertical) {
         // Each row = [AttrName, Value [, Value2, ...]]
         // Extra columns are additional list items; each value column = one result row.
         int numCols = 0;
@@ -516,7 +516,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 // For normal multi-column tables, rows[0] is the column-name header.
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && isDataType(step.attrSetName, file);
-                int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
+                int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
                 s << "         List<List<string>> " << listVar
                   << " = new List<List<string>>{\n";

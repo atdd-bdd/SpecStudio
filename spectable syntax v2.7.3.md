@@ -2,7 +2,7 @@ Ken — here it is.
 The **full, authoritative SpecTable v2.7.3** specification, regenerated cleanly with _every_ change you requested, including:
 
 * **Cleanup** block (post‑scenario, Then/And only)
-* **Transposed** keyword after AttributeSet name
+* **Vertical** keyword after AttributeSet name
 * **Define tables without triple quotes**
 * **Enumerations using `Examples: EnumerationValues`**
 * **Examples always using `Examples: <AttributeSet>`**
@@ -20,7 +20,7 @@ This is the version you can hand to implementers, IDE authors, and parser writer
 📘 **SpecTable DSL — Complete Reference (v2.7.3)**
 ==================================================
 
-### _With Cleanup, Transposed Tables, YesNo, Define Tables, EnumerationValues, ValidValues, and Updated Examples Syntax_
+### _With Cleanup, Vertical Tables, YesNo, Define Tables, EnumerationValues, ValidValues, and Updated Examples Syntax_
 
 * * *
 
@@ -158,13 +158,13 @@ Use `=Name` anywhere text is allowed.
 
 * * *
 
-8. Transposed Tables (New in v2.7.3)
+8. Vertical Tables (New in v2.7.3)
    ====================================
 
 ### ✔ Syntax:
 
-Add **Transposed** after the AttributeSet name:
-    Given customer info : Customer Transposed
+Add **Vertical** after the AttributeSet name:
+    Given customer info : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -264,11 +264,11 @@ Add **Transposed** after the AttributeSet name:
     | Name | Ken |
     | Age  | 42  |
 
-14.2 Transposed table
+14.2 Vertical table
 ---------------------
 
     Scenario Customer Info
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -314,10 +314,10 @@ A post‑scenario block that mirrors Background.
     | CPU | < 80 |
     | MEM | < 70 |
 
-### With Transposed:
+### With Vertical:
 
     Cleanup:
-    Then audit entry exists : Audit Transposed
+    Then audit entry exists : Audit Vertical
     | User  | Ken |
     | Event | Login |
 
@@ -336,7 +336,7 @@ A post‑scenario block that mirrors Background.
 
 ### Step header
 
-    StepHeader ::= StepKeyword Text ":" AttributeSetName [ "Transposed" ]
+    StepHeader ::= StepKeyword Text ":" AttributeSetName [ "Vertical" ]
 
 ### Define block
 
@@ -357,8 +357,8 @@ A post‑scenario block that mirrors Background.
 ### Cleanup
 
     CleanupBlock ::= "Cleanup:" [ Description ] [ Details ] CleanupStep+
-    CleanupStep ::= "Then" Text [ ":" AttributeSetName [ "Transposed" ] ]
-                  | "And"  Text [ ":" AttributeSetName [ "Transposed" ] ]
+    CleanupStep ::= "Then" Text [ ":" AttributeSetName [ "Vertical" ] ]
+                  | "And"  Text [ ":" AttributeSetName [ "Vertical" ] ]
 
 * * *
 
@@ -391,11 +391,11 @@ A post‑scenario block that mirrors Background.
     Given flags : YesNo
     | Y | N | yes | no | t | f |
 
-✔ Transposed
+✔ Vertical
 ------------
 
-    Scenario Test Transposed
-    Given customer : Customer Transposed
+    Scenario Test Vertical
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -437,7 +437,7 @@ A post‑scenario block that mirrors Background.
 
 ### ✔ Cleanup block support
 
-### ✔ Transposed table visualization
+### ✔ Vertical table visualization
 
 ### ✔ Auto‑insert table headers for AttributeSets
 
@@ -455,7 +455,7 @@ A post‑scenario block that mirrors Background.
 
 ### ✔ Generate Define block when referenced but missing
 
-### ✔ Visual toggle for Transposed
+### ✔ Visual toggle for Vertical
 
 ### ✔ Scenario flow visualization including Cleanup
 

@@ -2,7 +2,7 @@ Ken — here is the **formal IDE Requirements Document for SpecTable v2.7.3**, w
 
 This document reflects **all syntax and semantics introduced up through v2.7.3**, including:
 
-* **Transposed** tables
+* **Vertical** tables
 * **Cleanup** block
 * **Define tables without triple quotes**
 * **Examples: <AttributeSet>**
@@ -49,7 +49,7 @@ The IDE must fully understand:
 * Commands (Specification, DataType, DomainTerm, BusinessRule, Calculation, Entity, Attributes, Scenario, ScenarioGroup, Background, Cleanup, Import, Insert, Define)
 * Built‑in DataTypes
 * Built‑in AttributeSets
-* Transposed tables
+* Vertical tables
 * Grid tables
 * Define blocks
 * Examples: <AttributeSet>
@@ -87,7 +87,7 @@ The IDE must provide context‑aware auto‑completion for:
 * Built‑in DataTypes
 * Built‑in AttributeSets
 * Step keywords (Given, When, Then, And)
-* Transposed keyword
+* Vertical keyword
 
 3.2 Auto‑Insert Table Structures
 --------------------------------
@@ -101,10 +101,10 @@ IDE inserts:
     | Name | Age |
     |      |     |
 
-### 3.2.2 Transposed tables
+### 3.2.2 Vertical tables
 
 When user types:
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
 
 IDE inserts:
     | Name |      |
@@ -188,7 +188,7 @@ The IDE must validate:
 
 * Column count consistency
 * Grid table rectangularity
-* Transposed table structure (two columns only)
+* Vertical table structure (two columns only)
 * Attribute names matching AttributeSet
 * DataType values matching built‑in rules
 
@@ -264,7 +264,7 @@ Opens a **non‑modal dialog** showing:
 
 * Background steps
 * Tables
-* Transposed tables
+* Vertical tables
 * Resolved Define references
 
 The dialog must remain open while editing.
@@ -283,7 +283,7 @@ The IDE must:
 * Recognize Cleanup block
 * Enforce Then/And only
 * Validate AttributeSet references
-* Support Transposed tables
+* Support Vertical tables
 * Include Cleanup in scenario flow visualization
 
 * * *
@@ -379,7 +379,7 @@ Shows which:
 11.3 Suggest DataTypes for new attributes
 -----------------------------------------
 
-11.4 Suggest Transposed vs Normal
+11.4 Suggest Vertical vs Normal
 ---------------------------------
 
 11.5 Suggest Define block names
@@ -423,7 +423,7 @@ The IDE must provide:
 * Rich visualization
 * Safe refactoring
 * Background/Cleanup awareness
-* Transposed table support
+* Vertical table support
 * Define table support
 * EnumerationValues/ValidValues support
 * YesNo normalization

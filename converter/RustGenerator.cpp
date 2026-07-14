@@ -184,9 +184,9 @@ QVector<QStringList> RustGenerator::resolveStepRows(
         for (int i = 0; i < attrSet->fields.size(); ++i)
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
-        if (def->transposed || step.transposed) {
+        if (def->vertical || step.vertical) {
             QStringList row(fieldCount);
-            const int start = def->transposed ? 1 : 0;
+            const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
                 if (r.size() < 2) continue;
@@ -217,7 +217,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
     for (int i = 0; i < attrSet->fields.size(); ++i)
         fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
-    if (step.table.transposed) {
+    if (step.table.vertical) {
         // Each row = [AttrName, Value [, Value2, ...]]
         // Extra columns are additional list items; each value column = one result row.
         int numCols = 0;
@@ -499,7 +499,7 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                 const StepTable& tbl = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && isDataType(step.attrSetName, file);
-                const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
+                const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 s << "    glue." << meth << "(";
                 emitGridSlice(tbl.rows, startRow);
                 s << ");\n";

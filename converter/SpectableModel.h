@@ -29,7 +29,7 @@ struct Define {
     QString              scalarValue;  // for "Define Name = scalar"
     QVector<QStringList> tableRows;    // for table-form Define (raw cell lists)
     bool                 isTable    = false;
-    bool                 transposed = false;  // vertical key/value Define table
+    bool                 vertical   = false;  // vertical key/value Define table
     QString              docString;           // for docstring-form Define
     bool                 hasDocString = false;
     int                  line       = 0;
@@ -40,7 +40,7 @@ struct Define {
 struct StepTable {
     QVector<QStringList> rows;        // rows[0] is header when hasHeader=true
     bool                 hasHeader   = false;
-    bool                 transposed  = false;  // explicit Transposed or | Attribute | Value | format
+    bool                 vertical    = false;  // explicit Vertical or | Attribute | Value | format
 };
 
 // One Given/When/Then step inside a Scenario or Background
@@ -48,7 +48,7 @@ struct Step {
     QString   keyword;      // Given / When / Then  (And/But normalized to previous)
     QString   text;         // step description before ':'
     QString   attrSetName;  // attribute set name after ':' (empty if none)
-    bool      transposed   = false;
+    bool      vertical     = false;
     bool      compareOnly  = false;  // CompareOnly modifier — unlisted fields filled with DNCString
     StepTable table;
     bool      hasTable   = false;

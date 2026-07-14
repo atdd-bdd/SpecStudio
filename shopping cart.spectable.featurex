@@ -1,0 +1,67 @@
+Specification Shopping Cart
+
+Entity OrderItem 
+| Name | Type | Default | Notes |
+| Name | String | | | 
+| Price | Dollar | $0 | | 
+| Count | Integer | 0 | | 
+| TotalPrice | Dollar | $0 | |
+
+Entity OrderItemCollection 
+| Name | Type | Default | Multiple|  Notes |
+| OrderItems | OrderItem | | Yes | | 
+
+Entity Address 
+# will update the individual types later 
+| Name | Type | Default | Multiple | Notes |
+| Street | String | |||
+| City | String | | | |
+| State | String | | | |
+| ZIP   | String | | | |
+
+Define ABillingAddress = 
+| Street | City | State | ZIP | 
+| 1 Apple Lane | Somewhere | NC | 27705 | 
+
+Define AShippingAddress = 
+| Street | City | State | ZIP | 
+| 2 Apple Lane | Somewhere | NC | 27706 | 
+
+
+Entity Shopping Cart 
+| Name               | Type                 | Default  | Multiple  | Notes  |
+| Items              | OrderItemCollection  |          | No        |        |
+| Shipping 			| Dollar              |          |           |        |
+| Discount           | Dollar               | $0       |           |        |
+| TotalPrice         | Dollar               | $0       |           |        |
+| ShippingAddress    | Address              |          |           |        |
+| BillingAddress     | Address              |          |           |        |
+
+Scenario A shopping cart with one item 
+Given shopping cart: Shopping Cart 
+
+Scenario Start With Empty Shopping Cart 
+Given empty shopping cart : OrderItemCollection 
+When total computed 
+Then result is: 
+| TotalPrice |
+| $0| 
+
+Scenario Add one item 
+Given empty shopping cart : OrderItemCollection 
+When item added : OrderItem Vertical 
+| Name | Widget |
+| Price | $10.00 |
+| Count | 1 | 
+Then shopping cart is now: OrderItemCollection 
+
+Scenario Add two items 
+
+
+Scenario: Total Price Computed 
+
+
+ 
+
+
+

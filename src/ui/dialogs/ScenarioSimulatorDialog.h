@@ -22,14 +22,14 @@ private:
     struct DisplayStep {
         QString keyword, text, attrSetName, defineRef;
         QVector<QStringList> tableRows;
-        bool transposed = false;
+        bool vertical = false;
         bool hasHeader  = false;
     };
     struct DisplayDefine {
         QString name, scalarValue;
         QVector<QStringList> tableRows;
         bool isTable    = false;
-        bool transposed = false;
+        bool vertical = false;
     };
     struct ParsedScenario {
         QString keyword;   // "Scenario" or "ScenarioGroup"
@@ -54,7 +54,7 @@ private:
     QString renderSteps(const QVector<DisplayStep>& steps,
                         QVector<DisplayDefine>& defines) const;
     QString renderTable(const QVector<QStringList>& rows,
-                        bool transposed, bool hasHeader) const;
+                        bool vertical, bool hasHeader) const;
     QString resolveDefine(const QString& defName, QVector<DisplayDefine>& defines) const;
 
     QString m_filePath;

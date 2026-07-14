@@ -214,7 +214,7 @@ Given accounts exist in the system: Account
 ```
 Scenario Withdraw exact balance from checking
 Description Withdrawing the full checking balance leaves a zero balance.
-Given checking account: Account Transposed
+Given checking account: Account Vertical
 | Type      | Checking |
 | Balance   | 100      |
 | AccountID | 123-456  |
@@ -232,8 +232,8 @@ Then balance is zero: BalanceCheck
 | Format                                                          | When to use                    |
 | --------------------------------------------------------------- | ------------------------------ |
 | Normal `\| Col1 \| Col2 \|` (header row + data rows)            | Multiple instances             |
-| Transposed `\| Attribute \| Value \|` (header + key/value rows) | Single instance, many fields   |
-| `Account Transposed` (explicit, no header row)                  | Single instance without header |
+| Vertical `\| Attribute \| Value \|` (header + key/value rows) | Single instance, many fields   |
+| `Account Vertical` (explicit, no header row)                  | Single instance without header |
 | `=DefineName`                                                   | Substitute a pre-defined table |
 | `Insert "file.csv"`                                             | Read rows from a CSV/TSV file  |
 
@@ -303,7 +303,7 @@ The last line must **not** end with `\`. SpecStudio's Save command enforces this
 | ------------ | ---------------------------------------------------------------------------------------- |
 | Blue         | `Specification`, `Entity`, `Attributes`, `BusinessRule`, `Calculation`, `Scenario`, etc. |
 | Green italic | `Description`, `Details`, `Constraint`, `Notes`                                          |
-| Purple       | `Transposed`                                                                             |
+| Purple       | `Vertical`                                                                             |
 | Orange       | `=DefineName` references                                                                 |
 | Grey         | Attribute set references in steps                                                        |
 | Teal         | Built-in DataType names                                                                  |

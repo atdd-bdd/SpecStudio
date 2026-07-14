@@ -89,10 +89,10 @@ name (e.g., `Address`), the suggestions are weighted/ordered to prefer
 Defines whose names contain that attribute name first.
 *(IDE ADDITIONS 8.2)*
 
-### Suggest Transposed Layout When Appropriate
+### Suggest Vertical Layout When Appropriate
 If the user manually writes a table with many rows and only 2 columns where
 the first column looks like attribute names, offer a hint:
-> "This table could be written as a Transposed table."
+> "This table could be written as a Vertical table."
 *(IDE ADDITIONS 8.4, IDE Requirements 11.4)*
 
 ---

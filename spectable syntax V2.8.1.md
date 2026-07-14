@@ -139,10 +139,10 @@ Allowed anywhere text is allowed.
 
 * * *
 
-8. Transposed Tables (v2.7.3)
+8. Vertical Tables (v2.7.3)
    =============================
    
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 * No headers
@@ -237,9 +237,9 @@ Allowed anywhere text is allowed.
     | Name | Age |
     | Ken  | 42  |
 
-### 14.2 Transposed
+### 14.2 Vertical
 
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 

@@ -27,7 +27,7 @@ private:
         QString              attrSetName;
         QString              defineRef;
         QVector<QStringList> tableRows;
-        bool                 transposed  = false;
+        bool                 vertical  = false;
         bool                 hasHeader   = false;
     };
 
@@ -36,7 +36,7 @@ private:
         QString              scalarValue;
         QVector<QStringList> tableRows;
         bool                 isTable    = false;
-        bool                 transposed = false;
+        bool                 vertical = false;
     };
 
     struct ParsedFile {
@@ -51,7 +51,7 @@ private:
     QString buildHtml(const QVector<DisplayStep>& steps,
                       QVector<DisplayDefine>& defines) const;
 
-    QString renderTable(const QVector<QStringList>& rows, bool transposed,
+    QString renderTable(const QVector<QStringList>& rows, bool vertical,
                         bool hasHeader) const;
     QString resolveDefine(const QString& defName,
                           QVector<DisplayDefine>& defines) const;

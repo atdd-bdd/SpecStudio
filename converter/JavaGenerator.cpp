@@ -294,10 +294,10 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         for (int i = 0; i < attrSet->fields.size(); ++i)
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
-        const bool useKV = def->transposed || step.transposed;
+        const bool useKV = def->vertical || step.vertical;
         const QString fillVal = step.compareOnly ? "?DNC?" : QString();
         if (useKV) {
-            const int startIdx = def->transposed ? 1 : 0;
+            const int startIdx = def->vertical ? 1 : 0;
             QStringList row(fieldCount);
             for (int i = 0; i < attrSet->fields.size(); ++i)
                 row[i] = step.compareOnly ? fillVal : attrSet->fields[i].defaultValue;
@@ -335,7 +335,7 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
     const QString fillVal = step.compareOnly ? "?DNC?" : QString();
-    if (step.table.transposed) {
+    if (step.table.vertical) {
         // Each row = [AttrName, Value [, Value2, ...]]
         // Extra columns are additional list items; each value column = one result row.
         int numCols = 0;
@@ -700,7 +700,7 @@ static QString resolveAttrCellExpr(const QString& cellValue, const QString& fiel
                 for (int i = 0; i < subAs.fields.size(); ++i)
                     row[i] = subAs.fields[i].defaultValue;
 
-                if (d.transposed) {
+                if (d.vertical) {
                     for (const QStringList& r : d.tableRows) {
                         if (r.size() < 2) continue;
                         if (fieldIdx.contains(r[0].toLower()))
@@ -900,7 +900,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 const StepTable& tbl = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && isDataType(step.attrSetName, file);
-                const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.transposed) ? 1 : 0;
+                const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 const QString meth = toMethodName(step.keyword, step.text);
 
                 s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";

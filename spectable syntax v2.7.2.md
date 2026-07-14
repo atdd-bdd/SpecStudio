@@ -5,7 +5,7 @@ Ken — excellent. I’ll now **regenerate the full SpecTable v2.7.2 reference**
 * **Examples syntax**: always `Examples: <AttributeSet>`
 * **Built‑in AttributeSets**: `EnumerationValues`, `ValidValues`
 * **Built‑in DataTypes**: Character, String, Text, Integer, Float, Boolean, Date, Time, DateTime, Duration, YesNo
-* **Transposed tables**: indicated by `Transposed` after the AttributeSet name
+* **Vertical tables**: indicated by `Vertical` after the AttributeSet name
 * **IDE features updated**
 * **Grammar updated**
 * **Test suite updated**
@@ -17,7 +17,7 @@ Here is the complete, authoritative SpecTable v2.7.2 specification.
 📘 **SpecTable DSL — Complete Reference (v2.7.2)**
 ==================================================
 
-### _With Built‑Ins, Transposed Tables, Define Tables, EnumerationValues, ValidValues, YesNo, and Updated Examples Syntax_
+### _With Built‑Ins, Vertical Tables, Define Tables, EnumerationValues, ValidValues, YesNo, and Updated Examples Syntax_
 
 * * *
 
@@ -154,13 +154,13 @@ Use `=Name` anywhere text is allowed.
 
 * * *
 
-8. Transposed Tables (New in v2.7.2)
+8. Vertical Tables (New in v2.7.2)
    ====================================
 
 ### ✔ Syntax:
 
-Add **Transposed** after the AttributeSet name:
-    Given customer info : Customer Transposed
+Add **Vertical** after the AttributeSet name:
+    Given customer info : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -258,11 +258,11 @@ Add **Transposed** after the AttributeSet name:
     | Name | Ken |
     | Age  | 42  |
 
-14.2 Transposed table
+14.2 Vertical table
 ---------------------
 
     Scenario Customer Info
-    Given customer : Customer Transposed
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -279,7 +279,7 @@ Add **Transposed** after the AttributeSet name:
     ==============
     
     Background:
-    Given defaults : Customer Transposed
+    Given defaults : Customer Vertical
     | Name | Default |
 
 * * *
@@ -297,7 +297,7 @@ Add **Transposed** after the AttributeSet name:
 
 ### Step header
 
-    StepHeader ::= StepKeyword Text ":" AttributeSetName [ "Transposed" ]
+    StepHeader ::= StepKeyword Text ":" AttributeSetName [ "Vertical" ]
 
 ### Define block
 
@@ -317,7 +317,7 @@ Add **Transposed** after the AttributeSet name:
 
 * * *
 
-18. Test Suite (Built‑Ins + Transposed + Define Tables)
+18. Test Suite (Built‑Ins + Vertical + Define Tables)
     =======================================================
 
 ✔ YesNo
@@ -327,11 +327,11 @@ Add **Transposed** after the AttributeSet name:
     Given flags : YesNo
     | Y | N | yes | no | t | f |
 
-✔ Transposed
+✔ Vertical
 ------------
 
-    Scenario Test Transposed
-    Given customer : Customer Transposed
+    Scenario Test Vertical
+    Given customer : Customer Vertical
     | Name | Ken |
     | Age  | 42  |
 
@@ -365,7 +365,7 @@ Add **Transposed** after the AttributeSet name:
 19. IDE Feature Updates (v2.7.2)
     ================================
 
-### ✔ Auto‑insert Transposed when user types it
+### ✔ Auto‑insert Vertical when user types it
 
 ### ✔ Auto‑rotate table visually
 

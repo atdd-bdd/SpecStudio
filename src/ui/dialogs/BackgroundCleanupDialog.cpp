@@ -95,7 +95,7 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
         R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reAttr(
-        R"(\s*:\s*(\w[\w\s]*\w|\w+)(?:\s+(Transposed))?\s*$)",
+        R"(\s*:\s*(\w[\w\s]*\w|\w+)(?:\s+(Vertical))?\s*$)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reDef(R"(^=(\w+)\s*$)");
     static QRegularExpression reDefineDecl(
@@ -133,21 +133,21 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
                 curDefine->tableRows << cells;
                 if (curDefine->tableRows.size() == 1) {
                     QString h0 = cells.isEmpty() ? "" : cells[0].toLower();
-                    curDefine->transposed = (h0 == "attribute" || h0 == "name");
+                    curDefine->vertical = (h0 == "attribute" || h0 == "name");
                 }
             } else if (state == State::AwaitStepTable && curStep) {
                 curStep->tableRows << cells;
                 state = State::InStepTable;
-                if (!curStep->transposed && cells.size() >= 2) {
+                if (!curStep->vertical && cells.size() >= 2) {
                     QString h0 = cells[0].toLower();
                     if (h0 == "attribute" || h0 == "name") {
-                        curStep->transposed = true;
+                        curStep->vertical = true;
                         curStep->hasHeader  = true;
                         curStep->tableRows.clear(); // header consumed
                     } else {
                         curStep->hasHeader = true;
                     }
-                } else if (curStep->transposed) {
+                } else if (curStep->vertical) {
                     curStep->hasHeader = false;
                 } else {
                     curStep->hasHeader = true;
@@ -253,7 +253,7 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
                 auto am = reAttr.match(rest);
                 if (am.hasMatch()) {
                     st.attrSetName = am.captured(1).trimmed();
-                    st.transposed  = !am.captured(2).isEmpty();
+                    st.vertical  = !am.captured(2).isEmpty();
                     st.text        = rest.left(am.capturedStart()).trimmed();
                 } else {
                     st.text = rest;
@@ -308,7 +308,7 @@ BackgroundCleanupDialog::findDefine(const QString& name, QVector<DisplayDefine>&
 // ---------------------------------------------------------------------------
 
 QString BackgroundCleanupDialog::renderTable(const QVector<QStringList>& rows,
-                                              bool transposed, bool hasHeader) const
+                                              bool vertical, bool hasHeader) const
 {
     if (rows.isEmpty()) return {};
 
@@ -320,7 +320,7 @@ QString BackgroundCleanupDialog::renderTable(const QVector<QStringList>& rows,
         return QString(raw).replace('~', ' ').toHtmlEscaped();
     };
 
-    if (transposed) {
+    if (vertical) {
         for (const QStringList& row : rows) {
             html += "<tr>";
             for (int ci = 0; ci < row.size(); ++ci) {
@@ -358,7 +358,7 @@ QString BackgroundCleanupDialog::resolveDefine(const QString& defName,
     if (!def) return "<i>(Define '" + defName.toHtmlEscaped() + "' not found)</i>";
     if (!def->isTable)
         return "<span style='color:#CE9178;'>" + def->scalarValue.toHtmlEscaped() + "</span>";
-    return renderTable(def->tableRows, def->transposed, !def->transposed);
+    return renderTable(def->tableRows, def->vertical, !def->vertical);
 }
 
 QString BackgroundCleanupDialog::buildHtml(const QVector<DisplayStep>& steps,
@@ -381,8 +381,8 @@ QString BackgroundCleanupDialog::buildHtml(const QVector<DisplayStep>& steps,
                 " " + step.text.toHtmlEscaped();
         if (!step.attrSetName.isEmpty())
             html += ": <i style='color:#9CDCFE;'>" + step.attrSetName.toHtmlEscaped() + "</i>";
-        if (step.transposed)
-            html += " <span style='color:#C586C0;'>(Transposed)</span>";
+        if (step.vertical)
+            html += " <span style='color:#C586C0;'>(Vertical)</span>";
         html += "</p>\n";
 
         if (!step.defineRef.isEmpty()) {
@@ -393,7 +393,7 @@ QString BackgroundCleanupDialog::buildHtml(const QVector<DisplayStep>& steps,
             html += "</div>\n";
         } else if (!step.tableRows.isEmpty()) {
             html += "<div style='margin-left:16px;'>"
-                    + renderTable(step.tableRows, step.transposed, step.hasHeader)
+                    + renderTable(step.tableRows, step.vertical, step.hasHeader)
                     + "</div>\n";
         }
     }

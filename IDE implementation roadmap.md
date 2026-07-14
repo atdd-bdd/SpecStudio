@@ -1,6 +1,6 @@
 Ken — here is a **professional, implementation‑ready IDE Roadmap** for SpecTable v2.7.3.  
 This is structured exactly the way engineering directors, PMs, and architects expect: phases, milestones, dependencies, and deliverables.  
-It reflects _all_ syntax and semantics of v2.7.3, including Cleanup, Transposed, YesNo, Define tables, EnumerationValues, ValidValues, and the Background/Cleanup symmetry.
+It reflects _all_ syntax and semantics of v2.7.3, including Cleanup, Vertical, YesNo, Define tables, EnumerationValues, ValidValues, and the Background/Cleanup symmetry.
 
 This roadmap is realistic, sequenced, and optimized for incremental delivery.
 
@@ -31,7 +31,7 @@ This roadmap is realistic, sequenced, and optimized for incremental delivery.
   * Background
   * Cleanup
   * Examples
-  * Transposed modifier
+  * Vertical modifier
 * Symbol table structure for:
   * AttributeSets
   * Entities
@@ -56,7 +56,7 @@ None — this is the foundation.
 
 * Complete grammar implementation:
   * Define tables without triple quotes
-  * Transposed after AttributeSet
+  * Vertical after AttributeSet
   * Cleanup block
   * Examples: <AttributeSet>
   * EnumerationValues
@@ -91,7 +91,7 @@ Phase 0
   * ValidValues
 * Table validation:
   * Column count
-  * Transposed structure
+  * Vertical structure
   * Grid table shape
 * Examples validation:
   * Examples: <AttributeSet>
@@ -119,10 +119,10 @@ Phase 1
   * Entities
   * DataTypes
   * Define blocks
-  * Transposed
+  * Vertical
 * Auto‑insert tables:
   * AttributeSet tables
-  * Transposed tables
+  * Vertical tables
   * Grid tables
 * Table editing mode:
   * Tab navigation
@@ -184,7 +184,7 @@ Phase 2
 * **Context Menu: “Display Background” (non‑modal)**
   * Shows Background steps
   * Shows tables
-  * Shows Transposed tables
+  * Shows Vertical tables
   * Resolves Define references
   * Stays open while editing
 * **Context Menu: “Display Cleanup” (non‑modal)**
@@ -232,7 +232,7 @@ Phase 2, Phase 5
 * Generate AttributeSets from English
 * Generate Scenarios from English
 * Suggest DataTypes for attributes
-* Suggest Transposed vs Normal
+* Suggest Vertical vs Normal
 * Suggest Define block names
 * Auto‑generate missing Define blocks
 
@@ -330,7 +330,7 @@ Total: **44 weeks** (36 without AI features)
 * Generate AttributeSets
 * Generate Scenarios
 * Suggest DataTypes
-* Suggest Transposed
+* Suggest Vertical
 
 * * *
 
