@@ -94,6 +94,17 @@ struct NamedBlock {
     int          line        = 0;
 };
 
+// A Collection declaration: named list type containing instances of an Entity/Attributes type
+struct Collection {
+    QString name;
+    QString elementType;   // the Entity/Attributes type it contains (from DataType column)
+    QString minimum;
+    QString maximum;
+    QString notes;
+    int     line      = 0;
+    bool    isContext = false;
+};
+
 // Top-level result of parsing one .spectable file
 struct SpectableFile {
     QString                specName;
@@ -101,6 +112,7 @@ struct SpectableFile {
     QStringList            tags;           // @Tags before Specification line — applied to all blocks
     QStringList            generatorTags;  // $Tags before Specification line — applied to all blocks
     QVector<AttrSet>       attrSets;
+    QVector<Collection>    collections;
     QVector<Define>        defines;
     QStringList            dataTypeNames;  // user-declared DataType names
     QVector<NamedBlock>    namedBlocks;    // BusinessRule / Calculation / DataType with Examples

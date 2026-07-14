@@ -26,6 +26,7 @@ struct SpecTableSymbols
     QMap<QString, SymbolLocation> domainTerms;
     QMap<QString, SymbolLocation> dataTypes;
     QMap<QString, SymbolLocation> attributes;
+    QMap<QString, SymbolLocation> collections;
     QMap<QString, SymbolLocation> businessRules;
     QMap<QString, SymbolLocation> calculations;
     QMap<QString, SymbolLocation> scenarios;
@@ -36,7 +37,13 @@ struct SpecTableSymbols
     bool hasAttributeSet(const QString& name) const
     {
         return attributes.contains(name) || entities.contains(name)
+               || collections.contains(name)
                || k_builtinAttributeSets.contains(name);
+    }
+
+    bool hasCollection(const QString& name) const
+    {
+        return collections.contains(name);
     }
 
     bool hasDataType(const QString& name) const
@@ -63,7 +70,7 @@ struct SpecTableSymbols
     QString filePathFor(const QString& name) const
     {
         for (const auto* m : { &entities, &domainTerms, &dataTypes, &attributes,
-                                &businessRules, &calculations, &scenarios,
+                                &collections, &businessRules, &calculations, &scenarios,
                                 &scenarioGroups, &specifications, &defines }) {
             if (m->contains(name)) return m->value(name).filePath;
         }
@@ -74,7 +81,7 @@ struct SpecTableSymbols
     SymbolLocation locationFor(const QString& name) const
     {
         for (const auto* m : { &entities, &domainTerms, &dataTypes, &attributes,
-                                &businessRules, &calculations, &scenarios,
+                                &collections, &businessRules, &calculations, &scenarios,
                                 &scenarioGroups, &specifications, &defines }) {
             if (m->contains(name)) return m->value(name);
         }

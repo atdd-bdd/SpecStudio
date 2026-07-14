@@ -40,6 +40,7 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles,
         for (auto it = sym.domainTerms.cbegin();    it != sym.domainTerms.cend();    ++it) m_project.domainTerms.insert(it.key(), it.value());
         for (auto it = sym.dataTypes.cbegin();      it != sym.dataTypes.cend();      ++it) m_project.dataTypes.insert(it.key(), it.value());
         for (auto it = sym.attributes.cbegin();     it != sym.attributes.cend();     ++it) m_project.attributes.insert(it.key(), it.value());
+        for (auto it = sym.collections.cbegin();    it != sym.collections.cend();    ++it) m_project.collections.insert(it.key(), it.value());
         for (auto it = sym.businessRules.cbegin();  it != sym.businessRules.cend();  ++it) m_project.businessRules.insert(it.key(), it.value());
         for (auto it = sym.calculations.cbegin();   it != sym.calculations.cend();   ++it) m_project.calculations.insert(it.key(), it.value());
         for (auto it = sym.scenarios.cbegin();      it != sym.scenarios.cend();      ++it) m_project.scenarios.insert(it.key(), it.value());
@@ -149,7 +150,7 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
             R"(^\s*(Description|Details|Notes|Constraint|In-Out)\b)",
             QRegularExpression::CaseInsensitiveOption);
         static QRegularExpression reTopLevel(
-            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+            R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
             QRegularExpression::CaseInsensitiveOption);
 
         QVector<QStringList> result;
@@ -246,6 +247,7 @@ void SpecTableIndex::parseFile(const QString& filePath,
     static QRegularExpression reDomainTerm   (R"(^\s*DomainTerm\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reDataType     (R"(^\s*DataType\s+(\w+))",        QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reAttributes   (R"(^\s*Attributes\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reCollection   (R"(^\s*Collection\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reBizRule      (R"(^\s*BusinessRule\s+(\w+))",    QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reCalc         (R"(^\s*Calculation\s+(\w+))",     QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reScenario     (R"(^\s*Scenario\s*:?\s*(.+)$)",      QRegularExpression::CaseInsensitiveOption);
@@ -277,6 +279,9 @@ void SpecTableIndex::parseFile(const QString& filePath,
 
         m = reAttributes.match(line);
         if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.attributes.insert(n, loc); out.attributes.insert(n, loc); continue; }
+
+        m = reCollection.match(line);
+        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.collections.insert(n, loc); out.collections.insert(n, loc); continue; }
 
         m = reBizRule.match(line);
         if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.businessRules.insert(n, loc); out.businessRules.insert(n, loc); continue; }

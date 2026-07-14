@@ -13,7 +13,7 @@ void SpecTableHighlighter::buildRules()
     QTextCharFormat declFmt;
     declFmt.setForeground(QColor("#569CD6")); // VS blue
     declFmt.setFontWeight(QFont::Bold);
-    addRule(R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+    addRule(R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
             declFmt);
 
     // --- Examples: <AttributeSet> — highlighted as declaration keyword ---

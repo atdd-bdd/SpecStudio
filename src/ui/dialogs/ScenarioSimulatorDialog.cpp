@@ -83,7 +83,7 @@ ScenarioSimulatorDialog::ParsedFile ScenarioSimulatorDialog::parseFile(const QSt
         "Description","Details","Constraint","Notes","Import","Insert"
     };
     static const QStringList blockWords = {
-        "Specification","Entity","DomainTerm","DataType","Attributes",
+        "Specification","Entity","Collection","DomainTerm","DataType","Attributes",
         "Examples","BusinessRule","Calculation","DataType"
     };
     static const QStringList scenarioWords = { "Scenario","ScenarioGroup" };

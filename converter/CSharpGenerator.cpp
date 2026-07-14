@@ -132,6 +132,20 @@ static bool isDataType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+static bool isCollectionType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+static QString collectionElementType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
+    return {};
+}
+
 // ---------------------------------------------------------------------------
 // AttrSet / Define lookup
 // ---------------------------------------------------------------------------
@@ -471,10 +485,14 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 continue;
             }
 
-            const AttrSet* as = findAttrSet(step.attrSetName, file);
+            // If attrSetName is a Collection, resolve to its element type's AttrSet
+            const QString effectiveAttrSetName = (!step.attrSetName.isEmpty() && isCollectionType(step.attrSetName, file))
+                ? collectionElementType(step.attrSetName, file)
+                : step.attrSetName;
+            const AttrSet* as = findAttrSet(effectiveAttrSetName, file);
 
             if (!step.attrSetName.isEmpty() && as == nullptr) {
-                if (!isDataType(step.attrSetName, file)) {
+                if (!isDataType(effectiveAttrSetName, file)) {
                     errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
                               .arg(step.line).arg(step.attrSetName);
                     continue;
@@ -485,7 +503,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
             if (!step.attrSetName.isEmpty() && as) {
                 // Typed list
                 ++objectCounter;
-                const QString listType  = step.attrSetName + "String";
+                const QString listType  = effectiveAttrSetName + "String";
                 const QString listVar   = QString("objectList%1").arg(objectCounter);
 
                 QStringList localErrs;
@@ -663,7 +681,10 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "", false });           // void / no parameter
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, step.attrSetName + "String", true });
+                const QString effectiveName = isCollectionType(step.attrSetName, file)
+                    ? collectionElementType(step.attrSetName, file)
+                    : step.attrSetName;
+                sigs.push_back({ meth, effectiveName + "String", true });
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, "List<List<string>>", false });  // grid
             } else {

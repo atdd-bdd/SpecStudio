@@ -112,6 +112,20 @@ static bool isAttrSetType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+static bool isCollectionType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+static QString collectionElementType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
+    return {};
+}
+
 QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
                                   int line, QStringList& msgs,
                                   const SpectableFile* file,
@@ -469,7 +483,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         if (t == "time")     needsTime = true;
         if (t == "datetime") needsDt   = true;
         if (t == "duration") needsDur  = true;
-        if (f.multiples)     needsList = true, needsCollections = true;
+        if (f.multiples || isCollectionType(f.type, file)) needsList = true, needsCollections = true;
     }
     if (needsDate)        s << "import java.time.LocalDate;\n";
     if (needsTime)        s << "import java.time.LocalTime;\n";
@@ -487,9 +501,12 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "public class " << cn << " {\n";
 
     for (const Field& f : as.fields) {
-        const QString jt = isAttrSetType(f.type, file) ? f.type + "Typed"
+        const bool isCol = isCollectionType(f.type, file);
+        const QString elemT = isCol ? collectionElementType(f.type, file) : QString();
+        const QString jt = isCol ? (isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT))
+                         : isAttrSetType(f.type, file) ? f.type + "Typed"
                          : (f.multiples ? javaBoxedType(f.type) : javaType(f.type));
-        if (f.multiples)
+        if (isCol || f.multiples)
             s << "    public List<" << jt << "> " << toCamelCase(f.name) << ";\n";
         else
             s << "    public " << jt << " " << toCamelCase(f.name) << ";\n";
@@ -501,9 +518,12 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        const QString jt = isAttrSetType(f.type, file) ? f.type + "Typed"
+        const bool isCol = isCollectionType(f.type, file);
+        const QString elemT = isCol ? collectionElementType(f.type, file) : QString();
+        const QString jt = isCol ? (isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT))
+                         : isAttrSetType(f.type, file) ? f.type + "Typed"
                          : (f.multiples ? javaBoxedType(f.type) : javaType(f.type));
-        if (f.multiples)
+        if (isCol || f.multiples)
             s << "List<" << jt << "> " << toCamelCase(f.name);
         else
             s << jt << " " << toCamelCase(f.name);
@@ -516,11 +536,16 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     // Constructor from String class
     s << "    public " << cn << "(" << csn << " s) {\n";
     for (const Field& f : as.fields) {
-        const QString expr = parseExpr(toCamelCase(f.name), f.type, as.line, msgs, &file, "s");
-        if (f.multiples)
-            s << "        this." << toCamelCase(f.name) << " = Collections.singletonList(" << expr << ");\n";
-        else
-            s << "        this." << toCamelCase(f.name) << " = " << expr << ";\n";
+        const QString fn = toCamelCase(f.name);
+        if (isCollectionType(f.type, file)) {
+            s << "        this." << fn << " = new ArrayList<>(); // Collection — populate from s." << fn << "\n";
+        } else {
+            const QString expr = parseExpr(fn, f.type, as.line, msgs, &file, "s");
+            if (f.multiples)
+                s << "        this." << fn << " = Collections.singletonList(" << expr << ");\n";
+            else
+                s << "        this." << fn << " = " << expr << ";\n";
+        }
     }
     s << "    }\n\n";
 
@@ -843,10 +868,14 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 continue;
             }
 
-            const AttrSet* as = findAttrSet(step.attrSetName, file);
+            // If attrSetName is a Collection, resolve to its element type's AttrSet
+            const QString effectiveAttrSetName = (!step.attrSetName.isEmpty() && isCollectionType(step.attrSetName, file))
+                ? collectionElementType(step.attrSetName, file)
+                : step.attrSetName;
+            const AttrSet* as = findAttrSet(effectiveAttrSetName, file);
 
             if (!step.attrSetName.isEmpty() && as == nullptr) {
-                if (!isDataType(step.attrSetName, file)) {
+                if (!isDataType(effectiveAttrSetName, file)) {
                     errors << QString("ERROR:%1:AttributeSet '%2' not defined — add an 'Attributes %2' block")
                               .arg(step.line).arg(step.attrSetName);
                     continue;
@@ -856,7 +885,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
             if (!step.attrSetName.isEmpty() && as) {
                 ++objectCounter;
-                const QString listType = step.attrSetName + "String";
+                const QString listType = effectiveAttrSetName + "String";
                 const QString listVar  = QString("objectList%1").arg(objectCounter);
 
                 QStringList localErrs;
@@ -865,7 +894,6 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 
                 s << "        List<" << listType << "> " << listVar
                   << " = new ArrayList<>();\n";
-                // Use multi-line constructor if any field is an AttrSet type (sub-object)
                 bool hasSubObject = false;
                 for (const Field& f : as->fields)
                     if (isAttrSetType(f.type, file)) { hasSubObject = true; break; }
@@ -1041,7 +1069,10 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "" });                  // void / no parameter
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, step.attrSetName + "String", "", true });
+                const QString effectiveName = isCollectionType(step.attrSetName, file)
+                    ? collectionElementType(step.attrSetName, file)
+                    : step.attrSetName;
+                sigs.push_back({ meth, effectiveName + "String", "", true });
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, "List<List<String>>", step.attrSetName });
             } else {
@@ -1500,13 +1531,64 @@ static QString genProductionEnum(const NamedBlock& nb, const QString& pkg,
     return out;
 }
 
-// Production field type: DataType/Entity names pass through; built-ins use javaType()
+// Production field type: DataType/Entity/Collection names pass through; built-ins use javaType()
 static QString prodFieldType(const Field& f, const SpectableFile& file)
 {
-    if (isAttrSetType(f.type, file)) return f.type;         // sub-entity → same name
+    if (isCollectionType(f.type, file)) return f.type;      // Collection class → same name
+    if (isAttrSetType(f.type, file))    return f.type;      // sub-entity → same name
     for (const QString& d : file.dataTypeNames)
         if (d.compare(f.type, Qt::CaseInsensitive) == 0) return f.type; // user DataType
     return JavaGenerator::javaType(f.type);                 // built-in
+}
+
+static QString genProductionCollection(const Collection& col, const QString& pkg)
+{
+    const QString className = col.name;
+    const QString elemType  = col.elementType;
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.Collections;\n";
+    s << "import java.util.List;\n";
+    s << "\n";
+    s << "public class " << className << " {\n";
+
+    if (!col.minimum.isEmpty())
+        s << "    public static final int MINIMUM = " << col.minimum << ";\n";
+    if (!col.maximum.isEmpty())
+        s << "    public static final int MAXIMUM = " << col.maximum << ";\n";
+    if (!col.minimum.isEmpty() || !col.maximum.isEmpty())
+        s << "\n";
+
+    s << "    private final List<" << elemType << "> items = new ArrayList<>();\n\n";
+
+    s << "    public void add(" << elemType << " item) {\n";
+    s << "        items.add(item);\n";
+    s << "    }\n\n";
+
+    s << "    public boolean delete(" << elemType << " item) {\n";
+    s << "        return items.remove(item);\n";
+    s << "    }\n\n";
+
+    s << "    public List<" << elemType << "> read() {\n";
+    s << "        return Collections.unmodifiableList(items);\n";
+    s << "    }\n\n";
+
+    s << "    public boolean update(" << elemType << " oldItem, " << elemType << " newItem) {\n";
+    s << "        int index = items.indexOf(oldItem);\n";
+    s << "        if (index < 0) return false;\n";
+    s << "        items.set(index, newItem);\n";
+    s << "        return true;\n";
+    s << "    }\n\n";
+
+    s << "    public int size() {\n";
+    s << "        return items.size();\n";
+    s << "    }\n";
+
+    s << "}\n";
+    return out;
 }
 
 static QString genProductionEntity(const AttrSet& as, const QString& pkg,
@@ -1603,22 +1685,51 @@ static QString genProductionHelper(const QVector<AttrSet>& entities, const QStri
     s << "public class ProductionHelper {\n\n";
 
     for (const AttrSet& as : entities) {
-        const QString en = as.name;    // entity name = production class name
+        const QString en = as.name;
         const QString tn = en + "Typed";
-        const QString sn = en + "String";
+
+        // Determine if any field is a Collection (requires multi-statement setup)
+        bool hasCollection = false;
+        for (const Field& f : as.fields)
+            if (isCollectionType(f.type, file)) { hasCollection = true; break; }
 
         // TypedToProduction
         s << "    public static " << en << " " << en << "TypedToProduction(" << tn << " t) {\n";
-        s << "        return new " << en << "(";
-        for (int i = 0; i < as.fields.size(); ++i) {
-            if (i) s << ",\n            ";
-            const QString fn = toCamelCase(as.fields[i].name);
-            if (isAttrSetType(as.fields[i].type, file))
-                s << as.fields[i].type << "TypedToProduction(t." << fn << ")";
-            else
-                s << "t." << fn;
+        if (hasCollection) {
+            // Emit local Collection variables, then construct
+            for (const Field& f : as.fields) {
+                if (!isCollectionType(f.type, file)) continue;
+                const QString fn  = toCamelCase(f.name);
+                const QString elem = collectionElementType(f.type, file);
+                s << "        " << f.type << " " << fn << " = new " << f.type << "();\n";
+                s << "        for (" << elem << " _item : " << elem << "TypedListToProduction(t." << fn << "))"
+                  << " " << fn << ".add(_item);\n";
+            }
+            s << "        return new " << en << "(";
+            for (int i = 0; i < as.fields.size(); ++i) {
+                if (i) s << ",\n            ";
+                const QString fn = toCamelCase(as.fields[i].name);
+                if (isCollectionType(as.fields[i].type, file))
+                    s << fn;  // local variable already built above
+                else if (isAttrSetType(as.fields[i].type, file))
+                    s << as.fields[i].type << "TypedToProduction(t." << fn << ")";
+                else
+                    s << "t." << fn;
+            }
+            s << ");\n";
+        } else {
+            s << "        return new " << en << "(";
+            for (int i = 0; i < as.fields.size(); ++i) {
+                if (i) s << ",\n            ";
+                const QString fn = toCamelCase(as.fields[i].name);
+                if (isAttrSetType(as.fields[i].type, file))
+                    s << as.fields[i].type << "TypedToProduction(t." << fn << ")";
+                else
+                    s << "t." << fn;
+            }
+            s << ");\n";
         }
-        s << ");\n    }\n\n";
+        s << "    }\n\n";
 
         // ProductionToTyped
         s << "    public static " << tn << " " << en << "ProductionToTyped(" << en << " p) {\n";
@@ -1626,10 +1737,14 @@ static QString genProductionHelper(const QVector<AttrSet>& entities, const QStri
         for (int i = 0; i < as.fields.size(); ++i) {
             if (i) s << ",\n            ";
             const QString fn = toCamelCase(as.fields[i].name);
-            if (isAttrSetType(as.fields[i].type, file))
+            if (isCollectionType(as.fields[i].type, file)) {
+                const QString elem = collectionElementType(as.fields[i].type, file);
+                s << elem << "ProductionToTypedList(p." << fn << ".read())";
+            } else if (isAttrSetType(as.fields[i].type, file)) {
                 s << as.fields[i].type << "ProductionToTyped(p." << fn << ")";
-            else
+            } else {
                 s << "p." << fn;
+            }
         }
         s << ");\n    }\n\n";
 
@@ -1692,7 +1807,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             if (f.type.isEmpty())
                 msgs << QString("WARNING:%1:Field '%2' in '%3' has no type specified")
                         .arg(as.line).arg(f.name).arg(as.name);
-            else if (!isDataType(f.type, file) && !isAttrSetType(f.type, file))
+            else if (!isDataType(f.type, file) && !isAttrSetType(f.type, file) && !isCollectionType(f.type, file))
                 msgs << QString("WARNING:%1:Field '%2' in '%3' has unknown type '%4'")
                         .arg(as.line).arg(f.name).arg(as.name).arg(f.type);
         }
@@ -1873,6 +1988,14 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             const QString prodPath = prodDir.filePath(as.name + ".java");
             if (QFile::exists(prodPath)) continue;
             writeFile(prodPath, genProductionEntity(as, prodPkg, file), msgs);
+        }
+
+        // Collection → production class with add/delete/read/update (only if file does not exist)
+        for (const Collection& col : file.collections) {
+            if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
+            const QString prodPath = prodDir.filePath(col.name + ".java");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genProductionCollection(col, prodPkg), msgs);
         }
 
         // ProductionHelper in common/ (only if file does not exist)

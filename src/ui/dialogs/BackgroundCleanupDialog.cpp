@@ -196,7 +196,7 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
         // Scenario / other block-level keyword — exit Background/Cleanup
         static const QStringList blockWords = {
             "Scenario","ScenarioGroup","BusinessRule","Calculation",
-            "DataType","DomainTerm","Attributes","Entity","Specification",
+            "DataType","DomainTerm","Attributes","Entity","Collection","Specification",
             "Examples"
         };
         bool isBlock = false;

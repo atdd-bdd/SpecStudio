@@ -236,6 +236,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     enum class State {
         Top,
         InAttrDef,         // reading the field-definition pipe table
+        InCollectionDef,   // reading the Collection header + data row
         InDefineTable,
         InDefineDocString, // collecting """ ... """ content for the current define
         InBackground,
@@ -255,6 +256,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     QStringList pendingGeneratorTags; // $Tag lines — generator-only, never passed to annotations
 
     AttrSet*    curAttr       = nullptr;
+    Collection* curCollection = nullptr;
+    QStringList collectionHeaders;
     Define*     curDefine     = nullptr;
     Scenario*   curScen       = nullptr;
     Step*       curStep       = nullptr;
@@ -278,6 +281,12 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         attrHeaders.clear();
         curAttr = nullptr;
         state   = State::Top;
+    };
+
+    auto endCollectionDef = [&]() {
+        collectionHeaders.clear();
+        curCollection = nullptr;
+        state = State::Top;
     };
 
     auto endDefineDef = [&]() {
@@ -392,6 +401,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 endStepTable();
             if (state == State::SkipTable)
                 state = State::Top;
+            if (state == State::InCollectionDef)
+                endCollectionDef();
             if (state == State::InExamplesTable) {
                 if (curNamedBlock && !curNamedBlock->examples.rows.isEmpty())
                     curNamedBlock->hasExamples = true;
@@ -436,6 +447,22 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             switch (state) {
             case State::SkipTable:
                 break; // discard
+
+            case State::InCollectionDef:
+                if (collectionHeaders.isEmpty()) {
+                    collectionHeaders = cells;  // header row: DataType | Minimum | Maximum | Notes
+                } else if (curCollection) {
+                    for (int ci = 0; ci < collectionHeaders.size(); ++ci) {
+                        const QString h = collectionHeaders[ci].toLower();
+                        const QString v = (ci < cells.size()) ? cells[ci] : QString();
+                        if      (h == "datatype") curCollection->elementType = v;
+                        else if (h == "minimum")  curCollection->minimum     = v;
+                        else if (h == "maximum")  curCollection->maximum     = v;
+                        else if (h == "notes")    curCollection->notes       = v;
+                    }
+                    curCollection = nullptr;  // one data row per Collection
+                }
+                break;
 
             case State::InAttrDef:
                 if (attrHeaders.isEmpty()) {
@@ -674,8 +701,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         if (firstWord.compare("BusinessRule", Qt::CaseInsensitive) == 0 ||
             firstWord.compare("Calculation",  Qt::CaseInsensitive) == 0 ||
             firstWord.compare("DataType",     Qt::CaseInsensitive) == 0) {
-            if (state == State::InAttrDef)    endAttrDef();
-            if (state == State::InDefineTable) endDefineDef();
+            if (state == State::InAttrDef)       endAttrDef();
+            if (state == State::InCollectionDef)  endCollectionDef();
+            if (state == State::InDefineTable)    endDefineDef();
             curScen = nullptr; curStep = nullptr;
             QString kind;
             if      (firstWord.compare("BusinessRule", Qt::CaseInsensitive) == 0) kind = "BusinessRule";
@@ -705,9 +733,10 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             continue;
         }
 
-        // ── Terminate open Attributes/Define table on any other keyword ────────
-        if (state == State::InAttrDef)    endAttrDef();
-        if (state == State::InDefineTable) endDefineDef();
+        // ── Terminate open Attributes/Collection/Define table on any other keyword ────
+        if (state == State::InAttrDef)      endAttrDef();
+        if (state == State::InCollectionDef) endCollectionDef();
+        if (state == State::InDefineTable)   endDefineDef();
 
         // ── Parsed keywords ───────────────────────────────────────────────────
 
@@ -731,6 +760,19 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             curAttr = &result.attrSets.last();
             attrHeaders.clear();
             state = State::InAttrDef;
+            continue;
+        }
+
+        // Collection
+        if (firstWord.compare("Collection", Qt::CaseInsensitive) == 0) {
+            curScen = nullptr; curStep = nullptr;
+            Collection col;
+            col.name = trimmed.mid(firstWord.length()).trimmed();
+            col.line = lineNum;
+            result.collections.push_back(col);
+            curCollection = &result.collections.last();
+            collectionHeaders.clear();
+            state = State::InCollectionDef;
             continue;
         }
 

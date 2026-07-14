@@ -250,7 +250,7 @@ void SpecTableAnalyzer::checkExamples(const QString& filePath,
                                          QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reTableRow(R"(^\s*\|)");
     static QRegularExpression reNextTopLevel(
-        R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
         QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);
@@ -339,7 +339,7 @@ void SpecTableAnalyzer::checkCleanup(const QString& filePath,
     static QRegularExpression reCleanup(R"(^\s*Cleanup\b)",
                                         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reTopLevel(
-        R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reInvalidStep(R"(^\s*(Given|When|WhenThen)\b)",
                                             QRegularExpression::CaseInsensitiveOption);
@@ -587,7 +587,7 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
 {
     static const QSet<QString> known = {
         "specification",
-        "attributes", "entity",
+        "attributes", "entity", "collection",
         "define",
         "background", "cleanup",
         "scenario",

@@ -104,6 +104,7 @@ int main(int argc, char* argv[])
         if (!QFileInfo::exists(ctxPath)) continue;
         SpectableFile ctx = parser.parse(ctxPath);
         for (AttrSet& as : ctx.attrSets)         { as.isContext = true; file.attrSets.push_back(as); }
+        for (Collection& col : ctx.collections)   { col.isContext = true; file.collections.push_back(col); }
         for (Define& def : ctx.defines)           { def.isContext = true; file.defines.push_back(def); }
         for (NamedBlock& nb : ctx.namedBlocks)    { nb.isContext = true; file.namedBlocks.push_back(nb); }
         for (const QString& dt : ctx.dataTypeNames)

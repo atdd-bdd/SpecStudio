@@ -36,7 +36,7 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
     setHighlighter(new SpecTableHighlighter(textEdit()->document()));
 
     m_staticKeywords = {
-        "Specification ", "Entity ", "DomainTerm ", "DataType ", "Attributes ",
+        "Specification ", "Entity ", "Collection ", "DomainTerm ", "DataType ", "Attributes ",
         "BusinessRule ", "Calculation ", "Import ", "Insert ", "Define ",
         "Scenario ", "ScenarioGroup ", "Background ", "Cleanup ",
         "Description ", "Details ", "Constraint ",
@@ -68,7 +68,7 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
 
     lineNumberEdit()->setFoldPattern(
         QRegularExpression(
-            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+            R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
             QRegularExpression::CaseInsensitiveOption));
 }
 
