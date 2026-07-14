@@ -15,20 +15,25 @@ public:
         bool        copySpectable = true;               // copy source .spectable to output dir
         QStringList extraImports;                       // injected after auto-usings in every generated file
         QString     tagFilter;                          // boolean tag expression; empty = generate all
+        bool        createProductionClasses  = false;   // generate production class stubs
+        QString     productionClassesDir;               // output folder for production classes
+        QString     productionClassesNamespace;         // C# namespace for production classes
     };
 
     // Generate all output files; returns list of "SEVERITY:LINE:message" strings
     QStringList generate(const SpectableFile& file, const Options& opts);
 
-private:
-    // Type helpers
+    // Public so production-class helpers can call them
     static QString csharpType(const QString& specType);
+    static QString toCamelCase(const QString& fieldName);
+
+private:
+    // Parse expression for Typed conversion
     static QString parseExpr(const QString& field, const QString& specType);
 
     // Identifier helpers
     static QString toClassName(const QString& name);
     static QString toMethodName(const QString& keyword, const QString& stepText);
-    static QString toCamelCase(const QString& fieldName);
 
     // Table resolution: given a step and the file context,
     // returns a list of rows (each row = ordered values matching the AttrSet fields)

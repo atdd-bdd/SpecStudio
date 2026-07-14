@@ -1,0 +1,921 @@
+#include "GoGenerator.h"
+#include "TagFilter.h"
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QTextStream>
+#include <QRegularExpression>
+#include <QMap>
+#include <QSet>
+#include <algorithm>
+
+// ---------------------------------------------------------------------------
+// Cell / value helpers
+// ---------------------------------------------------------------------------
+
+static QString resolveCell(const QString& cell)
+{
+    QString s = cell;
+    return s.replace('~', ' ');
+}
+
+static QString resolveValue(const QString& cell, const SpectableFile& file)
+{
+    if (cell.startsWith('=')) {
+        const QString name = cell.mid(1).trimmed();
+        for (const Define& d : file.defines)
+            if (d.name.compare(name, Qt::CaseInsensitive) == 0 && !d.isTable && !d.hasDocString) {
+                QString v = d.scalarValue;
+                return v.replace('~', ' ');
+            }
+    }
+    return resolveCell(cell);
+}
+
+static QString goEscape(const QString& s)
+{
+    QString r = s;
+    r.replace('\\', "\\\\");
+    r.replace('"',  "\\\"");
+    r.replace('\n', "\\n");
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// Type mapping
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::goType(const QString& specType)
+{
+    const QString t = specType.trimmed().toLower();
+    if (t == "integer" || t == "int")                                 return "int";
+    if (t == "float"   || t == "decimal")                             return "float64";
+    if (t == "boolean" || t == "yesno" || t == "bool")               return "bool";
+    if (t == "string"  || t == "text" || t == "character" || t == "char") return "string";
+    if (t == "date"    || t == "time" || t == "datetime" || t == "duration") return "string";
+    return specType.trimmed();
+}
+
+// ---------------------------------------------------------------------------
+// Identifier helpers
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::toIdentifier(const QString& name)
+{
+    QString s = name.trimmed();
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+    s.remove(QRegularExpression("^_+|_+$"));
+    if (!s.isEmpty() && s[0].isDigit()) s.prepend('_');
+    return s.toLower();
+}
+
+QString GoGenerator::toExported(const QString& name)
+{
+    QString s = name.trimmed();
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), " ");
+    const QStringList parts = s.split(' ', Qt::SkipEmptyParts);
+    QString result;
+    for (const QString& p : parts)
+        if (!p.isEmpty()) result += p[0].toUpper() + p.mid(1);
+    if (!result.isEmpty() && result[0].isDigit()) result.prepend('_');
+    return result;
+}
+
+QString GoGenerator::toMethodName(const QString& keyword, const QString& stepText)
+{
+    QString s = keyword + " " + stepText;
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), " ");
+    const QStringList parts = s.split(' ', Qt::SkipEmptyParts);
+    QString result;
+    for (const QString& p : parts)
+        if (!p.isEmpty()) result += p[0].toUpper() + p.mid(1);
+    if (!result.isEmpty() && result[0].isDigit()) result.prepend('_');
+    return result;
+}
+
+QString GoGenerator::toPackageName(const QString& name)
+{
+    QString s = toIdentifier(name);
+    s.remove('_');
+    return s.toLower();
+}
+
+// ---------------------------------------------------------------------------
+// DataType / collection detection
+// ---------------------------------------------------------------------------
+
+bool GoGenerator::isDataType(const QString& name, const SpectableFile& file)
+{
+    static const QStringList builtins = {
+        "Character","String","Text","Integer","Float","Boolean",
+        "Date","Time","DateTime","Duration","YesNo"
+    };
+    for (const QString& b : builtins)
+        if (b.compare(name, Qt::CaseInsensitive) == 0) return true;
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+bool GoGenerator::isCollectionType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+QString GoGenerator::collectionElementType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
+    return {};
+}
+
+// ---------------------------------------------------------------------------
+// Lookup helpers
+// ---------------------------------------------------------------------------
+
+const AttrSet* GoGenerator::findAttrSet(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return &as;
+    return nullptr;
+}
+
+const Define* GoGenerator::findDefine(const QString& name, const SpectableFile& file)
+{
+    for (const Define& d : file.defines)
+        if (d.name.compare(name, Qt::CaseInsensitive) == 0) return &d;
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Row resolution
+// ---------------------------------------------------------------------------
+
+QVector<QStringList> GoGenerator::resolveStepRows(
+    const Step& step, const AttrSet* attrSet,
+    const SpectableFile& file, QStringList& errors)
+{
+    QVector<QStringList> result;
+    if (!attrSet) return result;
+
+    const int fieldCount = attrSet->fields.size();
+
+    if (!step.defineRef.isEmpty()) {
+        const Define* def = findDefine(step.defineRef, file);
+        if (!def) {
+            errors << QString("WARNING:%1:Define '%2' not found")
+                      .arg(step.line).arg(step.defineRef);
+            return result;
+        }
+        if (!def->isTable) {
+            QStringList row(fieldCount);
+            if (fieldCount > 0) row[0] = def->scalarValue;
+            result << row;
+            return result;
+        }
+        QMap<QString,int> fieldIdx;
+        for (int i = 0; i < attrSet->fields.size(); ++i)
+            fieldIdx[attrSet->fields[i].name.toLower()] = i;
+        if (def->vertical || step.vertical) {
+            QStringList row(fieldCount);
+            const int start = def->vertical ? 1 : 0;
+            for (int ri = start; ri < def->tableRows.size(); ++ri) {
+                const QStringList& r = def->tableRows[ri];
+                if (r.size() < 2) continue;
+                const QString key = r[0].toLower();
+                if (fieldIdx.contains(key)) row[fieldIdx[key]] = resolveValue(r[1], file);
+            }
+            result << row;
+        } else {
+            if (def->tableRows.isEmpty()) return result;
+            const QStringList& hdrs = def->tableRows[0];
+            QVector<int> colMap;
+            for (const QString& h : hdrs)
+                colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+            for (int ri = 1; ri < def->tableRows.size(); ++ri) {
+                QStringList row(fieldCount);
+                const QStringList& dr = def->tableRows[ri];
+                for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                    if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
+                result << row;
+            }
+        }
+        return result;
+    }
+
+    if (!step.hasTable || step.table.rows.isEmpty()) return result;
+
+    QMap<QString,int> fieldIdx;
+    for (int i = 0; i < attrSet->fields.size(); ++i)
+        fieldIdx[attrSet->fields[i].name.toLower()] = i;
+
+    if (step.table.vertical) {
+        int numCols = 0;
+        for (const QStringList& r : step.table.rows)
+            if (r.size() > numCols) numCols = r.size();
+        for (int col = 1; col < numCols; ++col) {
+            QStringList row(fieldCount);
+            for (const QStringList& r : step.table.rows) {
+                if (r.size() < 2) continue;
+                const QString key = r[0].toLower();
+                if (fieldIdx.contains(key) && col < r.size())
+                    row[fieldIdx[key]] = resolveValue(r[col], file);
+            }
+            result << row;
+        }
+    } else {
+        if (step.table.rows.size() < 2) return result;
+        const QStringList& hdrs = step.table.rows[0];
+        QVector<int> colMap;
+        for (const QString& h : hdrs)
+            colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+        for (int ri = 1; ri < step.table.rows.size(); ++ri) {
+            QStringList row(fieldCount);
+            const QStringList& dr = step.table.rows[ri];
+            for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
+            result << row;
+        }
+    }
+    return result;
+}
+
+QVector<QStringList> GoGenerator::resolveExamplesRows(
+    const NamedBlock& nb, const AttrSet* as)
+{
+    QVector<QStringList> result;
+    if (nb.examples.header.isEmpty() && nb.examples.rows.isEmpty())
+        return result;
+    if (!as) {
+        result = nb.examples.rows;
+        return result;
+    }
+    const int fieldCount = as->fields.size();
+    QMap<QString,int> fieldIdx;
+    for (int i = 0; i < as->fields.size(); ++i)
+        fieldIdx[as->fields[i].name.toLower()] = i;
+    QVector<int> colMap;
+    for (const QString& h : nb.examples.header)
+        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+    for (const QStringList& dr : nb.examples.rows) {
+        QStringList row(fieldCount);
+        for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+            if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
+        result << row;
+    }
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// String struct
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg) const
+{
+    const QString typeName = toExported(as.name) + "String";
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << "\n\nimport \"fmt\"\n\n";
+
+    s << "type " << typeName << " struct {\n";
+    for (const Field& f : as.fields)
+        s << "\t" << toExported(f.name) << " string\n";
+    s << "}\n\n";
+
+    s << "func New" << typeName << "FromSlice(v []string) " << typeName << " {\n";
+    s << "\ts := " << typeName << "{}\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        s << "\tif len(v) > " << i << " { s." << toExported(as.fields[i].name)
+          << " = v[" << i << "] }\n";
+    }
+    s << "\treturn s\n}\n\n";
+
+    s << "func (s " << typeName << ") String() string {\n";
+    s << "\treturn fmt.Sprintf(\"";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << as.fields[i].name << "=%s";
+    }
+    s << "\"";
+    for (const Field& f : as.fields)
+        s << ", s." << toExported(f.name);
+    s << ")\n}\n";
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Typed struct
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
+                                     const SpectableFile& file) const
+{
+    (void)file;
+    const QString strType   = toExported(as.name) + "String";
+    const QString typedName = toExported(as.name) + "Typed";
+    QString out;
+    QTextStream s(&out);
+
+    bool needsStrconv = false;
+    for (const Field& f : as.fields) {
+        const QString gt = goType(f.type);
+        if (gt == "int" || gt == "float64" || gt == "bool") { needsStrconv = true; break; }
+    }
+
+    s << "package " << pkg << "\n\n";
+    if (needsStrconv) s << "import \"strconv\"\n\n";
+
+    s << "type " << typedName << " struct {\n";
+    for (const Field& f : as.fields) {
+        const QString gt = goType(f.type);
+        if (f.multiples)
+            s << "\t" << toExported(f.name) << " []" << gt << "\n";
+        else
+            s << "\t" << toExported(f.name) << " " << gt << "\n";
+    }
+    s << "}\n\n";
+
+    s << "func New" << typedName << "FromString(s " << strType << ") " << typedName << " {\n";
+    s << "\tt := " << typedName << "{}\n";
+    for (const Field& f : as.fields) {
+        const QString fe = toExported(f.name);
+        const QString gt = goType(f.type);
+        const QString sf = "s." + fe;
+        if (gt == "int") {
+            s << "\tif v, err := strconv.Atoi(" << sf << "); err == nil { t." << fe << " = v }\n";
+        } else if (gt == "float64") {
+            s << "\tif v, err := strconv.ParseFloat(" << sf << ", 64); err == nil { t." << fe << " = v }\n";
+        } else if (gt == "bool") {
+            s << "\tt." << fe << " = " << sf << " == \"true\" || " << sf
+              << " == \"t\" || " << sf << " == \"yes\" || " << sf
+              << " == \"y\" || " << sf << " == \"1\"\n";
+        } else {
+            s << "\tt." << fe << " = " << sf << "\n";
+        }
+    }
+    s << "\treturn t\n}\n";
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Glue sig collection
+// ---------------------------------------------------------------------------
+
+QVector<GoGenerator::GlueSig> GoGenerator::collectGlueSigs(const SpectableFile& file)
+{
+    QVector<GlueSig> sigs;
+    QSet<QString> seen;
+
+    auto collectSteps = [&](const QVector<Step>& steps) {
+        for (const Step& step : steps) {
+            const QString meth = toMethodName(step.keyword, step.text);
+            if (seen.contains(meth)) continue;
+            seen.insert(meth);
+            if (step.hasDocString) {
+                sigs.push_back({ meth, "docstring" });
+            } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+                const Define* def = findDefine(step.defineRef, file);
+                sigs.push_back({ meth, (def && def->hasDocString) ? "docstring" : "" });
+            } else if (step.attrSetName.isEmpty() && !step.hasTable) {
+                sigs.push_back({ meth, "" });
+            } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
+                const QString effName = isCollectionType(step.attrSetName, file)
+                    ? collectionElementType(step.attrSetName, file) : step.attrSetName;
+                sigs.push_back({ meth, effName + "String" });
+            } else {
+                sigs.push_back({ meth, "grid" });
+            }
+        }
+    };
+
+    collectSteps(file.backgroundSteps);
+    collectSteps(file.cleanupSteps);
+    for (const Scenario& sc : file.scenarios)
+        collectSteps(sc.steps);
+
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (!nb.hasExamples) continue;
+        const QString meth = "Examples" + toExported(nb.kind) + toExported(nb.name);
+        if (seen.contains(meth)) continue;
+        seen.insert(meth);
+        const AttrSet* as = nb.examples.attrSetName.isEmpty()
+            ? nullptr : findAttrSet(nb.examples.attrSetName, file);
+        sigs.push_back({ meth, as ? (nb.examples.attrSetName + "String") : "grid" });
+    }
+
+    return sigs;
+}
+
+QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType)
+{
+    QString out;
+    QTextStream s(&out);
+    const QString recv = "func (g *" + glueType + ") ";
+
+    if (sig.paramType.isEmpty()) {
+        s << recv << sig.method << "(t *testing.T) {\n";
+        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        s << "}\n";
+    } else if (sig.paramType == "docstring") {
+        s << recv << sig.method << "(t *testing.T, value string) {\n";
+        s << "\t_ = value\n";
+        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        s << "}\n";
+    } else if (sig.paramType == "grid") {
+        s << recv << sig.method << "(t *testing.T, values [][]string) {\n";
+        s << "\t_ = values\n";
+        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        s << "}\n";
+    } else {
+        const QString pt = toExported(sig.paramType);
+        s << recv << sig.method << "(t *testing.T, values []" << pt << ") {\n";
+        s << "\t_ = values\n";
+        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        s << "}\n";
+    }
+    return out;
+}
+
+bool GoGenerator::appendMissingStubs(const QString& gluePath,
+                                      const QVector<GlueSig>& sigs,
+                                      const QString& glueType,
+                                      QStringList& msgs)
+{
+    QFile f(gluePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    QString content = QTextStream(&f).readAll();
+    f.close();
+
+    QString stubs;
+    for (const GlueSig& sig : sigs) {
+        if (!content.contains(QStringLiteral("func (g *%1) %2(").arg(glueType, sig.method)))
+            stubs += "\n" + genStubFn(sig, glueType);
+    }
+    if (stubs.isEmpty()) return false;
+
+    content += stubs;
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        msgs << QString("ERROR:0:Cannot update glue file: %1").arg(gluePath);
+        return false;
+    }
+    QTextStream(&f) << content;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Glue file
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::genGlueFile(const SpectableFile& file, const QString& specPkg,
+                                  const QString& glueType) const
+{
+    const QVector<GlueSig> sigs = collectGlueSigs(file);
+
+    bool needsCommon = false;
+    for (const GlueSig& sig : sigs)
+        if (!sig.paramType.isEmpty() && sig.paramType != "grid" && sig.paramType != "docstring")
+            { needsCommon = true; break; }
+
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << specPkg << "\n\n";
+    s << "import (\n\t\"testing\"\n";
+    if (needsCommon) s << "\t\"" << specPkg << "/common\"\n";
+    s << ")\n\n";
+
+    s << "type " << glueType << " struct {\n\t// Add state fields here\n}\n\n";
+    s << "func New" << glueType << "() *" << glueType << " { return &" << glueType << "{} }\n";
+
+    for (const GlueSig& sig : sigs) {
+        s << "\n";
+        if (!sig.paramType.isEmpty() && sig.paramType != "grid" && sig.paramType != "docstring") {
+            const QString pt = toExported(sig.paramType);
+            s << "func (g *" << glueType << ") " << sig.method
+              << "(t *testing.T, values []common." << pt << ") {\n";
+            s << "\t_ = values\n";
+            s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+            s << "}\n";
+        } else {
+            s << genStubFn(sig, glueType);
+        }
+    }
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Test file
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specPkg,
+                                  const QString& glueType, QStringList& errors) const
+{
+    bool needsCommon = false;
+    for (const AttrSet& as : file.attrSets)
+        if (!as.isContext && !as.fields.isEmpty()) { needsCommon = true; break; }
+
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << specPkg << "\n\n";
+    s << "import (\n\t\"testing\"\n";
+    if (needsCommon) s << "\t\"" << specPkg << "/common\"\n";
+    s << ")\n\n";
+
+    int objectCounter = 0;
+
+    auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
+        for (const Step& step : steps) {
+            if (step.hasDocString) {
+                const QString meth = toMethodName(step.keyword, step.text);
+                QString esc = step.docString;
+                esc.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n");
+                s << "\t" << glueVar << "." << meth << "(t, \"" << esc << "\")\n";
+                continue;
+            }
+            if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+                const Define* def = findDefine(step.defineRef, file);
+                if (def && def->hasDocString) {
+                    const QString meth = toMethodName(step.keyword, step.text);
+                    QString esc = def->docString;
+                    esc.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n");
+                    s << "\t" << glueVar << "." << meth << "(t, \"" << esc << "\")\n";
+                    continue;
+                }
+            }
+            if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
+                s << "\t" << glueVar << "." << toMethodName(step.keyword, step.text) << "(t)\n";
+                continue;
+            }
+
+            const QString effectiveAttrSetName = (!step.attrSetName.isEmpty()
+                && isCollectionType(step.attrSetName, file))
+                ? collectionElementType(step.attrSetName, file) : step.attrSetName;
+            const AttrSet* as = findAttrSet(effectiveAttrSetName, file);
+
+            if (!step.attrSetName.isEmpty() && !as) {
+                if (!isDataType(effectiveAttrSetName, file)) {
+                    errors << QString("ERROR:%1:AttributeSet '%2' not defined")
+                              .arg(step.line).arg(step.attrSetName);
+                    continue;
+                }
+            }
+
+            const QString meth = toMethodName(step.keyword, step.text);
+
+            if (!step.attrSetName.isEmpty() && as) {
+                ++objectCounter;
+                const QString listType = "common." + toExported(effectiveAttrSetName) + "String";
+                const QString listVar  = QString("objectList%1").arg(objectCounter);
+                QStringList localErrs;
+                const QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
+                errors << localErrs;
+
+                s << "\t" << listVar << " := []" << listType << "{\n";
+                for (const QStringList& row : rows) {
+                    s << "\t\tcommon.New" << toExported(effectiveAttrSetName)
+                      << "StringFromSlice([]string{";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << goEscape(row[ci]) << "\"";
+                    }
+                    s << "}),\n";
+                }
+                s << "\t}\n";
+                s << "\t" << glueVar << "." << meth << "(t, " << listVar << ")\n";
+
+            } else {
+                ++objectCounter;
+                const QString listVar = QString("stringListList%1").arg(objectCounter);
+                const StepTable& tbl = step.table;
+                const bool isTypedGrid = !step.attrSetName.isEmpty()
+                                      && isDataType(step.attrSetName, file);
+                const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
+
+                s << "\t" << listVar << " := [][]string{\n";
+                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                    s << "\t\t{";
+                    const QStringList& r = tbl.rows[ri];
+                    for (int ci = 0; ci < r.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << goEscape(resolveValue(r[ci], file)) << "\"";
+                    }
+                    s << "},\n";
+                }
+                s << "\t}\n";
+                s << "\t" << glueVar << "." << meth << "(t, " << listVar << ")\n";
+            }
+        }
+    };
+
+    // Scenarios
+    for (const Scenario& sc : file.scenarios) {
+        const QStringList effTags = file.generatorTags + sc.generatorTags;
+        if (!TagFilter::matches(m_tagFilter, effTags)) continue;
+
+        s << "func TestScenario_" << toExported(sc.name) << "(t *testing.T) {\n";
+        s << "\tglue := New" << glueType << "()\n";
+        emitSteps(file.backgroundSteps, "glue");
+        emitSteps(sc.steps, "glue");
+        s << "}\n\n";
+    }
+
+    // BusinessRule / Calculation / DataType
+    static const QStringList namedKinds = { "BusinessRule", "Calculation", "DataType" };
+    QSet<QString> seenNamed;
+    for (const QString& kind : namedKinds) {
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (!nb.hasExamples || nb.kind != kind) continue;
+            const QString blockKey = kind + ":" + nb.name.toLower();
+            if (seenNamed.contains(blockKey)) {
+                errors << QString("WARNING:%1:%2 '%3' declared in multiple files")
+                              .arg(nb.line).arg(kind).arg(nb.name);
+                continue;
+            }
+            seenNamed.insert(blockKey);
+            const QStringList effTags = file.generatorTags + nb.generatorTags;
+            if (!TagFilter::matches(m_tagFilter, effTags)) continue;
+
+            const QString fn       = "Test" + toExported(kind) + "_" + toExported(nb.name);
+            const QString glueMeth = "Examples" + toExported(kind) + toExported(nb.name);
+            const AttrSet* as = nb.examples.attrSetName.isEmpty()
+                ? nullptr : findAttrSet(nb.examples.attrSetName, file);
+
+            s << "func " << fn << "(t *testing.T) {\n";
+            s << "\tglue := New" << glueType << "()\n";
+
+            if (as) {
+                ++objectCounter;
+                const QString listType = "common." + toExported(nb.examples.attrSetName) + "String";
+                const QString listVar  = QString("objectList%1").arg(objectCounter);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, as);
+                s << "\t" << listVar << " := []" << listType << "{\n";
+                for (const QStringList& row : rows) {
+                    s << "\t\tcommon.New" << toExported(nb.examples.attrSetName)
+                      << "StringFromSlice([]string{";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << goEscape(row[ci]) << "\"";
+                    }
+                    s << "}),\n";
+                }
+                s << "\t}\n";
+                s << "\tglue." << glueMeth << "(t, " << listVar << ")\n";
+            } else {
+                ++objectCounter;
+                const QString listVar = QString("stringListList%1").arg(objectCounter);
+                const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
+                s << "\t" << listVar << " := [][]string{\n";
+                for (const QStringList& row : rows) {
+                    s << "\t\t{";
+                    for (int ci = 0; ci < row.size(); ++ci) {
+                        if (ci) s << ", ";
+                        s << "\"" << goEscape(resolveValue(row[ci], file)) << "\"";
+                    }
+                    s << "},\n";
+                }
+                s << "\t}\n";
+                s << "\tglue." << glueMeth << "(t, " << listVar << ")\n";
+            }
+            s << "}\n\n";
+        }
+    }
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Production generators
+// ---------------------------------------------------------------------------
+
+QString GoGenerator::genProductionEntity(const AttrSet& as, const QString& pkg) const
+{
+    const QString name = toExported(as.name);
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << "\n\n";
+    s << "type " << name << " struct {\n";
+    for (const Field& f : as.fields)
+        s << "\t" << toExported(f.name) << " " << goType(f.type) << "\n";
+    s << "}\n\n";
+
+    s << "func New" << name << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << toIdentifier(as.fields[i].name) << " " << goType(as.fields[i].type);
+    }
+    s << ") *" << name << " {\n";
+    s << "\treturn &" << name << "{";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << toExported(as.fields[i].name) << ": " << toIdentifier(as.fields[i].name);
+    }
+    s << "}\n}\n";
+
+    return out;
+}
+
+QString GoGenerator::genProductionCollection(const Collection& col, const QString& pkg) const
+{
+    const QString name     = toExported(col.name);
+    const QString elemType = toExported(col.elementType);
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << "\n\n";
+    if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) {
+        s << "const (\n";
+        if (!col.minimum.isEmpty())
+            s << "\t" << name << "Minimum = " << col.minimum << "\n";
+        if (!col.maximum.isEmpty())
+            s << "\t" << name << "Maximum = " << col.maximum << "\n";
+        s << ")\n\n";
+    }
+
+    s << "type " << name << " struct {\n\titems []*" << elemType << "\n}\n\n";
+    s << "func New" << name << "() *" << name << " { return &" << name << "{} }\n\n";
+
+    s << "func (c *" << name << ") Add(item *" << elemType << ") {\n";
+    s << "\tc.items = append(c.items, item)\n}\n\n";
+
+    s << "func (c *" << name << ") Delete(item *" << elemType << ") bool {\n";
+    s << "\tfor i, v := range c.items {\n";
+    s << "\t\tif v == item {\n";
+    s << "\t\t\tc.items = append(c.items[:i], c.items[i+1:]...)\n";
+    s << "\t\t\treturn true\n\t\t}\n\t}\n\treturn false\n}\n\n";
+
+    s << "func (c *" << name << ") Read() []*" << elemType << " {\n";
+    s << "\tresult := make([]*" << elemType << ", len(c.items))\n";
+    s << "\tcopy(result, c.items)\n\treturn result\n}\n\n";
+
+    s << "func (c *" << name << ") Update(oldItem, newItem *" << elemType << ") bool {\n";
+    s << "\tfor i, v := range c.items {\n";
+    s << "\t\tif v == oldItem {\n";
+    s << "\t\t\tc.items[i] = newItem\n";
+    s << "\t\t\treturn true\n\t\t}\n\t}\n\treturn false\n}\n\n";
+
+    s << "func (c *" << name << ") Size() int { return len(c.items) }\n";
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// File write helper
+// ---------------------------------------------------------------------------
+
+bool GoGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        msgs << QString("ERROR:0:Cannot write file: %1").arg(path);
+        return false;
+    }
+    QTextStream(&f) << content;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
+QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts)
+{
+    QStringList msgs;
+    m_extraImports = opts.extraImports;
+    m_tagFilter    = opts.tagFilter;
+
+    if (file.specName.isEmpty()) {
+        msgs << "ERROR:0:No Specification declaration found";
+        return msgs;
+    }
+
+    const QString specPkg   = toPackageName(file.specName);
+    const QString glueType  = toExported(file.specName) + "Glue";
+    const QString commonPkg = "common";
+
+    QDir outDir(opts.outputDir);
+    if (!outDir.exists() && !outDir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(outDir.path());
+        return msgs;
+    }
+
+    QDir commonDir(opts.outputDir + "/common");
+    if (!commonDir.exists() && !commonDir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create common directory: %1").arg(commonDir.path());
+        return msgs;
+    }
+
+    // Copy source .spectable
+    if (opts.copySpectable && !file.filePath.isEmpty()) {
+        const QString dest = outDir.filePath(QFileInfo(file.filePath).fileName());
+        QFile::remove(dest);
+        if (!QFile::copy(file.filePath, dest))
+            msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, dest);
+    }
+
+    // Synthesize implicit AttrSets for NamedBlock examples
+    SpectableFile augmented = file;
+    {
+        QSet<QString> known;
+        for (const AttrSet& as : file.attrSets) known.insert(as.name.toLower());
+        for (const NamedBlock& nb : file.namedBlocks) {
+            const QString asName = nb.examples.attrSetName.trimmed();
+            if (asName.isEmpty() || nb.examples.header.isEmpty()) continue;
+            if (isDataType(asName, file)) continue;
+            if (known.contains(asName.toLower())) continue;
+            known.insert(asName.toLower());
+            AttrSet sa;
+            sa.name = asName;
+            const bool isVV = asName.compare("ValidValues", Qt::CaseInsensitive) == 0;
+            for (const QString& col : nb.examples.header) {
+                const QString c = col.trimmed();
+                if (c.isEmpty()) continue;
+                Field f; f.name = c;
+                f.type = (isVV && c.compare("isvalid", Qt::CaseInsensitive) == 0) ? "YesNo" : "String";
+                sa.fields.push_back(f);
+            }
+            if (!sa.fields.isEmpty()) augmented.attrSets.push_back(sa);
+        }
+    }
+
+    // Write common package marker
+    {
+        QString commonGo;
+        QTextStream s(&commonGo);
+        s << "package " << commonPkg << "\n\n";
+        s << "// Unused suppresses \"imported and not used\" errors during development.\n";
+        s << "var Unused = struct{}{}\n";
+        writeFile(commonDir.filePath("common.go"), commonGo, msgs);
+    }
+
+    // Write String + Typed structs for each AttrSet
+    for (const AttrSet& as : augmented.attrSets) {
+        if (as.isContext) continue;
+        if (as.fields.isEmpty()) {
+            msgs << QString("WARNING:%1:AttrSet '%2' has no fields — skipped")
+                    .arg(as.line).arg(as.name);
+            continue;
+        }
+        const QString mid = toIdentifier(as.name);
+        writeFile(commonDir.filePath(mid + "_string.go"),
+                  genStringStruct(as, commonPkg), msgs);
+        writeFile(commonDir.filePath(mid + "_typed.go"),
+                  genTypedStruct(as, commonPkg, augmented), msgs);
+    }
+
+    // Test file (always overwritten)
+    {
+        QStringList testErrs;
+        const QString testContent = genTestFile(augmented, specPkg, glueType, testErrs);
+        msgs << testErrs;
+        const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
+            [](const QString& m){ return m.startsWith("ERROR"); });
+        if (!hasErr)
+            writeFile(outDir.filePath("test_" + specPkg + ".go"), testContent, msgs);
+    }
+
+    // Glue file
+    {
+        const QString gluePath = outDir.filePath(specPkg + "_glue.go");
+        if (opts.overwriteGlue || !QFile::exists(gluePath)) {
+            writeFile(gluePath, genGlueFile(augmented, specPkg, glueType), msgs);
+        } else {
+            const QVector<GlueSig> sigs = collectGlueSigs(augmented);
+            if (appendMissingStubs(gluePath, sigs, glueType, msgs))
+                msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+        }
+    }
+
+    // Production classes
+    if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
+        const QString prodPkg = opts.productionClassesPackage.isEmpty()
+                                ? "domain" : opts.productionClassesPackage;
+        QDir prodDir(opts.productionClassesDir);
+        if (!prodDir.exists()) prodDir.mkpath(".");
+
+        for (const AttrSet& as : file.attrSets) {
+            if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
+            const QString prodPath = prodDir.filePath(toIdentifier(as.name) + ".go");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genProductionEntity(as, prodPkg), msgs);
+        }
+
+        for (const Collection& col : file.collections) {
+            if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
+            const QString prodPath = prodDir.filePath(toIdentifier(col.name) + ".go");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genProductionCollection(col, prodPkg), msgs);
+        }
+    }
+
+    return msgs;
+}

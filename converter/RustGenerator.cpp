@@ -708,6 +708,149 @@ QString RustGenerator::genGlueFile(const SpectableFile& file, const QString& glu
 }
 
 // ---------------------------------------------------------------------------
+// Production class generators
+// ---------------------------------------------------------------------------
+
+// DataType ValidValues → struct with is_valid() method
+static QString genRustProductionClass(const NamedBlock& nb)
+{
+    const QString name = RustGenerator::toTypeName(nb.name);
+    QString out;
+    QTextStream s(&out);
+    s << "#[derive(Debug, Clone, PartialEq, Eq)]\n";
+    s << "pub struct " << name << " {\n";
+    s << "    pub value: String,\n";
+    s << "}\n\n";
+    s << "impl " << name << " {\n";
+    s << "    pub fn new(value: impl Into<String>) -> Self {\n";
+    s << "        Self { value: value.into() }\n";
+    s << "    }\n\n";
+
+    int valueCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
+            { valueCol = i; break; }
+    if (valueCol >= 0) {
+        QStringList vals;
+        for (const QStringList& row : nb.examples.rows)
+            if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
+                vals << "\"" + row[valueCol].trimmed() + "\"";
+        if (!vals.isEmpty()) {
+            s << "    pub fn is_valid(&self) -> bool {\n";
+            s << "        matches!(self.value.to_lowercase().as_str(),\n";
+            QStringList lower;
+            for (const QString& v : vals) lower << v.toLower();
+            s << "            " << lower.join(" | ") << "\n";
+            s << "        )\n    }\n";
+        }
+    }
+    s << "}\n\n";
+    s << "impl std::fmt::Display for " << name << " {\n";
+    s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
+    s << "        write!(f, \"{}\", self.value)\n    }\n}\n";
+    return out;
+}
+
+// EnumerationValues DataType → enum
+static QString genRustProductionEnum(const NamedBlock& nb)
+{
+    int valueCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
+            { valueCol = i; break; }
+
+    QStringList variants;
+    if (valueCol >= 0)
+        for (const QStringList& row : nb.examples.rows)
+            if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
+                variants << row[valueCol].trimmed();
+
+    const QString name = RustGenerator::toTypeName(nb.name);
+    QString out;
+    QTextStream s(&out);
+    s << "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n";
+    s << "pub enum " << name << " {\n";
+    for (const QString& v : variants)
+        s << "    " << v << ",\n";
+    s << "}\n";
+    return out;
+}
+
+// Entity → production struct with impl new()
+static QString genRustProductionEntity(const AttrSet& as, const SpectableFile& file)
+{
+    (void)file;  // reserved for cross-entity type lookup
+    const QString name = RustGenerator::toTypeName(as.name);
+    QString out;
+    QTextStream s(&out);
+
+    s << "#[derive(Debug, Clone)]\n";
+    s << "pub struct " << name << " {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = RustGenerator::toIdentifier(f.name);
+        const QString rt  = RustGenerator::rustType(f.type);
+        s << "    pub " << fid << ": " << rt << ",\n";
+    }
+    s << "}\n\n";
+    s << "impl " << name << " {\n";
+    s << "    pub fn new(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        const QString fid = RustGenerator::toIdentifier(as.fields[i].name);
+        const QString rt  = RustGenerator::rustType(as.fields[i].type);
+        s << fid << ": " << rt;
+    }
+    s << ") -> Self {\n";
+    s << "        Self {";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << " " << RustGenerator::toIdentifier(as.fields[i].name);
+    }
+    s << " }\n    }\n}\n";
+    return out;
+}
+
+// Collection → production struct with add/delete/read/update/size
+static QString genRustProductionCollection(const Collection& col)
+{
+    const QString name     = RustGenerator::toTypeName(col.name);
+    const QString elemType = RustGenerator::toTypeName(col.elementType);
+    QString out;
+    QTextStream s(&out);
+    if (!col.minimum.isEmpty())
+        s << "pub const " << RustGenerator::toIdentifier(col.name).toUpper()
+          << "_MINIMUM: usize = " << col.minimum << ";\n";
+    if (!col.maximum.isEmpty())
+        s << "pub const " << RustGenerator::toIdentifier(col.name).toUpper()
+          << "_MAXIMUM: usize = " << col.maximum << ";\n";
+    if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) s << "\n";
+
+    s << "#[derive(Debug, Clone, Default)]\n";
+    s << "pub struct " << name << " {\n";
+    s << "    items: Vec<" << elemType << ">,\n";
+    s << "}\n\n";
+    s << "impl " << name << " {\n";
+    s << "    pub fn new() -> Self { Self::default() }\n\n";
+    s << "    pub fn add(&mut self, item: " << elemType << ") {\n";
+    s << "        self.items.push(item);\n    }\n\n";
+    s << "    pub fn delete(&mut self, item: &" << elemType << ") -> bool\n";
+    s << "    where\n        " << elemType << ": PartialEq,\n    {\n";
+    s << "        if let Some(pos) = self.items.iter().position(|x| x == item) {\n";
+    s << "            self.items.remove(pos);\n";
+    s << "            true\n        } else { false }\n    }\n\n";
+    s << "    pub fn read(&self) -> &[" << elemType << "] {\n";
+    s << "        &self.items\n    }\n\n";
+    s << "    pub fn update(&mut self, old_item: &" << elemType << ", new_item: " << elemType << ") -> bool\n";
+    s << "    where\n        " << elemType << ": PartialEq,\n    {\n";
+    s << "        if let Some(pos) = self.items.iter().position(|x| x == old_item) {\n";
+    s << "            self.items[pos] = new_item;\n";
+    s << "            true\n        } else { false }\n    }\n\n";
+    s << "    pub fn size(&self) -> usize { self.items.len() }\n";
+    s << "}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // File write helper
 // ---------------------------------------------------------------------------
 
@@ -824,6 +967,42 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+        }
+    }
+
+    // Production classes (DataType → struct/enum, Entity → struct, Collection → struct)
+    if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
+        QDir prodDir(opts.productionClassesDir);
+        if (!prodDir.exists()) prodDir.mkpath(".");
+
+        // DataType ValidValues → struct with is_valid(); EnumerationValues → enum
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (nb.isContext || !nb.hasExamples || nb.kind != "DataType") continue;
+            const bool isValidValues =
+                nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0;
+            const bool isEnum =
+                nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+            if (!isValidValues && !isEnum) continue;
+            const QString prodPath = prodDir.filePath(toIdentifier(nb.name) + ".rs");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, isValidValues ? genRustProductionClass(nb)
+                                              : genRustProductionEnum(nb), msgs);
+        }
+
+        // Entity → struct + impl new()
+        for (const AttrSet& as : file.attrSets) {
+            if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
+            const QString prodPath = prodDir.filePath(toIdentifier(as.name) + ".rs");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genRustProductionEntity(as, file), msgs);
+        }
+
+        // Collection → struct with add/delete/read/update/size
+        for (const Collection& col : file.collections) {
+            if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
+            const QString prodPath = prodDir.filePath(toIdentifier(col.name) + ".rs");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genRustProductionCollection(col), msgs);
         }
     }
 

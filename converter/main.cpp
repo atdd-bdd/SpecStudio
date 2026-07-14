@@ -2,6 +2,10 @@
 #include "CSharpGenerator.h"
 #include "JavaGenerator.h"
 #include "RustGenerator.h"
+#include "PythonGenerator.h"
+#include "CppGenerator.h"
+#include "JavaScriptGenerator.h"
+#include "GoGenerator.h"
 
 #include <QCoreApplication>
 #include <QCommandLineParser>
@@ -26,7 +30,7 @@ int main(int argc, char* argv[])
     cli.addPositionalArgument("output", "Output directory for generated files");
 
     QCommandLineOption langOpt({ "l", "language" },
-        "Target language: CSharp (default), Java, or Rust", "language", "CSharp");
+        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, Go", "language", "CSharp");
     cli.addOption(langOpt);
 
     QCommandLineOption fwOpt({ "f", "framework" },
@@ -68,8 +72,8 @@ int main(int argc, char* argv[])
     cli.addOption(tagFilterOpt);
 
     QCommandLineOption prodDirOpt("prod-dir",
-        "Output folder for production classes (Java only). "
-        "When set, generates a production class/enum for each DataType if not already present.",
+        "Output folder for production classes. "
+        "When set, generates Entity/Collection/DataType classes if not already present.",
         "dir", "");
     cli.addOption(prodDirOpt);
 
@@ -144,25 +148,79 @@ int main(int argc, char* argv[])
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {
         RustGenerator::Options opts;
-        opts.cratePrefix   = cli.value(nsOpt);
-        opts.outputDir     = outputDir;
-        opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable = !cli.isSet(noCopyOpt);
-        opts.extraUses     = cli.values(importOpt);
-        opts.tagFilter     = cli.value(tagFilterOpt);
+        opts.cratePrefix              = cli.value(nsOpt);
+        opts.outputDir                = outputDir;
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraUses                = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         RustGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("Python", Qt::CaseInsensitive) == 0) {
+        PythonGenerator::Options opts;
+        opts.packagePrefix            = cli.value(nsOpt);
+        opts.outputDir                = outputDir;
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraImports             = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.productionClassesPackage = cli.value(prodPkgOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        PythonGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("Cpp", Qt::CaseInsensitive) == 0
+            || language.compare("C++", Qt::CaseInsensitive) == 0) {
+        CppGenerator::Options opts;
+        opts.outputDir                = outputDir;
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraIncludes            = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        CppGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("JavaScript", Qt::CaseInsensitive) == 0
+            || language.compare("JS", Qt::CaseInsensitive) == 0) {
+        JavaScriptGenerator::Options opts;
+        opts.outputDir                = outputDir;
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraImports             = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        JavaScriptGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
+        GoGenerator::Options opts;
+        opts.outputDir                = outputDir;
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraImports             = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.productionClassesPackage = cli.value(prodPkgOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        GoGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
         // Default: C#
         if (framework.isEmpty()) framework = "MSTest";
         CSharpGenerator::Options opts;
-        opts.nsPrefix      = cli.value(nsOpt);
-        opts.outputDir     = outputDir;
-        opts.sourceRoot    = cli.value(srcRootOpt);
-        opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable = !cli.isSet(noCopyOpt);
-        opts.extraImports  = cli.values(importOpt);
-        opts.tagFilter     = cli.value(tagFilterOpt);
+        opts.nsPrefix                    = cli.value(nsOpt);
+        opts.outputDir                   = outputDir;
+        opts.sourceRoot                  = cli.value(srcRootOpt);
+        opts.overwriteGlue               = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable               = !cli.isSet(noCopyOpt);
+        opts.extraImports                = cli.values(importOpt);
+        opts.tagFilter                   = cli.value(tagFilterOpt);
+        opts.productionClassesDir        = cli.value(prodDirOpt);
+        opts.productionClassesNamespace  = cli.value(prodPkgOpt);
+        opts.createProductionClasses     = !opts.productionClassesDir.isEmpty();
         CSharpGenerator gen;
         genMsgs = gen.generate(file, opts);
     }

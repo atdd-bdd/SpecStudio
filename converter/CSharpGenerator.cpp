@@ -817,6 +817,184 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
 }
 
 // ---------------------------------------------------------------------------
+// Production class generators
+// ---------------------------------------------------------------------------
+
+// ValidValues DataType → class with IsValid() method
+static QString genCSharpProductionClass(const NamedBlock& nb, const QString& ns)
+{
+    const QString name = nb.name;
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    s << "    using System;\n\n";
+    s << "    public class " << name << "\n    {\n";
+    s << "        public readonly string Value;\n\n";
+    s << "        public " << name << "(string value)\n        {\n";
+    s << "            Value = value ?? string.Empty;\n";
+    s << "        }\n\n";
+    // Collect valid values from ValidValues table
+    int valueCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
+            { valueCol = i; break; }
+    if (valueCol >= 0) {
+        QStringList vals;
+        for (const QStringList& row : nb.examples.rows)
+            if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
+                vals << "\"" + row[valueCol].trimmed() + "\"";
+        if (!vals.isEmpty()) {
+            s << "        private static readonly string[] ValidValues = { " << vals.join(", ") << " };\n\n";
+            s << "        public bool IsValid() =>\n";
+            s << "            System.Array.Exists(ValidValues, v => v.Equals(Value, StringComparison.OrdinalIgnoreCase));\n\n";
+        }
+    }
+    s << "        public override string ToString() => $\"" << name << "{{Value}}\";\n";
+    s << "        public override bool Equals(object? obj) =>\n";
+    s << "            obj is " << name << " other && string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);\n";
+    s << "        public override int GetHashCode() => Value.GetHashCode(StringComparison.OrdinalIgnoreCase);\n";
+    s << "    }\n}\n";
+    return out;
+}
+
+// EnumerationValues DataType → enum
+static QString genCSharpProductionEnum(const NamedBlock& nb, const QString& ns)
+{
+    int valueCol = -1, notesCol = -1;
+    for (int i = 0; i < nb.examples.header.size(); ++i) {
+        const QString h = nb.examples.header[i].trimmed().toLower();
+        if (h == "value") valueCol = i;
+        if (h == "notes") notesCol = i;
+    }
+    struct Constant { QString name; QString note; };
+    QList<Constant> constants;
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            const QString note = (notesCol >= 0 && notesCol < row.size())
+                                 ? row[notesCol].trimmed() : QString();
+            constants << Constant{v, note};
+        }
+    }
+    const bool hasNotes = notesCol >= 0 && std::any_of(
+        constants.begin(), constants.end(), [](const Constant& c){ return !c.note.isEmpty(); });
+
+    const QString name = nb.name;
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    if (hasNotes) {
+        s << "    // Description attribute requires System.ComponentModel\n";
+        s << "    using System.ComponentModel;\n\n";
+    }
+    s << "    public enum " << name << "\n    {\n";
+    for (int i = 0; i < constants.size(); ++i) {
+        if (hasNotes && !constants[i].note.isEmpty()) {
+            QString escaped = constants[i].note;
+            escaped.replace("\\","\\\\").replace("\"","\\\"");
+            s << "        [Description(\"" << escaped << "\")]\n";
+        }
+        s << "        " << constants[i].name;
+        if (i + 1 < constants.size()) s << ",";
+        s << "\n";
+    }
+    s << "    }\n}\n";
+    return out;
+}
+
+// Entity AttrSet → production class with constructor + Builder
+static QString genCSharpProductionEntity(const AttrSet& as, const QString& ns,
+                                          const SpectableFile& file)
+{
+    (void)file;  // reserved for cross-entity field type lookup
+    const QString name = as.name;
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    s << "    public class " << name << "\n    {\n";
+
+    // Helper: field name → PascalCase property name
+    auto toProp = [](const QString& name) -> QString {
+        const QString cc = CSharpGenerator::toCamelCase(name);
+        if (cc.isEmpty()) return name;
+        return cc[0].toUpper() + cc.mid(1);
+    };
+
+    // Properties (read-only)
+    for (const Field& f : as.fields) {
+        const QString csType = CSharpGenerator::csharpType(f.type);
+        s << "        public " << csType << " " << toProp(f.name) << " { get; }\n";
+    }
+    s << "\n";
+
+    // Constructor
+    s << "        public " << name << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        const Field& f = as.fields[i];
+        s << CSharpGenerator::csharpType(f.type) << " " << CSharpGenerator::toCamelCase(f.name);
+    }
+    s << ")\n        {\n";
+    for (const Field& f : as.fields)
+        s << "            " << toProp(f.name) << " = " << CSharpGenerator::toCamelCase(f.name) << ";\n";
+    s << "        }\n\n";
+
+    // Builder nested class
+    s << "        public class Builder\n        {\n";
+    for (const Field& f : as.fields)
+        s << "            private " << CSharpGenerator::csharpType(f.type)
+          << " _" << CSharpGenerator::toCamelCase(f.name) << ";\n";
+    s << "\n";
+    for (const Field& f : as.fields) {
+        const QString fn = CSharpGenerator::toCamelCase(f.name);
+        s << "            public Builder " << toProp(f.name)
+          << "(" << CSharpGenerator::csharpType(f.type) << " value) { _" << fn << " = value; return this; }\n";
+    }
+    s << "\n            public " << name << " Build() =>\n";
+    s << "                new " << name << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << "_" << CSharpGenerator::toCamelCase(as.fields[i].name);
+    }
+    s << ");\n        }\n";
+
+    s << "    }\n}\n";
+    return out;
+}
+
+// Collection → production class with add/delete/read/update
+static QString genCSharpProductionCollection(const Collection& col, const QString& ns)
+{
+    const QString className = col.name;
+    const QString elemType  = col.elementType;
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    s << "    using System.Collections.Generic;\n\n";
+    s << "    public class " << className << "\n    {\n";
+    if (!col.minimum.isEmpty())
+        s << "        public const int Minimum = " << col.minimum << ";\n";
+    if (!col.maximum.isEmpty())
+        s << "        public const int Maximum = " << col.maximum << ";\n";
+    if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) s << "\n";
+    s << "        private readonly List<" << elemType << "> _items = new();\n\n";
+    s << "        public void Add(" << elemType << " item) => _items.Add(item);\n\n";
+    s << "        public bool Delete(" << elemType << " item) => _items.Remove(item);\n\n";
+    s << "        public IReadOnlyList<" << elemType << "> Read() => _items.AsReadOnly();\n\n";
+    s << "        public bool Update(" << elemType << " oldItem, " << elemType << " newItem)\n        {\n";
+    s << "            int idx = _items.IndexOf(oldItem);\n";
+    s << "            if (idx < 0) return false;\n";
+    s << "            _items[idx] = newItem;\n";
+    s << "            return true;\n";
+    s << "        }\n\n";
+    s << "        public int Count => _items.Count;\n";
+    s << "    }\n}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // File writing helper
 // ---------------------------------------------------------------------------
 
@@ -953,6 +1131,46 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+        }
+    }
+
+    // 4. Production classes (DataType → class/enum, Entity → class+Builder, Collection → class)
+    if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
+        const QString prodNs = opts.productionClassesNamespace.isEmpty()
+                               ? joinNs(opts.nsPrefix, "domain") : opts.productionClassesNamespace;
+        QDir prodDir(opts.productionClassesDir);
+        if (!prodDir.exists()) prodDir.mkpath(".");
+
+        // DataType ValidValues → class; EnumerationValues → enum
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (nb.isContext || !nb.hasExamples || nb.kind != "DataType") continue;
+            const bool isValidValues =
+                nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0;
+            const bool isEnum =
+                nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+            if (!isValidValues && !isEnum) continue;
+            const QString prodPath = prodDir.filePath(nb.name + ".cs");
+            if (QFile::exists(prodPath)) continue;
+            if (isValidValues)
+                writeFile(prodPath, genCSharpProductionClass(nb, prodNs), msgs);
+            else
+                writeFile(prodPath, genCSharpProductionEnum(nb, prodNs), msgs);
+        }
+
+        // Entity → production class with Builder
+        for (const AttrSet& as : file.attrSets) {
+            if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
+            const QString prodPath = prodDir.filePath(as.name + ".cs");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genCSharpProductionEntity(as, prodNs, file), msgs);
+        }
+
+        // Collection → production class
+        for (const Collection& col : file.collections) {
+            if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
+            const QString prodPath = prodDir.filePath(col.name + ".cs");
+            if (QFile::exists(prodPath)) continue;
+            writeFile(prodPath, genCSharpProductionCollection(col, prodNs), msgs);
         }
     }
 

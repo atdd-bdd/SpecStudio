@@ -7,6 +7,10 @@ add_executable(SpecTableConverter
     CSharpGenerator.cpp
     JavaGenerator.cpp
     RustGenerator.cpp
+    PythonGenerator.cpp
+    CppGenerator.cpp
+    JavaScriptGenerator.cpp
+    GoGenerator.cpp
 )
 
 target_compile_features(SpecTableConverter PRIVATE cxx_std_17)

@@ -13,19 +13,22 @@ public:
         bool        copySpectable = true;
         QStringList extraUses;     // extra "use" lines injected at top of generated files
         QString     tagFilter;
+        bool        createProductionClasses = false;
+        QString     productionClassesDir;
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
+
+    // Public so production-class free functions can call them
+    static QString rustType(const QString& specType);
+    static QString toIdentifier(const QString& name);  // snake_case
+    static QString toTypeName(const QString& name);    // PascalCase
 
 private:
     QStringList m_extraUses;
     QString     m_tagFilter;
 
-    static QString rustType(const QString& specType);
     static QString parseExpr(const QString& field, const QString& specType);
-
-    static QString toIdentifier(const QString& name);                          // snake_case
-    static QString toTypeName(const QString& name);                            // PascalCase
     static QString toFnName(const QString& keyword, const QString& stepText);  // snake_case
 
     static bool        isDataType(const QString& name, const SpectableFile& file);
