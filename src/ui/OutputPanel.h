@@ -8,6 +8,8 @@ class QTabWidget;
 class QTextEdit;
 class QListWidget;
 class QTableWidget;
+class QTreeWidget;
+class QTreeWidgetItem;
 
 struct CoverageEntry {
     QString filePath;
@@ -47,7 +49,7 @@ signals:
 private:
     QTabWidget*   m_tabs          = nullptr;
     QTextEdit*    m_buildOut      = nullptr;
-    QListWidget*  m_analysisList  = nullptr;
+    QTreeWidget*  m_analysisTree  = nullptr;
     QListWidget*  m_findList      = nullptr;
     QTextEdit*    m_diffView      = nullptr;
     QTableWidget* m_coverageTable = nullptr;

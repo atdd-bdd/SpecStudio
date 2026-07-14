@@ -77,6 +77,35 @@ QStringList SpecTableIndex::insertsFor(const QString& filePath) const
     return m_fileInserts.value(QFileInfo(filePath).absoluteFilePath());
 }
 
+QMap<QString, QString> SpecTableIndex::domainTermTypes() const
+{
+    static QRegularExpression reDT(
+        R"(^\s*DomainTerm\s+(\w+)\s*:\s*(\w+))",
+        QRegularExpression::CaseInsensitiveOption);
+
+    QMap<QString, QString> result;
+    for (auto it = m_project.domainTerms.cbegin(); it != m_project.domainTerms.cend(); ++it) {
+        const QString& fp = it.value().filePath;
+        const int targetLine = it.value().line;
+
+        QFile f(fp);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        QTextStream in(&f);
+        int lineNum = 0;
+        while (!in.atEnd()) {
+            const QString ln = in.readLine();
+            ++lineNum;
+            if (lineNum == targetLine) {
+                auto m = reDT.match(ln);
+                if (m.hasMatch())
+                    result.insert(it.key(), m.captured(2));
+                break;
+            }
+        }
+    }
+    return result;
+}
+
 QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicateDomainTerms() const
 {
     QMap<QString, QVector<SymbolLocation>> all;

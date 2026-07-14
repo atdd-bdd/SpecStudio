@@ -4,6 +4,7 @@
 #include "SpecTableIndex.h"
 
 #include <QList>
+#include <QMap>
 #include <QString>
 
 class SpecTableAnalyzer
@@ -24,6 +25,7 @@ private:
     void checkTableColumnConsistency (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepTableContents      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkDomainTermDuplicates        (const QString& filePath, QList<Diagnostic>& out) const;
+    void checkDomainTermColumnTypes       (const QString& filePath, const QMap<QString, QString>& dtTypes, QList<Diagnostic>& out) const;
     void checkUnrecognizedLines           (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepsWithTableButNoAttrSet  (const QString& filePath, QList<Diagnostic>& out) const;
 

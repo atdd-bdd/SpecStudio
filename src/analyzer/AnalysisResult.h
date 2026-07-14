@@ -7,10 +7,11 @@ struct Diagnostic
     enum class Severity { Info, Warning, Error };
 
     QString  filePath;
-    int      line     = 0;
-    int      column   = 0;
+    int      line       = 0;
+    int      column     = 0;
     QString  message;
-    Severity severity = Severity::Error;
+    Severity severity   = Severity::Error;
+    QString  projectName; // set by AppController; used for grouping in the Analysis tree
 
     QString severityString() const {
         switch (severity) {

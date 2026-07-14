@@ -382,8 +382,9 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
 
     s << "namespace " << ns << "\n{\n";
     if (needsList) s << "using System.Collections.Generic;\n";
+    s << "using System.Text.Json;\n";
     for (const QString& u : m_extraImports) s << u << "\n";
-    if (needsList || !m_extraImports.isEmpty()) s << "\n";
+    s << "\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
@@ -408,7 +409,12 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
     s << ")\n        {\n";
     for (const Field& f : as.fields)
         s << "            this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
-    s << "        }\n";
+    s << "        }\n\n";
+
+    s << "        public string ToJSON() { return JsonSerializer.Serialize(this); }\n";
+    s << "        public static " << cn << " FromJSON(string json) { return JsonSerializer.Deserialize<" << cn << ">(json)!; }\n";
+    s << "        public static string ToJSONList(List<" << cn << "> list) { return JsonSerializer.Serialize(list); }\n";
+    s << "        public static List<" << cn << "> FromJSONList(string json) { return JsonSerializer.Deserialize<List<" << cn << ">>(json)!; }\n";
 
     s << "    }\n}\n";
     return out;

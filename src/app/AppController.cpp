@@ -117,10 +117,10 @@ void AppController::setSolution(Solution* solution)
         // Record in recent solutions list
         QString sspecPath = solution->rootPath() + QDir::separator() + solution->name() + ".sspec";
         m_settings->addRecentSolution(sspecPath);
-        // Auto-analyze the first project after load
+        // Auto-analyze all projects after load
         QTimer::singleShot(0, this, [this] {
             if (m_solution && !m_solution->projects().isEmpty())
-                doAnalyze({ m_solution->projects().first() });
+                doAnalyze(m_solution->projects());
         });
     } else {
         m_mainWindow->statusBarMgr()->clearAll();
@@ -382,6 +382,11 @@ void AppController::onSaveAll()
                     Qt::UniqueConnection);
             proj->git()->commitAll(tr("Auto-save all"));
         }
+        // Re-analyze after saving so diagnostics reflect the saved state
+        QTimer::singleShot(0, this, [this] {
+            if (m_solution && !m_solution->projects().isEmpty())
+                doAnalyze(m_solution->projects());
+        });
     }
 }
 
@@ -842,6 +847,8 @@ void AppController::doAnalyze(const QList<Project*>& targets)
     QStringList allTags;
 
     for (auto* proj : targets) {
+        const int batchStart = all.size();
+
         // FeatureX analysis
         m_index->rebuild(proj);
         all.append(m_analyzer->analyzeProject(proj));
@@ -941,6 +948,10 @@ void AppController::doAnalyze(const QList<Project*>& targets)
 
             coverageEntries << entry;
         }
+
+        // Tag all diagnostics in this batch with the project name
+        for (int i = batchStart; i < all.size(); ++i)
+            all[i].projectName = proj->name();
     }
 
     m_mainWindow->outputPanel()->setCoverageData(coverageEntries);

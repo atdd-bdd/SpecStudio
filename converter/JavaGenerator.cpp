@@ -479,6 +479,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "import java.util.List;\n";
     if (needsCollections) s << "import java.util.Collections;\n";
     s << "import java.util.Objects;\n";
+    s << "import org.json.JSONObject;\n";
+    s << "import org.json.JSONArray;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
     s << "\n";
 
@@ -567,6 +569,106 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "    public static List<" << csn << "> toStringList(List<" << cn << "> list) {\n";
     s << "        List<" << csn << "> result = new ArrayList<>();\n";
     s << "        for (" << cn << " t : list) result.add(t.to" << csn << "());\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+
+    // toJSON()
+    s << "    public JSONObject toJSON() {\n";
+    s << "        JSONObject obj = new JSONObject();\n";
+    for (const Field& f : as.fields) {
+        const QString fname = toCamelCase(f.name);
+        if (f.multiples) {
+            if (isAttrSetType(f.type, file))
+                s << "        obj.put(\"" << fname << "\", " << (f.type + "Typed") << ".toJSONList(" << fname << "));\n";
+            else
+                s << "        obj.put(\"" << fname << "\", new JSONArray(" << fname << "));\n";
+        } else if (isAttrSetType(f.type, file)) {
+            s << "        obj.put(\"" << fname << "\", " << fname << ".toJSON());\n";
+        } else {
+            const QString t = f.type.toLower();
+            if (t == "character" || t == "char")
+                s << "        obj.put(\"" << fname << "\", String.valueOf(" << fname << "));\n";
+            else if (t == "date" || t == "time" || t == "datetime" || t == "duration")
+                s << "        obj.put(\"" << fname << "\", " << fname << ".toString());\n";
+            else
+                s << "        obj.put(\"" << fname << "\", " << fname << ");\n";
+        }
+    }
+    s << "        return obj;\n";
+    s << "    }\n\n";
+
+    // fromJSON()
+    bool hasMultiples = false;
+    for (const Field& f2 : as.fields) if (f2.multiples) { hasMultiples = true; break; }
+
+    s << "    public static " << cn << " fromJSON(JSONObject obj) {\n";
+    if (hasMultiples) {
+        for (const Field& f : as.fields) {
+            if (!f.multiples) continue;
+            const QString fname = toCamelCase(f.name);
+            if (isAttrSetType(f.type, file)) {
+                const QString ftn = f.type + "Typed";
+                s << "        List<" << ftn << "> " << fname << " = " << ftn
+                  << ".fromJSONList(obj.getJSONArray(\"" << fname << "\"));\n";
+            } else {
+                const QString jt = javaBoxedType(f.type);
+                s << "        List<" << jt << "> " << fname << " = new ArrayList<>();\n";
+                s << "        { JSONArray _a = obj.getJSONArray(\"" << fname << "\"); "
+                  << "for (int _i = 0; _i < _a.length(); _i++) " << fname << ".add(";
+                const QString t = f.type.toLower();
+                if (t == "integer" || t == "int")            s << "_a.getInt(_i)";
+                else if (t == "float" || t == "decimal" || t == "scientific") s << "_a.getDouble(_i)";
+                else if (t == "boolean" || t == "bool")      s << "_a.getBoolean(_i)";
+                else if (t == "character" || t == "char")    s << "(char) _a.getString(_i).charAt(0)";
+                else                                          s << "_a.getString(_i)";
+                s << "); }\n";
+            }
+        }
+    }
+    s << "        return new " << cn << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ",\n";
+        const Field& f = as.fields[i];
+        const QString fname = toCamelCase(f.name);
+        if (f.multiples) {
+            s << "            " << fname;
+        } else if (isAttrSetType(f.type, file)) {
+            s << "            " << f.type << "Typed.fromJSON(obj.getJSONObject(\"" << fname << "\"))";
+        } else {
+            const QString t = f.type.toLower();
+            if (t == "integer" || t == "int")
+                s << "            obj.getInt(\"" << fname << "\")";
+            else if (t == "float" || t == "decimal" || t == "scientific")
+                s << "            obj.getDouble(\"" << fname << "\")";
+            else if (t == "boolean" || t == "bool")
+                s << "            obj.getBoolean(\"" << fname << "\")";
+            else if (t == "character" || t == "char")
+                s << "            (char) obj.getString(\"" << fname << "\").charAt(0)";
+            else if (t == "date")
+                s << "            java.time.LocalDate.parse(obj.getString(\"" << fname << "\"))";
+            else if (t == "time")
+                s << "            java.time.LocalTime.parse(obj.getString(\"" << fname << "\"))";
+            else if (t == "datetime")
+                s << "            java.time.LocalDateTime.parse(obj.getString(\"" << fname << "\"))";
+            else if (t == "duration")
+                s << "            java.time.Duration.parse(obj.getString(\"" << fname << "\"))";
+            else
+                s << "            obj.getString(\"" << fname << "\")";
+        }
+    }
+    s << ");\n    }\n\n";
+
+    // toJSONList()
+    s << "    public static JSONArray toJSONList(List<" << cn << "> list) {\n";
+    s << "        JSONArray arr = new JSONArray();\n";
+    s << "        for (" << cn << " item : list) arr.put(item.toJSON());\n";
+    s << "        return arr;\n";
+    s << "    }\n\n";
+
+    // fromJSONList()
+    s << "    public static List<" << cn << "> fromJSONList(JSONArray arr) {\n";
+    s << "        List<" << cn << "> result = new ArrayList<>();\n";
+    s << "        for (int i = 0; i < arr.length(); i++) result.add(fromJSON(arr.getJSONObject(i)));\n";
     s << "        return result;\n";
     s << "    }\n}\n";
 

@@ -13,6 +13,8 @@
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextEdit>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
 
 static void addCopySupport(QListWidget* list)
 {
@@ -39,6 +41,30 @@ static void addCopySupport(QListWidget* list)
     });
 }
 
+static void addTreeCopySupport(QTreeWidget* tree)
+{
+    auto copySelected = [tree]() {
+        QStringList lines;
+        for (auto* item : tree->selectedItems())
+            lines << item->text(0);
+        if (!lines.isEmpty())
+            QApplication::clipboard()->setText(lines.join('\n'));
+    };
+
+    auto* shortcut = new QShortcut(QKeySequence::Copy, tree);
+    QObject::connect(shortcut, &QShortcut::activated, tree, copySelected);
+
+    tree->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(tree, &QTreeWidget::customContextMenuRequested,
+                     tree, [tree, copySelected](const QPoint& pos) {
+        QMenu menu(tree);
+        auto* act = menu.addAction(QObject::tr("Copy"));
+        act->setEnabled(!tree->selectedItems().isEmpty());
+        QObject::connect(act, &QAction::triggered, tree, copySelected);
+        menu.exec(tree->mapToGlobal(pos));
+    });
+}
+
 OutputPanel::OutputPanel(QWidget* parent)
     : QDockWidget(tr("Output"), parent)
 {
@@ -51,16 +77,18 @@ OutputPanel::OutputPanel(QWidget* parent)
     m_buildOut->setReadOnly(true);
     m_buildOut->setFontFamily("Courier New");
 
-    m_analysisList = new QListWidget(m_tabs);
-    m_analysisList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    connect(m_analysisList, &QListWidget::itemActivated, this,
-            [this](QListWidgetItem* item) {
-                int idx = m_analysisList->row(item);
+    m_analysisTree = new QTreeWidget(m_tabs);
+    m_analysisTree->setHeaderHidden(true);
+    m_analysisTree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    m_analysisTree->setRootIsDecorated(true);
+    connect(m_analysisTree, &QTreeWidget::itemActivated, this,
+            [this](QTreeWidgetItem* item, int) {
+                const int idx = item->data(0, Qt::UserRole).toInt();
                 if (idx >= 0 && idx < m_diagnostics.size())
                     emit diagnosticActivated(m_diagnostics[idx].filePath,
                                              m_diagnostics[idx].line);
             });
-    addCopySupport(m_analysisList);
+    addTreeCopySupport(m_analysisTree);
 
     m_findList = new QListWidget(m_tabs);
     m_findList->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -91,7 +119,7 @@ OutputPanel::OutputPanel(QWidget* parent)
     m_coverageTable->verticalHeader()->setVisible(false);
 
     m_tabs->addTab(m_buildOut,       tr("Build"));
-    m_tabs->addTab(m_analysisList,   tr("Analysis"));
+    m_tabs->addTab(m_analysisTree,   tr("Analysis"));
     m_tabs->addTab(m_findList,       tr("Find Results"));
     m_tabs->addTab(m_diffView,       tr("Diff"));
     m_tabs->addTab(m_coverageTable,  tr("Coverage"));
@@ -107,14 +135,52 @@ void OutputPanel::appendBuildOutput(const QString& text)
 void OutputPanel::setDiagnostics(const QList<Diagnostic>& diagnostics)
 {
     m_diagnostics = diagnostics;
-    m_analysisList->clear();
+    m_analysisTree->clear();
 
-    for (const auto& d : diagnostics) {
-        QString prefix = d.severity == Diagnostic::Severity::Error ? "E" :
-                         d.severity == Diagnostic::Severity::Warning ? "W" : "I";
-        QString label = QStringLiteral("[%1] %2 (%3)")
-            .arg(prefix, d.message, QFileInfo(d.filePath).fileName());
-        m_analysisList->addItem(label);
+    auto makeLabel = [](const Diagnostic& d) {
+        const QString prefix = d.severity == Diagnostic::Severity::Error   ? "E" :
+                               d.severity == Diagnostic::Severity::Warning  ? "W" : "I";
+        const QString file = QFileInfo(d.filePath).fileName();
+        return d.line > 0
+            ? QStringLiteral("[%1] %2 (%3:%4)").arg(prefix, d.message, file).arg(d.line)
+            : QStringLiteral("[%1] %2 (%3)").arg(prefix, d.message, file);
+    };
+
+    // Collect unique project names in insertion order
+    QStringList projectOrder;
+    QMap<QString, QList<int>> byProject;
+    for (int i = 0; i < diagnostics.size(); ++i) {
+        const QString proj = diagnostics[i].projectName.isEmpty()
+            ? tr("(Project)") : diagnostics[i].projectName;
+        if (!byProject.contains(proj)) projectOrder << proj;
+        byProject[proj].append(i);
+    }
+
+    const bool multiProject = byProject.size() > 1;
+
+    if (multiProject) {
+        for (const QString& projName : projectOrder) {
+            auto* projItem = new QTreeWidgetItem(m_analysisTree);
+            projItem->setText(0, projName);
+            projItem->setData(0, Qt::UserRole, -1); // project node — not navigable
+            projItem->setFlags(projItem->flags() & ~Qt::ItemIsSelectable);
+            QFont bold = projItem->font(0);
+            bold.setBold(true);
+            projItem->setFont(0, bold);
+
+            for (int idx : byProject[projName]) {
+                auto* item = new QTreeWidgetItem(projItem);
+                item->setText(0, makeLabel(diagnostics[idx]));
+                item->setData(0, Qt::UserRole, idx);
+            }
+            projItem->setExpanded(true);
+        }
+    } else {
+        for (int i = 0; i < diagnostics.size(); ++i) {
+            auto* item = new QTreeWidgetItem(m_analysisTree);
+            item->setText(0, makeLabel(diagnostics[i]));
+            item->setData(0, Qt::UserRole, i);
+        }
     }
 }
 
@@ -127,7 +193,7 @@ void OutputPanel::setOutputFont(const QFont& font)
 {
     m_buildOut->setFont(font);
     m_diffView->setFont(font);
-    m_analysisList->setFont(font);
+    m_analysisTree->setFont(font);
     m_findList->setFont(font);
     m_coverageTable->setFont(font);
 }
@@ -154,7 +220,7 @@ void OutputPanel::showBuildTab()
 
 void OutputPanel::showAnalysisTab()
 {
-    m_tabs->setCurrentWidget(m_analysisList);
+    m_tabs->setCurrentWidget(m_analysisTree);
 }
 
 void OutputPanel::showFindResultsTab()

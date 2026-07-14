@@ -121,6 +121,10 @@ public:
     // Returns all DomainTerm names declared in more than one file, with all their locations.
     QMap<QString, QVector<SymbolLocation>> duplicateDomainTerms() const;
 
+    // Returns a map of DomainTerm name → declared base type (from "DomainTerm Foo : Bar").
+    // Only entries that have an explicit ": Type" are included.
+    QMap<QString, QString> domainTermTypes() const;
+
 private:
     void parseFile(const QString& filePath, SpecTableSymbols& out,
                    QSet<QString>& visited) const;
