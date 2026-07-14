@@ -1,0 +1,8 @@
+{
+    "framework": "MSTest",
+    "language": "CSharp",
+    "namespace": "spectable",
+    "outputDirectory": "generated",
+    "overwriteGlue": false,
+    "version": 1
+}
