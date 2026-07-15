@@ -26,6 +26,14 @@ Config option: "fail every test" toggle for generated scaffolding.
 In-Out attribute support for Calculations/Business Rules — parser stores/
   ignores the In-Out column today; no codegen uses it yet.
 
+Multiples column is dead — the Collection keyword has replaced it. Decide
+  whether to strip the old `multiples`/List<Type> codegen path out of the
+  parser, model, and all 7 generators (SpectableParser.cpp, SpectableModel.h,
+  JavaGenerator.cpp, CSharpGenerator.cpp, CppGenerator.cpp, GoGenerator.cpp,
+  JavaScriptGenerator.cpp, PythonGenerator.cpp, RustGenerator.cpp all still
+  implement it) now that Collection covers this, and scrub any docs/examples
+  that still reference a Multiples column.
+
 --- Editor ---
 
 Autocomplete infrastructure for ":" dropdowns and the Type column exists
@@ -56,8 +64,7 @@ Given/When/Then steps without a table should still generate a glue-code
 
 Attribute/Entity/DataType display when hovering or suggesting after a
   scenario: decide hover vs. non-modal dialog; "sort of works" today —
-  needs a real pass, including confirming Multiples display correctly in
-  embedded tables in the scenario display.
+  needs a real pass.
 
 Naming conventions to enforce in codegen: attribute names should start
   lowercase (even if the table name is uppercase), spaces converted to
@@ -66,10 +73,6 @@ Naming conventions to enforce in codegen: attribute names should start
 
 Don't show non-spec-related files in Solution Explorer unless a setting
   says to show them.
-
-Optional Multiples column default (blank = no default; Y/Yes or a number)
-  — note the new Collection keyword (Minimum/Maximum) may already cover the
-  "a number" case; check for overlap before doing more work here.
 
 --- Analyze / Validation ---
 
@@ -147,11 +150,10 @@ Shopping cart: StandardExamplesTests/Shopping Cart.spectable has CatalogItem,
   but entirely commented out (lines 37-64), and running-total logic is
   absent. Still open: wire addresses back in, add the running total.
 
-Multiples scenario (bigger Define, multiple shipping addresses for the same
-  set of items) — explicitly stubbed out as future work inside Shopping
-  Cart.spectable ("If/when Multiple is allowed for attributes..."). Not
-  started; may be superseded by the new Collection keyword — check overlap
-  before implementing as originally scoped.
+Multiple-shipping-addresses scenario (bigger Define, longer match) —
+  stubbed out as future work inside Shopping Cart.spectable ("If/when
+  Multiple is allowed for attributes..."). Implement using the Collection
+  keyword, not the old (now dead) Multiples column.
 
 Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
@@ -234,7 +236,7 @@ If spectables are organized in folders, confirm the corresponding generated
 [x] Production classes for Entities: genProductionEntity generates constructor + inner Builder (JavaGenerator.cpp:1594,1622-1630)
 [x] ProductionHelper class: <Entity>TypedToProduction/ProductionToTyped plus List<Typed><->List<Production> (JavaGenerator.cpp:1674-1761); only written if file doesn't exist (JavaGenerator.cpp:1983-2005)
 [x] TableHelper class: genTableHelperClass writes TableHelper.java with toListListXxx static converters into common/ (JavaGenerator.cpp:1154,1173,1949-1954)
-[x] Multiples column: f.multiples drives List<Type> codegen across Java, C#, C++, Go, Python, Rust, JS (e.g. JavaGenerator.cpp:486-658), including JSON list handling — no longer deferred
+[x] Multiples column: f.multiples drives List<Type> codegen across Java, C#, C++, Go, Python, Rust, JS (e.g. JavaGenerator.cpp:486-658), including JSON list handling — SUPERSEDED: Collection keyword has replaced this feature; see Code Generation section above re: removing the old codegen path
 [x] Character built-in datatype: javaType/javaBoxedType map character/char -> char/Character (JavaGenerator.cpp:64,80)
 [x] "Not Written" dialog when destination is unreachable on build (AppController.cpp:724,793)
 [x] Syntax highlighting uses Scientific, not Float/Double (SpecTableHighlighter.cpp:48) — generator still accepts float/decimal as synonyms, see Code Generation section above
