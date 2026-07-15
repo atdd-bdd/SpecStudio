@@ -4,7 +4,9 @@ Last updated: 2026-07-14
 (Consolidated from Remaining Work.txt, Still more things to do and fix.txt,
 next to do.txt, another to do.txt, still more and more to do.txt,
 to do 1.txt, still still more to do.txt. Audited against current source on
-2026-07-14 — items confirmed implemented were moved to Done below.)
+2026-07-14, then re-audited the same day after Java generator fixes —
+items confirmed implemented were moved to Done below, stale/incorrect
+"not implemented" claims were corrected in place.)
 
 --- Code Generation ---
 
@@ -18,9 +20,12 @@ Scientific vs. Decimal fixed in Java only (see Done below) — the other
 
 While fixing Java, also found and fixed: generated glue/test files produced
   invalid Java (`package ;` / `import .ClassName_glue;`) whenever no
-  namespace/package prefix was configured — see Done below. Check whether
-  the other generators have an equivalent empty-namespace edge case when
-  their turn comes.
+  namespace/package prefix was configured — see Done below. C# and Go
+  structurally can't hit this bug (their namespace/package name is always
+  derived from the spec/class name, never a bare optional prefix — e.g.
+  CSharpGenerator.cpp:1045, GoGenerator.cpp:801); Python/JS don't really
+  have the same "package" concept. C++/Rust not individually re-verified —
+  worth a quick look when each gets its dedicated pass.
 
 Config: directory where bare DataTypes (without String/Typed) should be
   auto-created if missing; include that directory as an import automatically
@@ -42,47 +47,42 @@ Multiples column is dead — the Collection keyword has replaced it. Decide
 
 --- Editor ---
 
-Autocomplete infrastructure for ":" dropdowns and the Type column exists
-  (LineNumberEdit.cpp:319 setAttrSetCompletionWords, :446 Type column
-  context) but is reported as only "sort of working" — needs a pass to
-  confirm it reliably shows built-ins + DataTypes/DomainTerms and prompts
-  "do you want to create that?" for unrecognized entries.
-
-TypeScript syntax highlighting in the Markdown editor — not implemented.
+TypeScript syntax highlighting in the Markdown editor — not implemented;
+  no Markdown-specific editor exists at all, .md falls back to plain text.
 
 DocString should preserve tabbing/indentation relative to the column
-  position of the opening """ — parser accumulates docstring content but
-  has no column-relative indentation logic.
+  position of the opening """ — parser (SpectableParser.cpp:343) appends
+  each line's raw text verbatim with no dedent/normalize logic.
 
-WhenThen clause: a Given sets up state; When/Then applies business rules
-  with multiple inputs/outputs based on that Given. Decide exact semantics
-  (is the implicit Given the same as the prior Given, or the prior Then?)
-  and implement. Remove "But" if still present. Not implemented — no
-  WhenThen token anywhere in src/ or converter/.
+WhenThen clause special semantics: WhenThen is already a fully recognized
+  step keyword (parses, highlights, generates glue like Given/When/Then) —
+  "But" is already gone from the step grammar too. What's still missing is
+  the distinct chaining behavior originally intended (is the implicit
+  Given the same as the prior Given, or the prior Then?) — today it behaves
+  as a plain synonym with no special semantics.
 
-If a Given has a table but no AttrSet/DataType declared, prompt whether to
-  create one (Attribute/Entity/DataType) or select an existing one.
+Proactive prompt when a Given has a table but no AttrSet/DataType declared
+  — not automatic today. A manual "Extract as AttributeSet..." context-menu
+  action already exists (SpecTableEditor.cpp:1074,1615) but the user has to
+  invoke it themselves.
 
-Given/When/Then steps without a table should still generate a glue-code
-  call (verify this works — flagged as possibly broken).
-
-Attribute/Entity/DataType display when hovering or suggesting after a
-  scenario: decide hover vs. non-modal dialog; "sort of works" today —
-  needs a real pass.
-
-Naming conventions to enforce in codegen: attribute names should start
-  lowercase (even if the table name is uppercase), spaces converted to
-  camelCase; package/test class name convention should be
-  Specification_<text>. Neither appears enforced today — verify.
+Naming convention: test/glue class names should follow the
+  Specification_<text> pattern. Attribute name lowercase/camelCase is
+  already enforced (toCamelCase, JavaGenerator.cpp:12-21) — only the class
+  naming half is unimplemented (current convention is <ClassName>_Test /
+  <ClassName>_glue, a suffix rather than a Specification_ prefix).
 
 Don't show non-spec-related files in Solution Explorer unless a setting
-  says to show them.
+  says to show them — Project::scanFiles() (Project.cpp:55-68) currently
+  lists every non-hidden file with no extension filter.
 
 --- Analyze / Validation ---
 
-Analyze still only runs on explicit user action (F7/Shift+F7) — it does
-  NOT auto-run on solution load or after Save All. Add that, and show the
-  save+analyze progress in the Build/Output panel.
+Analyze auto-run on solution load — still missing (loadSolution(),
+  AppController.cpp:131-140, doesn't call doAnalyze). Note: auto-run after
+  Save All is ALREADY done — onSaveAll (AppController.cpp:374-390) already
+  triggers doAnalyze via QTimer::singleShot — only the load-time trigger is
+  still open.
 
 DomainTerms: checkDomainTermDuplicates/checkDomainTermColumnTypes already
   exist (SpecTableAnalyzer.cpp:698,724) enforcing uniqueness and column-type
@@ -90,20 +90,24 @@ DomainTerms: checkDomainTermDuplicates/checkDomainTermColumnTypes already
   DataType name" specifically — verify/extend.
 
 Attributes/Entities must declare either a DataType or a built-in type —
-  not enforced (no match in SpecTableAnalyzer.cpp).
-
-Spec name vs. file name mismatch — informational warning. Not implemented.
+  PARTIAL: JavaGenerator.cpp:1816-1822 already warns "Field 'X' in 'Y' has
+  unknown type 'Z'" at build time, but there's no equivalent check in the
+  live editor Analyze pass (SpecTableAnalyzer.cpp).
 
 Glue methods should take only one parameter type; if the same glue method
   is called with a different parameter type, report an error ("rename one
-  of the steps"). Not implemented.
+  of the steps"). Not implemented — collectGlueSigs/appendMissingStubs
+  (JavaGenerator.cpp:1284-1342) only dedupe by signature string, no
+  parameter-type conflict check.
 
 Analyze-implementation command: flag glue-code methods that are never
   referenced by any step. Not implemented.
 
 When a step name changes, rename/update the corresponding glue method name
   on the next build/analyze instead of leaving an orphaned method. Not
-  implemented.
+  implemented — AppController::onRenameStep (AppController.cpp:1386) exists
+  but only does a find/replace across the .spectable source; it never
+  touches already-generated glue method names.
 
 Table column check only warns for missing columns today (JavaGenerator.cpp:
   247, Examples tables). Still needs the other direction: a column in the
@@ -149,10 +153,12 @@ Bowling project: bowling.spectable exists at the repo root with rich
   failing case, then change the spec and re-run.
 
 Shopping cart: StandardExamplesTests/Shopping Cart.spectable has CatalogItem,
-  OrderItem, a Background Catalog, and a working "Add an order item"
-  scenario — real progress. Billing/shipping-address integration is present
-  but entirely commented out (lines 37-64), and running-total logic is
-  absent. Still open: wire addresses back in, add the running total.
+  OrderItem, a Background Catalog, a working "Add an order item" scenario,
+  and — progress since last check — ShippingAddress/BillingAddress fields
+  are now live on Entity ShoppingCart with an active "A ShoppingCart with
+  Addresses" scenario (no longer commented out). Still open: TotalPrice/
+  Discount/Shipping fields and all total-computation scenarios remain
+  commented out — running-total logic is the only piece left.
 
 Multiple-shipping-addresses scenario (bigger Define, longer match) —
   stubbed out as future work inside Shopping Cart.spectable ("If/when
@@ -191,21 +197,42 @@ Consider a cleanup command for anything in common/ that is no longer
 Copy named comments in the .spectable into comments in the generated code.
 
 Put all production-related output (classes + helpers) under one directory
-  consistently — check whether the existing --prod-dir/--prod-package
-  config already satisfies this or whether more is needed.
-
-File Open dialog that can open a file not necessarily inside the current
-  project.
+  consistently — Entity/DataType/Collection classes already go to
+  --prod-dir consistently across all 7 generators, but Java's
+  ProductionHelper.java is still written to common/ (domainDir) instead of
+  prodDir (JavaGenerator.cpp:2013) — production output is split across two
+  directories.
 
 Have a tab / untab (indent/outdent) command for the file; decide whether
-  there should also be a whole-file reformat/indent-normalize command.
+  there should also be a whole-file reformat/indent-normalize command. Not
+  implemented — LineNumberEdit::keyPressEvent (LineNumberEdit.cpp:525-546)
+  only special-cases Tab/Backtab for the autocomplete popup.
 
-If spectables are organized in folders, confirm the corresponding generated
-  tests land in mirrored folders for every generator, not just C# (C#
-  folder mirroring is confirmed done — verify Java/Python/etc. match).
+Folder mirroring (spectables in folders -> tests in mirrored folders) only
+  works for 2 of 7 generators — CSharpGenerator.cpp and JavaGenerator.cpp
+  implement the source-subfolder-to-output mirroring; PythonGenerator.cpp,
+  GoGenerator.cpp, CppGenerator.cpp, JavaScriptGenerator.cpp, and
+  RustGenerator.cpp have none of it yet. Bigger gap than previously stated.
 
 --- Done ---
 
+[x] ":" and Type-column autocomplete: SpecTableEditor::refreshDynamicCompletions()
+    (SpecTableEditor.cpp:1286-1323) feeds Entities+Attributes for the ":" dropdown and
+    built-ins+DataTypes for the Type column; a real "Create a DataType block for it?" prompt
+    exists and inserts a stub DataType block (SpecTableEditor.cpp:389-449). Minor gap:
+    DomainTerms aren't included in the Type-column list, only built-ins+DataTypes.
+[x] Given/When/Then steps without a table already generate a glue-code call — collectGlueSigs
+    (JavaGenerator.cpp:1077-1078) explicitly handles the empty-AttrSet/no-table case with a
+    void/no-parameter glue signature. Not broken as previously suspected.
+[x] Attribute/Entity/DataType hover preview: SpecTableEditor::showHoverPreview uses QToolTip
+    (SpecTableEditor.cpp:148-255) — a real, working hover implementation (hover was the design
+    choice made, not a non-modal dialog).
+[x] Spec name vs. file name mismatch warning: JavaGenerator.cpp:1826-1834 ("Item 11") already
+    emits "INFO:0:Specification name 'X' does not match file name 'Y'" when they differ.
+[x] File Open dialog for files outside the current project: AppController::onOpenFileDialog
+    (AppController.cpp:1744-1753) uses an unrestricted QFileDialog::getOpenFileName wired to
+    Ctrl+O; onOpenFile (AppController.cpp:1698) opens any absolute path, no project-membership
+    check.
 [x] Java: Scientific and Decimal are now distinct types (Decimal -> java.math.BigDecimal
     throughout javaType/javaBoxedType/isDataType/parseExpr/cellLiteral/cellConvertExpr/JSON
     read paths; Scientific/Float remain double). Verified by building SpecTableConverter,
