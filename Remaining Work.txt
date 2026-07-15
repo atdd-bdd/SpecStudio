@@ -66,23 +66,11 @@ Proactive prompt when a Given has a table but no AttrSet/DataType declared
   action already exists (SpecTableEditor.cpp:1074,1615) but the user has to
   invoke it themselves.
 
-Naming convention: test/glue class names should follow the
-  Specification_<text> pattern. Attribute name lowercase/camelCase is
-  already enforced (toCamelCase, JavaGenerator.cpp:12-21) — only the class
-  naming half is unimplemented (current convention is <ClassName>_Test /
-  <ClassName>_glue, a suffix rather than a Specification_ prefix).
-
 Don't show non-spec-related files in Solution Explorer unless a setting
   says to show them — Project::scanFiles() (Project.cpp:55-68) currently
   lists every non-hidden file with no extension filter.
 
 --- Analyze / Validation ---
-
-Analyze auto-run on solution load — still missing (loadSolution(),
-  AppController.cpp:131-140, doesn't call doAnalyze). Note: auto-run after
-  Save All is ALREADY done — onSaveAll (AppController.cpp:374-390) already
-  triggers doAnalyze via QTimer::singleShot — only the load-time trigger is
-  still open.
 
 DomainTerms: checkDomainTermDuplicates/checkDomainTermColumnTypes already
   exist (SpecTableAnalyzer.cpp:698,724) enforcing uniqueness and column-type
@@ -216,6 +204,18 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 
 --- Done ---
 
+[x] Analyze auto-run on solution load AND after Save All: AppController::setSolution()
+    (AppController.cpp:120-124) already auto-analyzes all projects on load via
+    QTimer::singleShot, and loadSolution() reaches this through setSolution(); onSaveAll()
+    (AppController.cpp:374-390) does the same after saving. Both predate this session
+    (commit 7925072) — earlier audit passes missed it because they only checked
+    loadSolution() directly, not the setSolution() call it makes.
+[x] Java class naming: toClassName() (JavaGenerator.cpp:173-180) now produces true PascalCase
+    (first letter of each word uppercased, words merged with no separator) instead of joining
+    words with underscores — e.g. "Data Definition Error" -> DataDefinitionError_Test.java /
+    DataDefinitionError_glue.java, and Scenario/Examples glue method names read as
+    Scenario_SimpleTableWithIntBad instead of Scenario_Simple_Table_With_Int_Bad. Verified by
+    regenerating TestProject/Data Definition Error.spectable and compiling the output.
 [x] ":" and Type-column autocomplete: SpecTableEditor::refreshDynamicCompletions()
     (SpecTableEditor.cpp:1286-1323) feeds Entities+Attributes for the ":" dropdown and
     built-ins+DataTypes for the Type column; a real "Create a DataType block for it?" prompt

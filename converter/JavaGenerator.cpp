@@ -172,9 +172,10 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
 
 QString JavaGenerator::toClassName(const QString& name)
 {
-    QString s = name;
-    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
-    s = s.remove(QRegularExpression("^_+|_+$"));
+    const QStringList parts = name.split(QRegularExpression(R"([^A-Za-z0-9]+)"), Qt::SkipEmptyParts);
+    QString s;
+    for (const QString& p : parts)
+        s += p[0].toUpper() + p.mid(1);
     if (!s.isEmpty() && s[0].isDigit()) s.prepend("_");
     return s;
 }
