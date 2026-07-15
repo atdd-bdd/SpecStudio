@@ -10,11 +10,16 @@ to do 1.txt, still still more to do.txt. Audited against current source on
 
 Swift generator (C#, C++, Go, Java, JavaScript, Python, Rust already done).
 
-Rename Double/Float to ScientificNumber fully: "Scientific" is now the
-  primary type (used in syntax highlighting and javaType()), but
-  javaBoxedType()/isDataType() still accept "float"/"decimal" as synonyms
-  (JavaGenerator.cpp:72,87) — decide whether to keep as backward-compat
-  aliases or remove.
+BUG: Scientific and Decimal are two distinct types, not synonyms — but
+  JavaGenerator.cpp treats "float"/"decimal"/"scientific" as the same type,
+  all mapping to Java double/Double (javaType():56, javaBoxedType():72,
+  isDataType():87, parseExpr():138,645,666). Needs real separate handling
+  (e.g. Decimal -> BigDecimal or fixed-point, Scientific -> double or a
+  scientific-notation-aware type) — not just a naming/alias cleanup.
+  Also: only JavaGenerator.cpp recognizes "Scientific" at all today; the
+  other generators (CSharpGenerator.cpp:49, PythonGenerator.cpp:53, etc.)
+  only know Float/Decimal, so Scientific isn't consistently supported
+  across languages yet either.
 
 Config: directory where bare DataTypes (without String/Typed) should be
   auto-created if missing; include that directory as an import automatically
