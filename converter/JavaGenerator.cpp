@@ -53,7 +53,8 @@ QString JavaGenerator::javaType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")                          return "int";
-    if (t == "float" || t == "decimal" || t == "scientific")   return "double";
+    if (t == "float" || t == "scientific")                     return "double";
+    if (t == "decimal")                                        return "java.math.BigDecimal";
     if (t == "yesno")                                          return "YesNo";
     if (t == "boolean" || t == "bool")         return "boolean";
     if (t == "date")                           return "LocalDate";
@@ -69,7 +70,8 @@ static QString javaBoxedType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")                          return "Integer";
-    if (t == "float" || t == "decimal" || t == "scientific")   return "Double";
+    if (t == "float" || t == "scientific")                     return "Double";
+    if (t == "decimal")                                        return "java.math.BigDecimal";
     if (t == "yesno")                          return "YesNo";
     if (t == "boolean" || t == "bool")         return "Boolean";
     if (t == "date")                           return "LocalDate";
@@ -84,7 +86,7 @@ static QString javaBoxedType(const QString& specType)
 static bool isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Scientific", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo"
     };
     for (const QString& b : builtins)
@@ -135,9 +137,10 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int" || t == "long")
         return QString("Integer.parseInt(%1)").arg(ref);
-    if (t == "float" || t == "decimal" || t == "scientific"
-     || t == "double")
+    if (t == "float" || t == "scientific" || t == "double")
         return QString("Double.parseDouble(%1)").arg(ref);
+    if (t == "decimal")
+        return QString("new java.math.BigDecimal(%1)").arg(ref);
     if (t == "yesno")
         return QString("new YesNo(%1)").arg(ref);
     if (t == "boolean" || t == "bool")
@@ -200,8 +203,10 @@ static QString cellLiteral(const QString& val, const QString& specType)
         return "\"" + val + "\"";
     if (t == "integer" || t == "int" || t == "long")
         return val;
-    if (t == "float" || t == "decimal" || t == "double")
+    if (t == "float" || t == "scientific" || t == "double")
         return val;
+    if (t == "decimal")
+        return "new java.math.BigDecimal(\"" + val + "\")";
     if (t == "boolean" || t == "yesno" || t == "bool") {
         const QString v = val.toLower();
         return (v == "true" || v == "t" || v == "yes" || v == "y" || v == "1")
@@ -642,7 +647,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
                   << "for (int _i = 0; _i < _a.length(); _i++) " << fname << ".add(";
                 const QString t = f.type.toLower();
                 if (t == "integer" || t == "int")            s << "_a.getInt(_i)";
-                else if (t == "float" || t == "decimal" || t == "scientific") s << "_a.getDouble(_i)";
+                else if (t == "float" || t == "scientific")  s << "_a.getDouble(_i)";
+                else if (t == "decimal")                     s << "_a.getBigDecimal(_i)";
                 else if (t == "boolean" || t == "bool")      s << "_a.getBoolean(_i)";
                 else if (t == "character" || t == "char")    s << "(char) _a.getString(_i).charAt(0)";
                 else                                          s << "_a.getString(_i)";
@@ -663,8 +669,10 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
             const QString t = f.type.toLower();
             if (t == "integer" || t == "int")
                 s << "            obj.getInt(\"" << fname << "\")";
-            else if (t == "float" || t == "decimal" || t == "scientific")
+            else if (t == "float" || t == "scientific")
                 s << "            obj.getDouble(\"" << fname << "\")";
+            else if (t == "decimal")
+                s << "            obj.getBigDecimal(\"" << fname << "\")";
             else if (t == "boolean" || t == "bool")
                 s << "            obj.getBoolean(\"" << fname << "\")";
             else if (t == "character" || t == "char")
@@ -764,11 +772,11 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     QString out;
     QTextStream s(&out);
 
-    s << "package " << testPkg << ";\n\n";
+    if (!testPkg.isEmpty()) s << "package " << testPkg << ";\n\n";
     s << "import java.util.List;\n";
     s << "import java.util.ArrayList;\n";
     s << "import " << domainPkg << ".*;\n";
-    s << "import " << specPkg << "." << className << "_glue;\n";
+    if (!specPkg.isEmpty()) s << "import " << specPkg << "." << className << "_glue;\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
 
     const bool isJUnit5 = m_framework.compare("TestNG", Qt::CaseInsensitive) != 0
@@ -1117,8 +1125,10 @@ static QString cellConvertExpr(const QString& specType, const SpectableFile& fil
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int" || t == "long")
         return "Integer.parseInt(cell)";
-    if (t == "float" || t == "decimal" || t == "double")
+    if (t == "float" || t == "scientific" || t == "double")
         return "Double.parseDouble(cell)";
+    if (t == "decimal")
+        return "new java.math.BigDecimal(cell)";
     if (t == "yesno")
         return "new YesNo(cell)";
     if (t == "boolean" || t == "bool")
@@ -1339,7 +1349,7 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
     QString out;
     QTextStream s(&out);
 
-    s << "package " << specPkg << ";\n\n";
+    if (!specPkg.isEmpty()) s << "package " << specPkg << ";\n\n";
     s << "import java.util.List;\n";
     s << "import java.util.ArrayList;\n";
     s << "import " << domainPkg << ".*;\n";
@@ -1845,7 +1855,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     } else {
         specPkg = opts.packagePrefix;
     }
-    const QString testPkg = joinPkg(specPkg, "tests");
+    const QString testPkg = specPkg.isEmpty() ? QString() : joinPkg(specPkg, "tests");
 
     QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
     if (!dir.exists() && !dir.mkpath(".")) {

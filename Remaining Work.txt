@@ -10,16 +10,17 @@ to do 1.txt, still still more to do.txt. Audited against current source on
 
 Swift generator (C#, C++, Go, Java, JavaScript, Python, Rust already done).
 
-BUG: Scientific and Decimal are two distinct types, not synonyms — but
-  JavaGenerator.cpp treats "float"/"decimal"/"scientific" as the same type,
-  all mapping to Java double/Double (javaType():56, javaBoxedType():72,
-  isDataType():87, parseExpr():138,645,666). Needs real separate handling
-  (e.g. Decimal -> BigDecimal or fixed-point, Scientific -> double or a
-  scientific-notation-aware type) — not just a naming/alias cleanup.
-  Also: only JavaGenerator.cpp recognizes "Scientific" at all today; the
-  other generators (CSharpGenerator.cpp:49, PythonGenerator.cpp:53, etc.)
-  only know Float/Decimal, so Scientific isn't consistently supported
-  across languages yet either.
+Scientific vs. Decimal fixed in Java only (see Done below) — the other
+  generators (CSharpGenerator.cpp:49, PythonGenerator.cpp:53, etc.) still
+  only know Float/Decimal and don't recognize "Scientific" at all. Apply
+  the same Decimal->BigDecimal-equivalent / Scientific->double split when
+  each generator gets its verification pass.
+
+While fixing Java, also found and fixed: generated glue/test files produced
+  invalid Java (`package ;` / `import .ClassName_glue;`) whenever no
+  namespace/package prefix was configured — see Done below. Check whether
+  the other generators have an equivalent empty-namespace edge case when
+  their turn comes.
 
 Config: directory where bare DataTypes (without String/Typed) should be
   auto-created if missing; include that directory as an import automatically
@@ -46,8 +47,6 @@ Autocomplete infrastructure for ":" dropdowns and the Type column exists
   context) but is reported as only "sort of working" — needs a pass to
   confirm it reliably shows built-ins + DataTypes/DomainTerms and prompts
   "do you want to create that?" for unrecognized entries.
-
-When "=" is typed, show all Define names in a dropdown — not implemented.
 
 TypeScript syntax highlighting in the Markdown editor — not implemented.
 
@@ -207,6 +206,22 @@ If spectables are organized in folders, confirm the corresponding generated
 
 --- Done ---
 
+[x] Java: Scientific and Decimal are now distinct types (Decimal -> java.math.BigDecimal
+    throughout javaType/javaBoxedType/isDataType/parseExpr/cellLiteral/cellConvertExpr/JSON
+    read paths; Scientific/Float remain double). Verified by building SpecTableConverter,
+    generating Java from a test .spectable with Integer/Scientific/Decimal fields, and
+    compiling the output end-to-end (common/*String/*Typed, glue, and JUnit test file all
+    compiled; javap confirmed distinct int/double/BigDecimal field types).
+[x] Java: fixed invalid generated code when no namespace/package prefix is configured —
+    genGlueFile/genTestFile previously emitted `package ;` and `import .ClassName_glue;`
+    (invalid Java) in that case; now the package line and glue import are omitted and both
+    glue + test land together in the default package. Found and fixed while verifying the
+    Scientific/Decimal fix by actually compiling generated output.
+[x] "=" Define-name dropdown: SpecTableEditor::refreshDynamicCompletions() (SpecTableEditor.cpp:1299)
+    already adds "=" + defineName for every project Define; LineNumberEdit::updateCompleterWords()
+    (LineNumberEdit.cpp:481-487) filters to just those entries in "=" context; wired to fire on
+    file open/index rebuild (AppController.cpp:334,972,1573). Earlier audit pass had this wrong —
+    it's already implemented, no work needed.
 [x] --source-root: package and output subfolder derived from .spectable subfolder path
 [x] domain package/folder renamed to common
 [x] .spectable file copied to output folder alongside generated files
