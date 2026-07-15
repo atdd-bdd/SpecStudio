@@ -1,0 +1,269 @@
+Remaining Work — SpecStudio / SpecTable
+========================================
+Last updated: 2026-07-14
+(Consolidated from Remaining Work.txt, Still more things to do and fix.txt,
+next to do.txt, another to do.txt, still more and more to do.txt)
+
+--- Code Generation ---
+
+Finish JSON serialization/deserialization generation (to/from JSON) for
+  AttrSets and Entities. Try both directions on an entity containing an entity
+  — check how many nesting levels work.
+
+Swift generator (C#, C++, Go, Java, JavaScript, Python, Rust already done).
+
+Production classes for Entities (not just DataTypes):
+  - Constructor with all attributes, plus a Builder pattern.
+  - ProductionHelper class in common: static <Entity>TypedToProduction and
+    <Entity>ProductionToTyped methods (use the production constructor; developer
+    may edit if an existing production class differs).
+  - Also List<Typed>-to-List<Production> and vice versa in the helper.
+  - Do not overwrite production classes after creation; do not create if a
+    production class already exists there (enhancement).
+
+TableHelper class: move the List<List<Object>> -> List<List<String>> grid
+  conversion out of glue code into a TableHelper class in common; call it from
+  the appropriate place and remove the generated converters from glue.
+
+Rename Double/Float to ScientificNumber (or similarly precise numeric type
+  naming) throughout generators.
+
+Add a Character built-in datatype; convert to the appropriate type per
+  destination language.
+
+Multiples column on Attributes/Entity tables:
+  If Multiples=Y, attribute becomes List<DataType> or List<AttributeSet>.
+  Define can have multiple lines for an AttributeSet or | Value1 | Value2 |
+  for a DataType. (Deferred — still open.)
+
+Config: directory where bare DataTypes (without String/Typed) should be
+  auto-created if missing; include that directory as an import automatically
+  (skip if already covered by an existing import, same de-dup logic as
+  production-class imports).
+
+Config option: "fail every test" toggle for generated scaffolding.
+
+In-Out attribute support for Calculations/Business Rules.
+
+--- Editor ---
+
+After ":" on Given/When/Then/Examples (except DataType): dropdown of matching
+  Attributes/Entities (autocomplete extension in SpecTableEditor).
+
+Type column in Attributes/Entities table: show built-in types + user
+  DataTypes/DomainTerms; prompt "do you want to create that?" if unrecognized.
+
+When "=" is typed, show all Define names in a dropdown.
+
+Hover preview for EnumerationValues/ValidValues attributes (not just built-ins).
+  When user types "Examples: EnumerationValues" or "Examples: ValidValues",
+  auto-insert the header row if it doesn't already exist.
+
+Warn when a table's column header doesn't match an Attribute/Entity field —
+  for both step tables and Examples tables. Columns may be a subset of the
+  fields but never a superset.
+
+TypeScript syntax highlighting in the Markdown editor.
+
+Refresh command on the Solution Explorer / project window, to pick up files
+  added from outside the IDE.
+
+File menu: Save As.
+
+DocString should preserve tabbing/indentation relative to the column position
+  of the opening """.
+
+WhenThen clause: decide semantics (is Given the same as the prior Given, or
+  is it the prior Then?) and implement. Remove "But".
+
+If a Given has a table but no AttrSet/DataType declared, prompt whether to
+  create one (Attribute/Entity/DataType) or select an existing one.
+
+--- Analyze / Validation ---
+
+Analyze should run per-project only (with a project dropdown when the
+  solution has more than one project) — not per-solution; run automatically
+  on solution load and after Save All (show saving + analyzing progress in
+  the Build/Output panel).
+
+DomainTerms must not share a name with a DataType — enforce this.
+
+Attributes/Entities must declare either a DataType or a built-in type —
+  check and warn if missing.
+
+Spec name vs. file name mismatch — informational warning.
+
+Glue methods should take only one parameter type; if the same glue method
+  is called with a different parameter type, report an error ("rename one
+  of the steps").
+
+Analyze-implementation command: flag glue-code methods that are never
+  referenced by any step, so the developer can delete them (or just let the
+  developer decide).
+
+When a step name changes, rename/update the corresponding glue method name
+  on the next build/analyze instead of leaving an orphaned method.
+
+--- Git / Collaboration ---
+
+Store git remote URL + branch in a solution-level config file (created when
+  the solution is created) instead of per-user AppSettings, so the config is
+  shared across the team. Username/password remain local per machine.
+
+Fetch the project automatically when a solution/project is opened.
+
+On exit, if there are unsaved/uncommitted changes, ask whether to commit
+  and push (prompt for a comment). Consider also prompting just before a
+  Build or Analyze ("why are we building this?") — needs a decision on
+  exactly when to ask, possibly a setting.
+
+Diff viewer: show the difference between the .spectable used to generate the
+  current tests and the current .spectable on disk.
+
+"Share Changes" (commit + push) and "Get Others' Changes" (fetch) dialogs,
+  designed for non-programmers but with a collapsible "Advanced"/"Details for
+  Developers" section (real git errors, commit hash, retry buttons, merge
+  tool, etc.). See "Share Changes / error recovery dialog design" appendix
+  below for the full mockup — not yet implemented.
+
+--- Example Projects ---
+
+Bowling project: spectables + tests, generate code, wire up glue, run from
+  the IDE for both a passing and a failing run. Then change the .spectable
+  and run again.
+
+Shopping cart: billing + shipping addresses (entity containing an entity),
+  order items with a running total, add a catalog. Basic version exists;
+  catalog/totals still open.
+
+Entity-containing-entity scenario (for VariousTests): initialize via a
+  Define, print it out, confirm it compiles, check a nested field in a Then.
+  Establish how many nesting levels are supported.
+
+Multiples scenario: similar to the entity-in-entity case but with a bigger
+  Define and a longer match — e.g. multiple shipping addresses for the same
+  set of items.
+
+--- Ideas / Open Questions ---
+
+Contact Vanguard (possible pilot/service to test against).
+
+Consider a cleanup command for anything in common/ that is no longer
+  referenced by any generated code.
+
+If the destination directory is unreachable on build, just produce the
+  errors/warnings plus a "Not Written" dialog instead of failing silently.
+
+Copy named comments in the .spectable into comments in the generated code.
+
+--- Done ---
+
+[x] --source-root: package and output subfolder derived from .spectable subfolder path
+[x] domain package/folder renamed to common
+[x] .spectable file copied to output folder alongside generated files
+[x] Build log: converter errors now shown; output drained at process finish; build.log written
+[x] .spectable first choice in New File menu
+[x] Tags pass-through: @Tag / [TestCategory] emitted before each @Test / [TestMethod]
+[x] BusinessRule, Calculation, DataType tests generated
+[x] DataType step table bug: all rows treated as data (no false header skip)
+[x] "I don't understand that word": unrecognized keyword warning in parser + analyzer
+[x] Project context menu: Rename Project, Move Project
+[x] Multiple .specconfig files per project with Build > Configuration submenu
+[x] imports field in .specconfig (extra using/import statements) — editable, not read-only
+[x] Active build config persisted per project in AppSettings
+[x] C# folder mirroring: output mirrors source subfolder structure
+[x] SpecTableConverter: --import repeatable option wired through to generators
+[x] CSV Insert "file.csv" in step tables: reads CSV, validates headers against AttrSet, warns on mismatch
+[x] Analyze scope: F7=Project, Shift+F7=Solution
+[x] Build scope: F6=Current File, Shift+F6=Project, Ctrl+F6=Solution
+[x] Solution Explorer: Copy / Paste / Rename / Move / Delete on files; Rename/Move on projects
+[x] Save all unsaved files before Analyze and Build; save all on Exit
+[x] Enum DataType handling: isEnumType() detects EnumerationValues Examples; TypeName.valueOf(ref) in parseExpr
+[x] ValidValues DataType glue stub with try/catch NumberFormatException, assertEquals isValid vs !error
+[x] Enumeration DataType glue stub with try/catch IllegalArgumentException, assertEquals count vs values().length
+[x] Production classes: ValidValues -> Java class w/ String + optional numeric constructor; Enumeration -> Java enum;
+    only written if file doesn't exist; auto-imported in Typed/glue; SpecConfigEditor UI + --prod-dir/--prod-package CLI
+[x] *String pure data holder (no toTyped()); *Typed has TypedClass(StringClass s) conversion constructor
+[x] Package name editable in configuration
+[x] Generators for C#, C++, Go, Java, JavaScript, Python, Rust
+[x] Collection keyword (v3.3): parser, model, index, analyzer, generators
+[x] Shopping Cart example (basic entity-with-entity case)
+
+===============================================================================
+Appendix: Share Changes / error-recovery dialog design (not yet implemented)
+===============================================================================
+
+Share Changes (Commit + Push) / Get Others' Changes (Fetch)
+
+Purpose: help the user review what changed, add a short description, confirm
+sharing, and perform Commit + Push in one step — without exposing git jargon
+to non-programmers, while still giving programmers what they expect.
+
+Share Changes dialog layout:
+
+1. Summary section (top)
+   "You have changes ready to share. Review the updates below, then click
+   Share." Shows count of changed items, optional "Last shared on..."
+   timestamp, optional "up to date with others' changes" indicator.
+
+2. Change list (center)
+   Collapsible list of changed files (e.g. Customer.spec, Order.spec,
+   Address.spec). Each expands to a friendly before/after diff view — no
+   hunks, no patch syntax. Labels: Added (green), Removed (red), Updated
+   (blue). Example:
+     Customer.spec
+       Name: Ken -> Kenneth
+       Age: 42 -> 43
+
+3. Description box (required)
+   Label "Describe your changes" / subtitle "This helps others understand
+   what you shared." This is the commit message, without calling it that.
+
+4. Advanced options (collapsed, for programmers)
+   Show actual git commit message; show commit hash preview; show branch
+   name; checkbox "Push immediately after sharing" (checked by default);
+   checkbox "Allow empty description".
+
+5. Action buttons
+   Primary: "Share Changes". Secondary: "Cancel", "Preview Details"
+   (optional). Tooltip: "Saves your changes and makes them available to
+   others. (Commit + Push)".
+
+Behavior on Share Changes:
+   Validate description -> Commit -> Push -> success toast "Your changes
+   have been shared." If push fails: "Your changes were saved, but could
+   not be shared. Try 'Get Others' Changes' first, then share again."
+   (Programmers will recognize this as commit-succeeded/push-failed.)
+
+Error Recovery dialog ("There Was a Problem Sharing Changes" / "...Getting
+Others' Changes"):
+
+1. Friendly summary: "Something went wrong while updating your project. You
+   can try again, or ask a developer for help."
+
+2. Simple explanation, one of:
+   - Commit failed: "Your changes could not be saved safely."
+   - Push failed: "Your changes were saved, but could not be shared with
+     others."
+   - Fetch failed: "The latest updates could not be downloaded."
+   - Merge conflict: "Your changes conflict with updates from others."
+
+3. "Details for Developers" (collapsed by default): real git error text
+   (e.g. "Error: non-fast-forward update"), plain-language explanation,
+   suggested fix (e.g. "Run: git fetch, then merge or rebase"), buttons
+   View Diff / Open Merge Tool / Retry Push / Retry Fetch / Open Terminal,
+   and metadata: current branch, remote branch, commit hash, upstream
+   status, staged/unstaged changes, conflicting file list.
+
+4. Conflict resolution section (if applicable): friendly message "Some of
+   your changes conflict with updates from others. A developer can help
+   resolve this." plus developer tools: Open Merge Tool, Show Conflicting
+   Files, View Side-by-Side Diff, Abort Merge / Reset (developer only).
+
+5. Action buttons: primary "Try Again", secondary "Cancel"; developer-only
+   buttons Retry Commit / Retry Push / Retry Fetch / Open Merge Tool /
+   Open Terminal / View Diff.
+
+Related, not yet designed: Conflict resolution dialog, History/timeline
+viewer, Branch creation dialog, Status panel, Git onboarding flow for
+non-programmers.
