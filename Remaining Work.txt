@@ -2,39 +2,19 @@ Remaining Work — SpecStudio / SpecTable
 ========================================
 Last updated: 2026-07-14
 (Consolidated from Remaining Work.txt, Still more things to do and fix.txt,
-next to do.txt, another to do.txt, still more and more to do.txt)
+next to do.txt, another to do.txt, still more and more to do.txt,
+to do 1.txt, still still more to do.txt. Audited against current source on
+2026-07-14 — items confirmed implemented were moved to Done below.)
 
 --- Code Generation ---
 
-Finish JSON serialization/deserialization generation (to/from JSON) for
-  AttrSets and Entities. Try both directions on an entity containing an entity
-  — check how many nesting levels work.
-
 Swift generator (C#, C++, Go, Java, JavaScript, Python, Rust already done).
 
-Production classes for Entities (not just DataTypes):
-  - Constructor with all attributes, plus a Builder pattern.
-  - ProductionHelper class in common: static <Entity>TypedToProduction and
-    <Entity>ProductionToTyped methods (use the production constructor; developer
-    may edit if an existing production class differs).
-  - Also List<Typed>-to-List<Production> and vice versa in the helper.
-  - Do not overwrite production classes after creation; do not create if a
-    production class already exists there (enhancement).
-
-TableHelper class: move the List<List<Object>> -> List<List<String>> grid
-  conversion out of glue code into a TableHelper class in common; call it from
-  the appropriate place and remove the generated converters from glue.
-
-Rename Double/Float to ScientificNumber (or similarly precise numeric type
-  naming) throughout generators.
-
-Add a Character built-in datatype; convert to the appropriate type per
-  destination language.
-
-Multiples column on Attributes/Entity tables:
-  If Multiples=Y, attribute becomes List<DataType> or List<AttributeSet>.
-  Define can have multiple lines for an AttributeSet or | Value1 | Value2 |
-  for a DataType. (Deferred — still open.)
+Rename Double/Float to ScientificNumber fully: "Scientific" is now the
+  primary type (used in syntax highlighting and javaType()), but
+  javaBoxedType()/isDataType() still accept "float"/"decimal" as synonyms
+  (JavaGenerator.cpp:72,87) — decide whether to keep as backward-compat
+  aliases or remove.
 
 Config: directory where bare DataTypes (without String/Typed) should be
   auto-created if missing; include that directory as an import automatically
@@ -43,106 +23,157 @@ Config: directory where bare DataTypes (without String/Typed) should be
 
 Config option: "fail every test" toggle for generated scaffolding.
 
-In-Out attribute support for Calculations/Business Rules.
+In-Out attribute support for Calculations/Business Rules — parser stores/
+  ignores the In-Out column today; no codegen uses it yet.
 
 --- Editor ---
 
-After ":" on Given/When/Then/Examples (except DataType): dropdown of matching
-  Attributes/Entities (autocomplete extension in SpecTableEditor).
+Autocomplete infrastructure for ":" dropdowns and the Type column exists
+  (LineNumberEdit.cpp:319 setAttrSetCompletionWords, :446 Type column
+  context) but is reported as only "sort of working" — needs a pass to
+  confirm it reliably shows built-ins + DataTypes/DomainTerms and prompts
+  "do you want to create that?" for unrecognized entries.
 
-Type column in Attributes/Entities table: show built-in types + user
-  DataTypes/DomainTerms; prompt "do you want to create that?" if unrecognized.
+When "=" is typed, show all Define names in a dropdown — not implemented.
 
-When "=" is typed, show all Define names in a dropdown.
+TypeScript syntax highlighting in the Markdown editor — not implemented.
 
-Hover preview for EnumerationValues/ValidValues attributes (not just built-ins).
-  When user types "Examples: EnumerationValues" or "Examples: ValidValues",
-  auto-insert the header row if it doesn't already exist.
+DocString should preserve tabbing/indentation relative to the column
+  position of the opening """ — parser accumulates docstring content but
+  has no column-relative indentation logic.
 
-Warn when a table's column header doesn't match an Attribute/Entity field —
-  for both step tables and Examples tables. Columns may be a subset of the
-  fields but never a superset.
-
-TypeScript syntax highlighting in the Markdown editor.
-
-Refresh command on the Solution Explorer / project window, to pick up files
-  added from outside the IDE.
-
-File menu: Save As.
-
-DocString should preserve tabbing/indentation relative to the column position
-  of the opening """.
-
-WhenThen clause: decide semantics (is Given the same as the prior Given, or
-  is it the prior Then?) and implement. Remove "But".
+WhenThen clause: a Given sets up state; When/Then applies business rules
+  with multiple inputs/outputs based on that Given. Decide exact semantics
+  (is the implicit Given the same as the prior Given, or the prior Then?)
+  and implement. Remove "But" if still present. Not implemented — no
+  WhenThen token anywhere in src/ or converter/.
 
 If a Given has a table but no AttrSet/DataType declared, prompt whether to
   create one (Attribute/Entity/DataType) or select an existing one.
 
+Given/When/Then steps without a table should still generate a glue-code
+  call (verify this works — flagged as possibly broken).
+
+Attribute/Entity/DataType display when hovering or suggesting after a
+  scenario: decide hover vs. non-modal dialog; "sort of works" today —
+  needs a real pass, including confirming Multiples display correctly in
+  embedded tables in the scenario display.
+
+Naming conventions to enforce in codegen: attribute names should start
+  lowercase (even if the table name is uppercase), spaces converted to
+  camelCase; package/test class name convention should be
+  Specification_<text>. Neither appears enforced today — verify.
+
+Don't show non-spec-related files in Solution Explorer unless a setting
+  says to show them.
+
+Optional Multiples column default (blank = no default; Y/Yes or a number)
+  — note the new Collection keyword (Minimum/Maximum) may already cover the
+  "a number" case; check for overlap before doing more work here.
+
 --- Analyze / Validation ---
 
-Analyze should run per-project only (with a project dropdown when the
-  solution has more than one project) — not per-solution; run automatically
-  on solution load and after Save All (show saving + analyzing progress in
-  the Build/Output panel).
+Analyze still only runs on explicit user action (F7/Shift+F7) — it does
+  NOT auto-run on solution load or after Save All. Add that, and show the
+  save+analyze progress in the Build/Output panel.
 
-DomainTerms must not share a name with a DataType — enforce this.
+DomainTerms: checkDomainTermDuplicates/checkDomainTermColumnTypes already
+  exist (SpecTableAnalyzer.cpp:698,724) enforcing uniqueness and column-type
+  consistency, but do not check "DomainTerm name must differ from any
+  DataType name" specifically — verify/extend.
 
 Attributes/Entities must declare either a DataType or a built-in type —
-  check and warn if missing.
+  not enforced (no match in SpecTableAnalyzer.cpp).
 
-Spec name vs. file name mismatch — informational warning.
+Spec name vs. file name mismatch — informational warning. Not implemented.
 
 Glue methods should take only one parameter type; if the same glue method
   is called with a different parameter type, report an error ("rename one
-  of the steps").
+  of the steps"). Not implemented.
 
 Analyze-implementation command: flag glue-code methods that are never
-  referenced by any step, so the developer can delete them (or just let the
-  developer decide).
+  referenced by any step. Not implemented.
 
 When a step name changes, rename/update the corresponding glue method name
-  on the next build/analyze instead of leaving an orphaned method.
+  on the next build/analyze instead of leaving an orphaned method. Not
+  implemented.
+
+Table column check only warns for missing columns today (JavaGenerator.cpp:
+  247, Examples tables). Still needs the other direction: a column in the
+  table that doesn't match any Attribute/Entity field (superset case) —
+  not confirmed anywhere in the analyzer.
 
 --- Git / Collaboration ---
 
 Store git remote URL + branch in a solution-level config file (created when
-  the solution is created) instead of per-user AppSettings, so the config is
-  shared across the team. Username/password remain local per machine.
+  the solution is created) instead of per-user AppSettings. Not implemented
+  — SolutionSerializer.cpp has no gitRemoteUrl/gitBranch fields; still only
+  in AppSettings.
 
 Fetch the project automatically when a solution/project is opened.
+  GitClient::fetch() exists and works (AppController.cpp:465) but only from
+  the explicit "Get Others' Changes" action — not wired to project/solution
+  open.
 
 On exit, if there are unsaved/uncommitted changes, ask whether to commit
-  and push (prompt for a comment). Consider also prompting just before a
-  Build or Analyze ("why are we building this?") — needs a decision on
-  exactly when to ask, possibly a setting.
+  and push. Not implemented — MainWindow::closeEvent (MainWindow.cpp:109)
+  only prompts Save All / Discard / Cancel, no git prompt. Consider also
+  prompting just before a Build or Analyze — needs a decision on exactly
+  when to ask, possibly a setting.
 
-Diff viewer: show the difference between the .spectable used to generate the
-  current tests and the current .spectable on disk.
+Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
+  AppController.cpp:500) but it's a generic git working-tree diff, not a
+  comparison against "the .spectable version that generated the current
+  tests" — that provenance tracking doesn't exist yet.
 
-"Share Changes" (commit + push) and "Get Others' Changes" (fetch) dialogs,
-  designed for non-programmers but with a collapsible "Advanced"/"Details for
-  Developers" section (real git errors, commit hash, retry buttons, merge
-  tool, etc.). See "Share Changes / error recovery dialog design" appendix
-  below for the full mockup — not yet implemented.
+"Share Changes" (commit + push) and "Get Others' Changes" (fetch) dialogs
+  with a friendly non-jargon flow plus a collapsible Advanced/Developer
+  section — not implemented. GitPushDialog.cpp today is a bare "Commit and
+  Push" dialog with just a change-reason text field; no file list, no diff
+  view, no Advanced section, and there's no dedicated fetch-side dialog at
+  all. Full mockup is in the appendix below.
 
 --- Example Projects ---
 
-Bowling project: spectables + tests, generate code, wire up glue, run from
-  the IDE for both a passing and a failing run. Then change the .spectable
-  and run again.
+Bowling project: bowling.spectable exists at the repo root with rich
+  scenarios (roll validation, scoring, frame display, game-complete checks),
+  but there's no generated code/glue anywhere yet and it isn't wired to run
+  from the IDE. Still need: generate, wire up glue, run for a passing and a
+  failing case, then change the spec and re-run.
 
-Shopping cart: billing + shipping addresses (entity containing an entity),
-  order items with a running total, add a catalog. Basic version exists;
-  catalog/totals still open.
+Shopping cart: StandardExamplesTests/Shopping Cart.spectable has CatalogItem,
+  OrderItem, a Background Catalog, and a working "Add an order item"
+  scenario — real progress. Billing/shipping-address integration is present
+  but entirely commented out (lines 37-64), and running-total logic is
+  absent. Still open: wire addresses back in, add the running total.
 
-Entity-containing-entity scenario (for VariousTests): initialize via a
-  Define, print it out, confirm it compiles, check a nested field in a Then.
-  Establish how many nesting levels are supported.
+Multiples scenario (bigger Define, multiple shipping addresses for the same
+  set of items) — explicitly stubbed out as future work inside Shopping
+  Cart.spectable ("If/when Multiple is allowed for attributes..."). Not
+  started; may be superseded by the new Collection keyword — check overlap
+  before implementing as originally scoped.
 
-Multiples scenario: similar to the entity-in-entity case but with a bigger
-  Define and a longer match — e.g. multiple shipping addresses for the same
-  set of items.
+Make up a project with all the feature files from GherkinExecutor and try
+  it out as a migration exercise.
+
+--- Bigger Language Feature Ideas (not scoped/designed yet) ---
+
+Sequence keyword: shows a sequence of operations where each step's Given is
+  the previous step's output.
+
+State table: State/Event grid (states down the side, events across the
+  top) filled in with transitions; generates glue code for every
+  transition. Shorthand: "Given this state / When this event / Then this
+  state." A state's target could reference a Define containing an if-clause
+  for more complex transition logic.
+
+Karnaugh map style DataType/table with don't-cares ("DNC"), checked for
+  completeness.
+
+Business Rule table with complex per-field conditions (e.g. ">10, >-10,
+  >10 & <12, =10 | =12" — and/or/not plus comparison operators) instead of
+  plain examples; if the rule fields are typed, auto-generate the Examples
+  rows from the condition table.
 
 --- Ideas / Open Questions ---
 
@@ -151,10 +182,21 @@ Contact Vanguard (possible pilot/service to test against).
 Consider a cleanup command for anything in common/ that is no longer
   referenced by any generated code.
 
-If the destination directory is unreachable on build, just produce the
-  errors/warnings plus a "Not Written" dialog instead of failing silently.
-
 Copy named comments in the .spectable into comments in the generated code.
+
+Put all production-related output (classes + helpers) under one directory
+  consistently — check whether the existing --prod-dir/--prod-package
+  config already satisfies this or whether more is needed.
+
+File Open dialog that can open a file not necessarily inside the current
+  project.
+
+Have a tab / untab (indent/outdent) command for the file; decide whether
+  there should also be a whole-file reformat/indent-normalize command.
+
+If spectables are organized in folders, confirm the corresponding generated
+  tests land in mirrored folders for every generator, not just C# (C#
+  folder mirroring is confirmed done — verify Java/Python/etc. match).
 
 --- Done ---
 
@@ -187,7 +229,19 @@ Copy named comments in the .spectable into comments in the generated code.
 [x] Package name editable in configuration
 [x] Generators for C#, C++, Go, Java, JavaScript, Python, Rust
 [x] Collection keyword (v3.3): parser, model, index, analyzer, generators
-[x] Shopping Cart example (basic entity-with-entity case)
+[x] Shopping Cart example (basic entity-with-entity case; catalog + order items work; addresses/total still open, see above)
+[x] JSON serialization: toJSON()/fromJSON() generated for entities, including nested AttrSet fields and multiples lists (JavaGenerator.cpp:600-664)
+[x] Production classes for Entities: genProductionEntity generates constructor + inner Builder (JavaGenerator.cpp:1594,1622-1630)
+[x] ProductionHelper class: <Entity>TypedToProduction/ProductionToTyped plus List<Typed><->List<Production> (JavaGenerator.cpp:1674-1761); only written if file doesn't exist (JavaGenerator.cpp:1983-2005)
+[x] TableHelper class: genTableHelperClass writes TableHelper.java with toListListXxx static converters into common/ (JavaGenerator.cpp:1154,1173,1949-1954)
+[x] Multiples column: f.multiples drives List<Type> codegen across Java, C#, C++, Go, Python, Rust, JS (e.g. JavaGenerator.cpp:486-658), including JSON list handling — no longer deferred
+[x] Character built-in datatype: javaType/javaBoxedType map character/char -> char/Character (JavaGenerator.cpp:64,80)
+[x] "Not Written" dialog when destination is unreachable on build (AppController.cpp:724,793)
+[x] Syntax highlighting uses Scientific, not Float/Double (SpecTableHighlighter.cpp:48) — generator still accepts float/decimal as synonyms, see Code Generation section above
+[x] Hover preview for EnumerationValues/ValidValues attributes + auto-insert header row on "Examples: EnumerationValues/ValidValues" (SpecTableEditor.cpp:158-193, ~665)
+[x] Refresh command on Solution Explorer / project window (MainWindow.cpp:150,236 File menu + F5; AppController::onRefreshSolution, AppController.cpp:1250)
+[x] File menu: Save As (MainWindow.cpp:147; AppController::onSaveAs, AppController.cpp:349)
+[x] Entity-containing-entity scenario proven out: TestProject/Entity with Entity.spectable — Entity Address nested in Entity TwoAddresses, two Defines, Then checks on nested fields, one level of nesting confirmed working
 
 ===============================================================================
 Appendix: Share Changes / error-recovery dialog design (not yet implemented)
