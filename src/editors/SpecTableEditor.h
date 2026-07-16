@@ -39,6 +39,7 @@ private:
     void transposeTable();
     void showHoverPreview(const QPoint& viewportPos, const QPoint& globalPos);
     void autoInsertTableHeader();
+    void checkAdHocTableAttributeSet();
     void insertTableHeaderForCurrentStep();
     void extractAsAttributeSet();
     void extractAsDefine();

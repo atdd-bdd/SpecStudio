@@ -256,6 +256,16 @@ void AppSettings::setAutoReloadFiles(bool value)
     m_settings.setValue("General/autoReloadFiles", value);
 }
 
+bool AppSettings::showAllFiles() const
+{
+    return m_settings.value("General/showAllFiles", false).toBool();
+}
+
+void AppSettings::setShowAllFiles(bool value)
+{
+    m_settings.setValue("General/showAllFiles", value);
+}
+
 // ---- Appearance ----
 
 bool AppSettings::darkTheme() const

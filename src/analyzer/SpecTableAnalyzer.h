@@ -26,6 +26,7 @@ private:
     void checkStepTableContents      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkDomainTermDuplicates        (const QString& filePath, QList<Diagnostic>& out) const;
     void checkDomainTermColumnTypes       (const QString& filePath, const QMap<QString, QString>& dtTypes, QList<Diagnostic>& out) const;
+    void checkDomainTermVsDataTypeNames   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkUnrecognizedLines           (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepsWithTableButNoAttrSet  (const QString& filePath, QList<Diagnostic>& out) const;
 

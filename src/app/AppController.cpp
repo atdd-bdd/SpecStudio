@@ -62,6 +62,7 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
     m_specAnalyzer   = new SpecTableAnalyzer(m_specTableIndex);
     m_builder        = new BuildController(this);
     m_treeModel = new SolutionTreeModel(this);
+    m_treeModel->setShowAllFiles(m_settings->showAllFiles());
     mainWindow->solutionExplorer()->setModel(m_treeModel);
 
     connect(mainWindow->solutionExplorer(), &SolutionExplorer::fileDoubleClicked,
@@ -1254,6 +1255,12 @@ void AppController::onRefreshSolution()
         proj->scanFiles();
     m_treeModel->refresh();
     m_mainWindow->solutionExplorer()->treeView()->expandAll();
+}
+
+void AppController::onToggleShowAllFiles(bool show)
+{
+    m_settings->setShowAllFiles(show);
+    m_treeModel->setShowAllFiles(show);
 }
 
 void AppController::onFindAllUsages()

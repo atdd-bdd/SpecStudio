@@ -137,6 +137,7 @@ bool SpecTableEditor::eventFilter(QObject* obj, QEvent* event)
             && ke->modifiers() == Qt::NoModifier)
         {
             QTimer::singleShot(0, this, &SpecTableEditor::autoInsertTableHeader);
+            QTimer::singleShot(0, this, &SpecTableEditor::checkAdHocTableAttributeSet);
         }
         if (ke->key() == Qt::Key_Slash && ke->modifiers() == Qt::ControlModifier) {
             toggleLineComment();
@@ -814,6 +815,103 @@ void SpecTableEditor::autoInsertTableHeader()
         tc.movePosition(QTextCursor::StartOfBlock);
         tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
         tc.insertText(tableText);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Proactive prompt: the user just finished typing an ad-hoc table (no
+// ": AttrSetName" on the owning step line) — offer to create a new
+// AttributeSet from the table's columns, or link the table to an existing
+// one, instead of requiring the manual "Extract as AttributeSet..." action.
+// ---------------------------------------------------------------------------
+
+void SpecTableEditor::checkAdHocTableAttributeSet()
+{
+    QTextCursor tc     = textEdit()->textCursor();
+    QTextBlock curBlk  = tc.block();
+    QTextBlock prevBlk = curBlk.previous();
+
+    if (!prevBlk.isValid()) return;
+    if (!curBlk.text().trimmed().isEmpty()) return;
+    if (curBlk.next().isValid() && curBlk.next().text().trimmed().startsWith('|')) return;
+    if (!prevBlk.text().trimmed().startsWith('|')) return;  // only fire when leaving a table
+
+    // Walk back to the first row of this table
+    QTextBlock firstRow = prevBlk;
+    while (firstRow.previous().isValid() && firstRow.previous().text().trimmed().startsWith('|'))
+        firstRow = firstRow.previous();
+
+    // The line directly above the table should be the owning step
+    QTextBlock stepBlk = firstRow.previous();
+    if (!stepBlk.isValid()) return;
+    const QString stepLine = stepBlk.text();
+
+    static QRegularExpression reBareStep(
+        R"(^\s*(Given|When|Then|And|WhenThen)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    if (!reBareStep.match(stepLine).hasMatch()) return;
+    if (stepLine.contains(':')) return;  // already declares an AttrSet/DataType
+
+    if (!m_index) return;
+
+    QString hdrLine = firstRow.text().trimmed();
+    if (hdrLine.startsWith('|')) hdrLine = hdrLine.mid(1);
+    if (hdrLine.endsWith('|'))   hdrLine.chop(1);
+    QStringList headers = hdrLine.split('|');
+    for (auto& h : headers) h = h.trimmed();
+    headers.removeAll({});
+    if (headers.isEmpty()) return;
+
+    const SpecTableSymbols& syms = m_index->projectSymbols();
+    QStringList known;
+    for (auto it = syms.attributes.begin(); it != syms.attributes.end(); ++it)
+        known << it.key();
+    for (auto it = syms.entities.begin(); it != syms.entities.end(); ++it)
+        if (!known.contains(it.key())) known << it.key();
+    known.sort(Qt::CaseInsensitive);
+
+    QMessageBox box(QMessageBox::Question, tr("Ad-hoc Table"),
+        tr("This table isn't linked to an Attribute/Entity/DataType.\n\n"
+           "What would you like to do?"), QMessageBox::NoButton, textEdit());
+    QPushButton* createBtn = box.addButton(tr("Create AttributeSet..."), QMessageBox::AcceptRole);
+    QPushButton* pickBtn   = known.isEmpty() ? nullptr
+                           : box.addButton(tr("Use Existing..."), QMessageBox::ActionRole);
+    box.addButton(tr("Not Now"), QMessageBox::RejectRole);
+    box.exec();
+
+    QAbstractButton* clicked = box.clickedButton();
+    if (clicked == static_cast<QAbstractButton*>(createBtn)) {
+        bool ok = false;
+        const QString name = QInputDialog::getText(textEdit(), tr("Create AttributeSet"),
+            tr("AttributeSet name:"), QLineEdit::Normal, {}, &ok);
+        if (!ok || name.trimmed().isEmpty()) return;
+
+        QString indent;
+        for (const QChar ch : firstRow.text()) { if (!ch.isSpace()) break; indent += ch; }
+
+        QStringList lines;
+        lines << (indent + "Attributes " + name.trimmed());
+        lines << (indent + "| Attribute | DataType |");
+        for (const QString& h : headers)
+            lines << (indent + "| " + h + " | String |");
+        lines << QString();
+
+        QTextCursor insertPos(firstRow);
+        insertPos.movePosition(QTextCursor::StartOfBlock);
+        insertPos.insertText(lines.join("\n") + "\n");
+
+        QTextCursor stepCur(stepBlk);
+        stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        stepCur.insertText(stepBlk.text() + " : " + name.trimmed());
+    } else if (pickBtn && clicked == static_cast<QAbstractButton*>(pickBtn)) {
+        bool ok = false;
+        const QString picked = QInputDialog::getItem(textEdit(), tr("Use Existing AttributeSet"),
+            tr("Link this table to:"), known, 0, false, &ok);
+        if (!ok || picked.isEmpty()) return;
+
+        QTextCursor stepCur(stepBlk);
+        stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        stepCur.insertText(stepBlk.text() + " : " + picked);
     }
 }
 

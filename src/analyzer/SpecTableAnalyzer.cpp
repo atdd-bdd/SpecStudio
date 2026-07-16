@@ -49,6 +49,7 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkStepTableContents     (filePath, visible, diags);
     checkDomainTermDuplicates       (filePath, diags);
     checkDomainTermColumnTypes      (filePath, m_index->domainTermTypes(), diags);
+    checkDomainTermVsDataTypeNames  (filePath, visible, diags);
     checkUnrecognizedLines          (filePath, diags);
     checkStepsWithTableButNoAttrSet (filePath, diags);
 
@@ -713,6 +714,45 @@ void SpecTableAnalyzer::checkDomainTermDuplicates(const QString& filePath,
                 QString("DomainTerm '%1' already declared in %2")
                     .arg(it.key(), others.join(", ")),
                 Diagnostic::Severity::Warning));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check — DomainTerm name must not collide with any DataType name
+// (user-declared or built-in)
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkDomainTermVsDataTypeNames(
+    const QString& filePath,
+    const SpecTableSymbols& visible,
+    QList<Diagnostic>& out) const
+{
+    for (auto it = visible.domainTerms.cbegin(); it != visible.domainTerms.cend(); ++it) {
+        if (it.value().filePath != filePath) continue;  // report once, at the DomainTerm's own file
+
+        for (const QString& builtin : k_builtinDataTypes) {
+            if (it.key().compare(builtin, Qt::CaseInsensitive) == 0) {
+                out.append(makeDiag(filePath, it.value().line,
+                    QString("DomainTerm '%1' has the same name as the built-in DataType '%2' — "
+                            "DomainTerm and DataType names must be distinct")
+                        .arg(it.key(), builtin),
+                    Diagnostic::Severity::Warning));
+                break;
+            }
+        }
+
+        for (auto dtIt = visible.dataTypes.cbegin(); dtIt != visible.dataTypes.cend(); ++dtIt) {
+            if (it.key().compare(dtIt.key(), Qt::CaseInsensitive) == 0) {
+                out.append(makeDiag(filePath, it.value().line,
+                    QString("DomainTerm '%1' has the same name as DataType '%2' (declared in %3:%4) — "
+                            "DomainTerm and DataType names must be distinct")
+                        .arg(it.key(), dtIt.key(),
+                             QFileInfo(dtIt.value().filePath).fileName(),
+                             QString::number(dtIt.value().line)),
+                    Diagnostic::Severity::Warning));
+                break;
+            }
         }
     }
 }

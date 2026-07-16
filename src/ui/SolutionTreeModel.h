@@ -16,6 +16,11 @@ public:
     void setSolution(Solution* solution);
     void refresh();
 
+    // When false (default), files whose FileType is "Other" (not one of the
+    // types SpecStudio recognizes) are hidden from the tree.
+    void setShowAllFiles(bool show);
+    bool showAllFiles() const { return m_showAllFiles; }
+
     // Returns the Project for the given index (Project/Folder/File nodes),
     // or nullptr if the index represents the Solution or is invalid.
     Project* projectForIndex(const QModelIndex& idx) const;
@@ -46,7 +51,8 @@ private:
     Node*           nodeFromIndex(const QModelIndex& index) const;
     QModelIndex     indexForNode(Node* node) const;
 
-    Solution*       m_solution = nullptr;
-    Node*           m_root     = nullptr;
+    Solution*       m_solution     = nullptr;
+    Node*           m_root         = nullptr;
     QList<Node*>    m_allNodes;
+    bool            m_showAllFiles = false;
 };

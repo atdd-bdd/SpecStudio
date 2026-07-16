@@ -58,6 +58,7 @@ public slots:
     void onOpenFileDialog();
     void openRecentSolution(const QString& sspecPath);
     void onRefreshSolution();
+    void onToggleShowAllFiles(bool show);
 
 signals:
     void solutionLoaded(Solution* solution);

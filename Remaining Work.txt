@@ -54,28 +54,7 @@ DocString should preserve tabbing/indentation relative to the column
   position of the opening """ — parser (SpectableParser.cpp:343) appends
   each line's raw text verbatim with no dedent/normalize logic.
 
-WhenThen clause special semantics: WhenThen is already a fully recognized
-  step keyword (parses, highlights, generates glue like Given/When/Then) —
-  "But" is already gone from the step grammar too. What's still missing is
-  the distinct chaining behavior originally intended (is the implicit
-  Given the same as the prior Given, or the prior Then?) — today it behaves
-  as a plain synonym with no special semantics.
-
-Proactive prompt when a Given has a table but no AttrSet/DataType declared
-  — not automatic today. A manual "Extract as AttributeSet..." context-menu
-  action already exists (SpecTableEditor.cpp:1074,1615) but the user has to
-  invoke it themselves.
-
-Don't show non-spec-related files in Solution Explorer unless a setting
-  says to show them — Project::scanFiles() (Project.cpp:55-68) currently
-  lists every non-hidden file with no extension filter.
-
 --- Analyze / Validation ---
-
-DomainTerms: checkDomainTermDuplicates/checkDomainTermColumnTypes already
-  exist (SpecTableAnalyzer.cpp:698,724) enforcing uniqueness and column-type
-  consistency, but do not check "DomainTerm name must differ from any
-  DataType name" specifically — verify/extend.
 
 Attributes/Entities must declare either a DataType or a built-in type —
   PARTIAL: JavaGenerator.cpp:1816-1822 already warns "Field 'X' in 'Y' has
@@ -204,6 +183,27 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 
 --- Done ---
 
+[x] Proactive prompt for ad-hoc tables: SpecTableEditor::checkAdHocTableAttributeSet()
+    (SpecTableEditor.cpp) fires via the same Enter-key hook as autoInsertTableHeader() — when
+    the user finishes typing a table under a bare Given/When/Then/And/WhenThen line with no
+    ": AttrSetName", it prompts "Create AttributeSet..." (inserts the declaration using the
+    table's own headers and links the step line via " : Name") or "Use Existing..." (picks
+    from known Attributes/Entities and links the step line), or "Not Now". Complements the
+    existing passive Analyze-time warning (checkStepsWithTableButNoAttrSet,
+    SpecTableAnalyzer.cpp:638) which already flagged this case but couldn't fix it inline.
+[x] Hide non-spec files in Solution Explorer: new AppSettings::showAllFiles()/setShowAllFiles()
+    (default false); SolutionTreeModel now skips FileType::Other files unless the setting is on
+    (SolutionTreeModel.cpp buildNodes()); View menu has a checkable "Show All Files" action
+    (MainWindow.cpp) wired through AppController::onToggleShowAllFiles().
+[x] DomainTerm name vs. DataType name: new checkDomainTermVsDataTypeNames() in
+    SpecTableAnalyzer.cpp warns when a DomainTerm's name collides (case-insensitively) with
+    either a user-declared DataType or a built-in DataType name (Character/String/Integer/etc.).
+[x] WhenThen clause: intended semantics clarified — not special "chaining" logic, just a way to
+    specify a table with multiple When/Then value pairs that all share the same Given as context
+    (analogous to a Business Rule Examples table). WhenThen is already a fully recognized step
+    keyword with zero special-casing anywhere (SpectableParser.cpp:32,58; not referenced at all
+    in JavaGenerator.cpp) — it flows through the exact same generic step/table/glue machinery as
+    Given/When/Then, which already delivers this. "But" is already gone from the step grammar too.
 [x] Analyze auto-run on solution load AND after Save All: AppController::setSolution()
     (AppController.cpp:120-124) already auto-analyzes all projects on load via
     QTimer::singleShot, and loadSolution() reaches this through setSolution(); onSaveAll()

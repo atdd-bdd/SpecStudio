@@ -62,6 +62,11 @@ public:
     bool autoReloadFiles() const;
     void setAutoReloadFiles(bool value);
 
+    // Show every file in Solution Explorer, including types SpecStudio doesn't
+    // recognize (FileType::Other). Default: hide them.
+    bool showAllFiles() const;
+    void setShowAllFiles(bool value);
+
     // Appearance
     bool darkTheme() const;
     void setDarkTheme(bool dark);

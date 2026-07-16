@@ -2,6 +2,7 @@
 #include "../model/Solution.h"
 #include "../model/Project.h"
 #include "../model/ProjectFile.h"
+#include "../model/FileType.h"
 
 #include <QFileInfo>
 #include <QMap>
@@ -27,6 +28,13 @@ void SolutionTreeModel::refresh()
     beginResetModel();
     buildNodes();
     endResetModel();
+}
+
+void SolutionTreeModel::setShowAllFiles(bool show)
+{
+    if (m_showAllFiles == show) return;
+    m_showAllFiles = show;
+    refresh();
 }
 
 void SolutionTreeModel::clearNodes()
@@ -87,6 +95,7 @@ void SolutionTreeModel::buildNodes()
         };
 
         for (auto* file : proj->files()) {
+            if (!m_showAllFiles && file->type() == FileType::Other) continue;
             QString dir = QFileInfo(file->relativePath()).path();
             Node* parentNode = getOrCreateFolder(dir);
 
