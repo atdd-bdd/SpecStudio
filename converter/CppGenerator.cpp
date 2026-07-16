@@ -343,21 +343,16 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     s << "struct " << typedName << " {\n";
     for (const Field& f : as.fields) {
         const QString ct = cppType(f.type);
-        if (f.multiples)
-            s << "    std::vector<" << ct << "> " << toIdentifier(f.name) << ";\n";
-        else
-            s << "    " << ct << " " << toIdentifier(f.name);
+        s << "    " << ct << " " << toIdentifier(f.name);
         // default value
-        if (!f.multiples) {
-            const QString tl = f.type.trimmed().toLower();
-            if (tl == "integer" || tl == "int")
-                s << " = 0";
-            else if (tl == "float" || tl == "decimal" || tl == "scientific")
-                s << " = 0.0";
-            else if (tl == "boolean" || tl == "yesno" || tl == "bool")
-                s << " = false";
-            s << ";\n";
-        }
+        const QString tl = f.type.trimmed().toLower();
+        if (tl == "integer" || tl == "int")
+            s << " = 0";
+        else if (tl == "float" || tl == "decimal" || tl == "scientific")
+            s << " = 0.0";
+        else if (tl == "boolean" || tl == "yesno" || tl == "bool")
+            s << " = false";
+        s << ";\n";
     }
     s << "\n";
 
@@ -367,10 +362,7 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
         const QString expr = parseExpr(fid, f.type);
-        if (f.multiples)
-            s << "        t." << fid << " = {" << expr << "};\n";
-        else
-            s << "        t." << fid << " = " << expr << ";\n";
+        s << "        t." << fid << " = " << expr << ";\n";
     }
     s << "        return t;\n";
     s << "    }\n";

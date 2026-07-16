@@ -327,14 +327,9 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     QString out;
     QTextStream s(&out);
 
-    bool needsList = false;
-    for (const Field& f : as.fields)
-        if (f.multiples) { needsList = true; break; }
-
     s << "namespace " << ns << "\n{\n";
-    if (needsList) s << "using System.Collections.Generic;\n";
     for (const QString& u : m_extraImports) s << u << "\n";
-    if (needsList || !m_extraImports.isEmpty()) s << "\n";
+    if (!m_extraImports.isEmpty()) s << "\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
@@ -360,10 +355,7 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f = as.fields[i];
         const QString expr = parseExpr(toCamelCase(f.name), f.type);
-        if (f.multiples)
-            s << "                new List<" << csharpType(f.type) << "> { " << expr << " }";
-        else
-            s << "                " << expr;
+        s << "                " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -392,24 +384,15 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
     QString out;
     QTextStream s(&out);
 
-    bool needsList = false;
-    for (const Field& f : as.fields)
-        if (f.multiples) { needsList = true; break; }
-
     s << "namespace " << ns << "\n{\n";
-    if (needsList) s << "using System.Collections.Generic;\n";
     s << "using System.Text.Json;\n";
     for (const QString& u : m_extraImports) s << u << "\n";
     s << "\n";
     s << "    public class " << cn << "\n    {\n";
 
     // Fields
-    for (const Field& f : as.fields) {
-        if (f.multiples)
-            s << "        public List<" << csharpType(f.type) << "> " << toCamelCase(f.name) << ";\n";
-        else
-            s << "        public " << csharpType(f.type) << " " << toCamelCase(f.name) << ";\n";
-    }
+    for (const Field& f : as.fields)
+        s << "        public " << csharpType(f.type) << " " << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     // Constructor
@@ -417,10 +400,7 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        if (f.multiples)
-            s << "List<" << csharpType(f.type) << "> " << toCamelCase(f.name);
-        else
-            s << csharpType(f.type) << " " << toCamelCase(f.name);
+        s << csharpType(f.type) << " " << toCamelCase(f.name);
     }
     s << ")\n        {\n";
     for (const Field& f : as.fields)

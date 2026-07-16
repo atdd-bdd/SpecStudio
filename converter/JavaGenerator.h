@@ -58,11 +58,12 @@ private:
                         const QString& domainPkg, const QString& className) const;
 
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file, QStringList* conflicts = nullptr);
-    static QString genStubMethod(const GlueSig& sig);
+    static QString genStubMethod(const GlueSig& sig, const QString& framework);
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,
                                    const SpectableFile& file,
-                                   QStringList& msgs);
+                                   QStringList& msgs,
+                                   const QString& framework);
 
     static bool writeFile(const QString& path, const QString& content, QStringList& msgs);
 };

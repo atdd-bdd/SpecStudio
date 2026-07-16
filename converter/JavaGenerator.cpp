@@ -498,7 +498,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         if (t == "time")     needsTime = true;
         if (t == "datetime") needsDt   = true;
         if (t == "duration") needsDur  = true;
-        if (f.multiples || isCollectionType(f.type, file)) needsList = true, needsCollections = true;
+        if (isCollectionType(f.type, file)) needsList = true, needsCollections = true;
     }
     if (needsDate)        s << "import java.time.LocalDate;\n";
     if (needsTime)        s << "import java.time.LocalTime;\n";
@@ -520,8 +520,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         const QString elemT = isCol ? collectionElementType(f.type, file) : QString();
         const QString jt = isCol ? (isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT))
                          : isAttrSetType(f.type, file) ? f.type + "Typed"
-                         : (f.multiples ? javaBoxedType(f.type) : javaType(f.type));
-        if (isCol || f.multiples)
+                         : javaType(f.type);
+        if (isCol)
             s << "    public List<" << jt << "> " << toCamelCase(f.name) << ";\n";
         else
             s << "    public " << jt << " " << toCamelCase(f.name) << ";\n";
@@ -537,8 +537,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         const QString elemT = isCol ? collectionElementType(f.type, file) : QString();
         const QString jt = isCol ? (isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT))
                          : isAttrSetType(f.type, file) ? f.type + "Typed"
-                         : (f.multiples ? javaBoxedType(f.type) : javaType(f.type));
-        if (isCol || f.multiples)
+                         : javaType(f.type);
+        if (isCol)
             s << "List<" << jt << "> " << toCamelCase(f.name);
         else
             s << jt << " " << toCamelCase(f.name);
@@ -556,10 +556,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
             s << "        this." << fn << " = new ArrayList<>(); // Collection — populate from s." << fn << "\n";
         } else {
             const QString expr = parseExpr(fn, f.type, as.line, msgs, &file, "s");
-            if (f.multiples)
-                s << "        this." << fn << " = Collections.singletonList(" << expr << ");\n";
-            else
-                s << "        this." << fn << " = " << expr << ";\n";
+            s << "        this." << fn << " = " << expr << ";\n";
         }
     }
     s << "    }\n\n";
@@ -617,18 +614,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "        JSONObject obj = new JSONObject();\n";
     for (const Field& f : as.fields) {
         const QString fname = toCamelCase(f.name);
-        if (f.multiples) {
-            if (isAttrSetType(f.type, file))
-                s << "        obj.put(\"" << fname << "\", " << (f.type + "Typed") << ".toJSONList(" << fname << "));\n";
-            else if (isEnumType(f.type, file))
-                s << "        { JSONArray _arr = new JSONArray(); for (" << f.type << " _v : " << fname
-                  << ") _arr.put(_v.name()); obj.put(\"" << fname << "\", _arr); }\n";
-            else if (isUserDataType(f.type, file))
-                s << "        { JSONArray _arr = new JSONArray(); for (" << f.type << " _v : " << fname
-                  << ") _arr.put(_v.value); obj.put(\"" << fname << "\", _arr); }\n";
-            else
-                s << "        obj.put(\"" << fname << "\", new JSONArray(" << fname << "));\n";
-        } else if (isAttrSetType(f.type, file)) {
+        if (isAttrSetType(f.type, file)) {
             s << "        obj.put(\"" << fname << "\", " << fname << ".toJSON());\n";
         } else {
             const QString t = f.type.toLower();
@@ -636,6 +622,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
                 s << "        obj.put(\"" << fname << "\", String.valueOf(" << fname << "));\n";
             else if (t == "date" || t == "time" || t == "datetime" || t == "duration")
                 s << "        obj.put(\"" << fname << "\", " << fname << ".toString());\n";
+            else if (t == "yesno")
+                s << "        obj.put(\"" << fname << "\", " << fname << ".value);\n";
             else if (isEnumType(f.type, file))
                 s << "        obj.put(\"" << fname << "\", " << fname << ".name());\n";
             else if (isUserDataType(f.type, file))
@@ -648,44 +636,13 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "    }\n\n";
 
     // fromJSON()
-    bool hasMultiples = false;
-    for (const Field& f2 : as.fields) if (f2.multiples) { hasMultiples = true; break; }
-
     s << "    public static " << cn << " fromJSON(JSONObject obj) {\n";
-    if (hasMultiples) {
-        for (const Field& f : as.fields) {
-            if (!f.multiples) continue;
-            const QString fname = toCamelCase(f.name);
-            if (isAttrSetType(f.type, file)) {
-                const QString ftn = f.type + "Typed";
-                s << "        List<" << ftn << "> " << fname << " = " << ftn
-                  << ".fromJSONList(obj.getJSONArray(\"" << fname << "\"));\n";
-            } else {
-                const QString jt = javaBoxedType(f.type);
-                s << "        List<" << jt << "> " << fname << " = new ArrayList<>();\n";
-                s << "        { JSONArray _a = obj.getJSONArray(\"" << fname << "\"); "
-                  << "for (int _i = 0; _i < _a.length(); _i++) " << fname << ".add(";
-                const QString t = f.type.toLower();
-                if (t == "integer" || t == "int")            s << "_a.getInt(_i)";
-                else if (t == "float" || t == "scientific")  s << "_a.getDouble(_i)";
-                else if (t == "decimal")                     s << "_a.getBigDecimal(_i)";
-                else if (t == "boolean" || t == "bool")      s << "_a.getBoolean(_i)";
-                else if (t == "character" || t == "char")    s << "(char) _a.getString(_i).charAt(0)";
-                else if (isEnumType(f.type, file))           s << f.type << ".valueOf(_a.getString(_i))";
-                else if (isUserDataType(f.type, file))        s << "new " << f.type << "(_a.getString(_i))";
-                else                                          s << "_a.getString(_i)";
-                s << "); }\n";
-            }
-        }
-    }
     s << "        return new " << cn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ",\n";
         const Field& f = as.fields[i];
         const QString fname = toCamelCase(f.name);
-        if (f.multiples) {
-            s << "            " << fname;
-        } else if (isAttrSetType(f.type, file)) {
+        if (isAttrSetType(f.type, file)) {
             s << "            " << f.type << "Typed.fromJSON(obj.getJSONObject(\"" << fname << "\"))";
         } else {
             const QString t = f.type.toLower();
@@ -697,6 +654,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
                 s << "            obj.getBigDecimal(\"" << fname << "\")";
             else if (t == "boolean" || t == "bool")
                 s << "            obj.getBoolean(\"" << fname << "\")";
+            else if (t == "yesno")
+                s << "            new YesNo(obj.getString(\"" << fname << "\"))";
             else if (t == "character" || t == "char")
                 s << "            (char) obj.getString(\"" << fname << "\").charAt(0)";
             else if (t == "date")
@@ -1247,7 +1206,23 @@ static QString genTableHelperClass(const QVector<JavaGenerator::GlueSig>& sigs,
     return out;
 }
 
-QString JavaGenerator::genStubMethod(const GlueSig& sig)
+// Builds a framework-correct assertEquals(...) call. JUnit4's org.junit.Assert only has a
+// message-FIRST 3-arg overload (String, Object, Object); JUnit5's Assertions and TestNG's Assert
+// both take the message LAST, and TestNG additionally swaps to (actual, expected, message).
+static QString buildAssertEquals(const QString& framework, const QString& expectedExpr,
+                                  const QString& actualExpr, const QString& messageExpr)
+{
+    const bool isTestNG = framework.compare("TestNG", Qt::CaseInsensitive) == 0;
+    const bool isJUnit5 = !isTestNG
+                       && (framework.compare("JUnit", Qt::CaseInsensitive) == 0
+                           || framework.toLower().startsWith("junit5")
+                           || framework.toLower() == "junit 5");
+    if (isTestNG)  return QString("assertEquals(%1, %2, %3)").arg(actualExpr, expectedExpr, messageExpr);
+    if (isJUnit5)  return QString("assertEquals(%1, %2, %3)").arg(expectedExpr, actualExpr, messageExpr);
+    return QString("assertEquals(%1, %2, %3)").arg(messageExpr, expectedExpr, actualExpr);  // JUnit4
+}
+
+QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framework)
 {
     QString out;
     QTextStream s(&out);
@@ -1287,8 +1262,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
         s << "            catch(NumberFormatException e){\n";
         s << "                error = true;\n";
         s << "            }\n";
-        s << "            assertEquals(\" Value \" + vvt.value,\n";
-        s << "                vvt.isValid.toBoolean(), !error);\n";
+        s << "            " << buildAssertEquals(framework, "vvt.isValid.toBoolean()", "!error",
+                                                   "\" Value \" + vvt.value") << ";\n";
         s << "        }\n";
         s << "    }\n";
         return out;
@@ -1305,7 +1280,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
         s << "            }\n";
         s << "        }\n";
         s << "        int count = " << dt << ".values().length;\n";
-        s << "        assertEquals(\"Number of " << dt << "s \", values.size(), count);\n";
+        s << "        " << buildAssertEquals(framework, "values.size()", "count",
+                                              "\"Number of " + dt + "s \"") << ";\n";
         s << "    }\n";
         return out;
     }
@@ -1344,7 +1320,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig)
 bool JavaGenerator::appendMissingStubs(const QString& gluePath,
                                         const QVector<GlueSig>& sigs,
                                         const SpectableFile& file,
-                                        QStringList& msgs)
+                                        QStringList& msgs,
+                                        const QString& framework)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1355,7 +1332,7 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
     for (const GlueSig& sig : sigs) {
         const QString signature = QStringLiteral("public void %1(").arg(sig.method);
         if (!content.contains(signature))
-            stubs += "\n" + genStubMethod(sig);
+            stubs += "\n" + genStubMethod(sig, framework);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1438,7 +1415,7 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
     for (const GlueSig& sig : sigs)
-        s << genStubMethod(sig) << "\n";
+        s << genStubMethod(sig, m_framework) << "\n";
 
     s << "}\n";
     return out;
@@ -2014,7 +1991,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specPkg, domainPkg, className), msgs);
         } else {
-            if (appendMissingStubs(gluePath, sigs, augmented, msgs))
+            if (appendMissingStubs(gluePath, sigs, augmented, msgs, m_framework))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

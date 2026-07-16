@@ -350,10 +350,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
     s << "pub struct " << typedName << " {\n";
     for (const Field& f : as.fields) {
         const QString rt = rustType(f.type);
-        if (f.multiples)
-            s << "    pub " << toIdentifier(f.name) << ": Vec<" << rt << ">,\n";
-        else
-            s << "    pub " << toIdentifier(f.name) << ": " << rt << ",\n";
+        s << "    pub " << toIdentifier(f.name) << ": " << rt << ",\n";
     }
     s << "}\n\n";
 
@@ -363,10 +360,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
         const QString expr = parseExpr(fid, f.type);
-        if (f.multiples)
-            s << "            " << fid << ": vec![" << expr << "],\n";
-        else
-            s << "            " << fid << ": " << expr << ",\n";
+        s << "            " << fid << ": " << expr << ",\n";
     }
     s << "        }\n    }\n}\n";
 

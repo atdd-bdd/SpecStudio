@@ -369,10 +369,7 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
         if (i) s << ", ";
         const Field& f = as.fields[i];
         const QString fn = toCamelCase(f.name);
-        if (f.multiples)
-            s << fn << " = []";
-        else
-            s << fn << " = " << jsDefaultValue(f.type);
+        s << fn << " = " << jsDefaultValue(f.type);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
@@ -384,10 +381,7 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f  = as.fields[i];
         const QString fn = toCamelCase(f.name);
-        if (f.multiples)
-            s << "      [" << parseExpr(fn, f.type) << "]";
-        else
-            s << "      " << parseExpr(fn, f.type);
+        s << "      " << parseExpr(fn, f.type);
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }

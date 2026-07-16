@@ -370,18 +370,12 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
         const QString def = (pt == "int") ? "0" : (pt == "float") ? "0.0"
                           : (pt == "decimal.Decimal") ? "decimal.Decimal('0')"
                           : (pt == "bool") ? "False" : "''";
-        if (f.multiples)
-            s << ", " << fid << ": list = None";
-        else
-            s << ", " << fid << ": " << pt << " = " << def;
+        s << ", " << fid << ": " << pt << " = " << def;
     }
     s << "):\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        if (f.multiples)
-            s << "        self." << fid << " = " << fid << " if " << fid << " is not None else []\n";
-        else
-            s << "        self." << fid << " = " << fid << "\n";
+        s << "        self." << fid << " = " << fid << "\n";
     }
     s << "\n";
 
@@ -393,10 +387,7 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
         const Field& f   = as.fields[i];
         const QString fid = toIdentifier(f.name);
         const QString expr = parseExpr(fid, f.type);
-        if (f.multiples)
-            s << "            [" << expr << "]";
-        else
-            s << "            " << expr;
+        s << "            " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }

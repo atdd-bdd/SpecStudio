@@ -486,7 +486,15 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         "default", "note", "notes", "in-out", "in/out", "multiples"
                     };
                     for (const QString& h : cells) {
-                        if (!h.startsWith('#') && !knownHeaders.contains(h.toLower())) {
+                        if (h.compare("multiples", Qt::CaseInsensitive) == 0) {
+                            ParseMessage pm;
+                            pm.line    = lineNum;
+                            pm.warning = true;
+                            pm.text    = QStringLiteral(
+                                "'Multiples' column is deprecated and no longer generates a "
+                                "list-valued field — use the Collection keyword instead");
+                            result.messages.push_back(pm);
+                        } else if (!h.startsWith('#') && !knownHeaders.contains(h.toLower())) {
                             ParseMessage pm;
                             pm.line    = lineNum;
                             pm.warning = true;
@@ -505,9 +513,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         else if (h == "default")             fd.defaultValue = v;
                         else if (h == "notes")               fd.notes        = v;
                         else if (h == "in-out" || h == "in/out") fd.inOut   = v;
-                        else if (h == "multiples")           fd.multiples    =
-                            !v.isEmpty() && (v[0].toLower() == 'y' ||
-                             v.compare("true", Qt::CaseInsensitive) == 0);
+                        // "multiples" intentionally unmapped — deprecated, see header warning above
                     }
                     if (!fd.name.isEmpty() && !fd.name.startsWith('#'))
                         curAttr->fields.push_back(fd);

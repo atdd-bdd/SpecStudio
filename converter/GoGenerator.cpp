@@ -333,10 +333,7 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     s << "type " << typedName << " struct {\n";
     for (const Field& f : as.fields) {
         const QString gt = goType(f.type);
-        if (f.multiples)
-            s << "\t" << toExported(f.name) << " []" << gt << "\n";
-        else
-            s << "\t" << toExported(f.name) << " " << gt << "\n";
+        s << "\t" << toExported(f.name) << " " << gt << "\n";
     }
     s << "}\n\n";
 

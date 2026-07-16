@@ -30,24 +30,6 @@ In-Out attribute support for Calculations/Business Rules — parser stores/
   a documentation comment on the attribute, not consumed by codegen) —
   no action needed unless that changes.
 
-NEW BUG found while verifying the bare-DataType production-class fix: the
-  ValidValues and Enumeration DataType glue stub templates
-  (JavaGenerator.cpp:1256 and :1274) call assertEquals with the message
-  argument FIRST (JUnit4 style: assertEquals(message, expected, actual)),
-  but these files import JUnit5's org.junit.jupiter.api.Assertions.assertEquals,
-  whose message parameter is LAST (expected, actual, message). Under JUnit5
-  (the default/common case) this fails to compile. Pre-existing, unrelated
-  to today's fixes — surfaced because this session was the first time an
-  Enum-typed AttrSet field's glue stub actually got compiled end-to-end.
-
-Multiples column is dead — the Collection keyword has replaced it. Decide
-  whether to strip the old `multiples`/List<Type> codegen path out of the
-  parser, model, and all 7 generators (SpectableParser.cpp, SpectableModel.h,
-  JavaGenerator.cpp, CSharpGenerator.cpp, CppGenerator.cpp, GoGenerator.cpp,
-  JavaScriptGenerator.cpp, PythonGenerator.cpp, RustGenerator.cpp all still
-  implement it) now that Collection covers this, and scrub any docs/examples
-  that still reference a Multiples column.
-
 --- Editor ---
 
 TypeScript syntax highlighting in the Markdown editor — not implemented;
@@ -171,6 +153,26 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 
 --- Done ---
 
+[x] JUnit5 assertEquals argument-order bug: new buildAssertEquals() helper in JavaGenerator.cpp
+    builds the framework-correct call — JUnit4's org.junit.Assert only has a message-FIRST 3-arg
+    overload, while JUnit5's Assertions and TestNG's Assert both take the message LAST (TestNG
+    additionally swaps to actual-first). genStubMethod/appendMissingStubs now take a framework
+    parameter and thread it through. While verifying, also found and fixed a related bug in the
+    same area: YesNo fields were never handled in toJSON()/fromJSON() (fell through to raw
+    getString(), producing a JSON->Object type mismatch) — added explicit "yesno" branches
+    alongside the existing enum/DataType dispatch. Verified by regenerating and compiling
+    TestProject/Types.spectable (exercises ValidValues, Enumeration, and YesNo together) for
+    JUnit5 (default) and checking the correct argument order for TestNG.
+[x] Multiples column fully removed (Collection replaces it): Field::multiples deleted from
+    SpectableModel.h; SpectableParser.cpp no longer sets it and instead emits a WARNING pointing
+    users at Collection when a "Multiples" column header is present; all 7 generators
+    (JavaGenerator, CSharpGenerator, CppGenerator, GoGenerator, JavaScriptGenerator,
+    PythonGenerator, RustGenerator) had their List<Type>/Vec<Type>/etc. multiples-branch codegen
+    removed, collapsing to the plain scalar path. Verified across all 7: regenerated a numeric
+    test spec in every language with no warnings; compiled/ran the Java, C#, Python, and C++
+    output directly (javac, dotnet run, python -c, g++) and ran the JavaScript output with node;
+    visually confirmed clean Go and Rust output. Also confirmed the deprecation warning fires
+    correctly and the previously Multiples=Y field now generates as a correct plain scalar.
 [x] DocString indentation: Step/Define now record docStringIndent (the opening """'s column,
     SpectableModel.h) at parse time; SpectableParser.cpp's appendDocLine strips up to that many
     leading whitespace characters from each content line (leadingWsCount helper), so structural
