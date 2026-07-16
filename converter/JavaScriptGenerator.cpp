@@ -57,7 +57,7 @@ QString JavaScriptGenerator::jsDefaultValue(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")        return "0";
-    if (t == "float"   || t == "decimal")    return "0.0";
+    if (t == "float"   || t == "decimal" || t == "scientific")    return "0.0";
     if (t == "boolean" || t == "yesno"
      || t == "bool")                         return "false";
     // strings, date/time, user-defined
@@ -69,7 +69,7 @@ QString JavaScriptGenerator::parseExpr(const QString& field, const QString& spec
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
         return QString("s.%1 !== \"\" ? Number(s.%1) : 0").arg(field);
-    if (t == "float" || t == "decimal")
+    if (t == "float" || t == "decimal" || t == "scientific")
         return QString("s.%1 !== \"\" ? Number(s.%1) : 0.0").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString("[\"true\",\"t\",\"yes\",\"y\",\"1\"].includes(s.%1.toLowerCase())").arg(field);
@@ -154,7 +154,7 @@ QString JavaScriptGenerator::collectionElementType(const QString& name, const Sp
 bool JavaScriptGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo"
     };
     for (const QString& b : builtins)

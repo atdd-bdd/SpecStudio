@@ -106,6 +106,15 @@ static bool isEnumType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+// True only for a user-declared DataType (has its own wrapper class with a
+// "value" field) — excludes built-ins, which have no such class.
+static bool isUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
 static bool isAttrSetType(const QString& name, const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
@@ -611,6 +620,12 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         if (f.multiples) {
             if (isAttrSetType(f.type, file))
                 s << "        obj.put(\"" << fname << "\", " << (f.type + "Typed") << ".toJSONList(" << fname << "));\n";
+            else if (isEnumType(f.type, file))
+                s << "        { JSONArray _arr = new JSONArray(); for (" << f.type << " _v : " << fname
+                  << ") _arr.put(_v.name()); obj.put(\"" << fname << "\", _arr); }\n";
+            else if (isUserDataType(f.type, file))
+                s << "        { JSONArray _arr = new JSONArray(); for (" << f.type << " _v : " << fname
+                  << ") _arr.put(_v.value); obj.put(\"" << fname << "\", _arr); }\n";
             else
                 s << "        obj.put(\"" << fname << "\", new JSONArray(" << fname << "));\n";
         } else if (isAttrSetType(f.type, file)) {
@@ -621,6 +636,10 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
                 s << "        obj.put(\"" << fname << "\", String.valueOf(" << fname << "));\n";
             else if (t == "date" || t == "time" || t == "datetime" || t == "duration")
                 s << "        obj.put(\"" << fname << "\", " << fname << ".toString());\n";
+            else if (isEnumType(f.type, file))
+                s << "        obj.put(\"" << fname << "\", " << fname << ".name());\n";
+            else if (isUserDataType(f.type, file))
+                s << "        obj.put(\"" << fname << "\", " << fname << ".value);\n";
             else
                 s << "        obj.put(\"" << fname << "\", " << fname << ");\n";
         }
@@ -652,6 +671,8 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
                 else if (t == "decimal")                     s << "_a.getBigDecimal(_i)";
                 else if (t == "boolean" || t == "bool")      s << "_a.getBoolean(_i)";
                 else if (t == "character" || t == "char")    s << "(char) _a.getString(_i).charAt(0)";
+                else if (isEnumType(f.type, file))           s << f.type << ".valueOf(_a.getString(_i))";
+                else if (isUserDataType(f.type, file))        s << "new " << f.type << "(_a.getString(_i))";
                 else                                          s << "_a.getString(_i)";
                 s << "); }\n";
             }
@@ -686,6 +707,10 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
                 s << "            java.time.LocalDateTime.parse(obj.getString(\"" << fname << "\"))";
             else if (t == "duration")
                 s << "            java.time.Duration.parse(obj.getString(\"" << fname << "\"))";
+            else if (isEnumType(f.type, file))
+                s << "            " << f.type << ".valueOf(obj.getString(\"" << fname << "\"))";
+            else if (isUserDataType(f.type, file))
+                s << "            new " << f.type << "(obj.getString(\"" << fname << "\"))";
             else
                 s << "            obj.getString(\"" << fname << "\")";
         }
@@ -799,6 +824,12 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     } else {
         // JUnit 4
         s << "import org.junit.Test;\n";
+    }
+
+    if (m_failEveryTest) {
+        if (isTestNG)      s << "import static org.testng.Assert.fail;\n";
+        else if (isJUnit5) s << "import static org.junit.jupiter.api.Assertions.fail;\n";
+        else               s << "import static org.junit.Assert.fail;\n";
     }
 
     // Helper: emit tag annotations before @Test
@@ -970,6 +1001,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         emitTags(file.tags + sc.tags);
         s << "    @Test\n";
         s << "    public void " << meth << "() {\n";
+        if (m_failEveryTest) s << "        fail(\"Not yet implemented: " << meth << "\");\n";
         s << "        " << glueClass << " glue = new " << glueClass << "();\n\n";
 
         emitSteps(file.backgroundSteps, "glue");
@@ -1015,6 +1047,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             emitTags(nb.tags);
             s << "    @Test\n";
             s << "    public void " << meth << "() {\n";
+            if (m_failEveryTest) s << "        fail(\"Not yet implemented: " << meth << "\");\n";
             s << "        " << glueClass << " glue = new " << glueClass << "();\n";
 
             if (as) {
@@ -1795,9 +1828,10 @@ bool JavaGenerator::writeFile(const QString& path, const QString& content, QStri
 QStringList JavaGenerator::generate(const SpectableFile& file, const Options& opts)
 {
     QStringList msgs;
-    m_framework    = opts.framework;
-    m_extraImports = opts.extraImports;
-    m_tagFilter    = opts.tagFilter;
+    m_framework     = opts.framework;
+    m_extraImports  = opts.extraImports;
+    m_tagFilter     = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     // Inject production package import into Typed/glue files whenever the package is configured
     if (!opts.productionClassesPackage.isEmpty()) {
@@ -1971,24 +2005,23 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
-        // DataType ValidValues / EnumerationValues → production class / enum
+        // DataType → production class / enum. Covers EnumerationValues (enum),
+        // ValidValues (wrapper class + inferred numeric ctor), and bare DataTypes
+        // with no Examples table at all (plain String-constructor wrapper) — the
+        // last case previously generated nothing, even though Typed-class codegen
+        // assumes a class with that name exists (parseExpr's "new TypeName(ref)").
         for (const NamedBlock& nb : file.namedBlocks) {
-            if (nb.isContext || !nb.hasExamples) continue;
-            const bool isValidValues =
-                nb.kind == "DataType" &&
-                nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0;
-            const bool isEnum =
-                nb.kind == "DataType" &&
+            if (nb.isContext || nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+            const bool isEnum = nb.hasExamples &&
                 nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
-            if (!isValidValues && !isEnum) continue;
 
             const QString prodPath = prodDir.filePath(nb.name + ".java");
             if (QFile::exists(prodPath)) continue;   // never overwrite existing production classes
 
-            if (isValidValues)
-                writeFile(prodPath, genProductionClass(nb, prodPkg, {}), msgs);
-            else
+            if (isEnum)
                 writeFile(prodPath, genProductionEnum(nb, prodPkg, {}), msgs);
+            else
+                writeFile(prodPath, genProductionClass(nb, prodPkg, {}), msgs);
         }
 
         // Entity → production class with Builder (only if file does not exist)

@@ -121,6 +121,23 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     root->addWidget(glueGroup);
 
+    // ── Test scaffolding group ─────────────────────────────────────────────────
+    auto* testGroup  = new QGroupBox(tr("Test Scaffolding (Java only)"), inner);
+    auto* testLayout = new QVBoxLayout(testGroup);
+
+    m_failEveryTest = new QCheckBox(
+        tr("Fail every generated test until implemented"), testGroup);
+    auto* testHint = new QLabel(
+        tr("When checked, every generated test method starts with a fail() call, "
+           "so a fresh scaffold is all-red until each test is actually implemented."),
+        testGroup);
+    testHint->setWordWrap(true);
+    testHint->setStyleSheet("color: gray; font-size: 11px;");
+    testLayout->addWidget(m_failEveryTest);
+    testLayout->addWidget(testHint);
+
+    root->addWidget(testGroup);
+
     // ── Production classes group ──────────────────────────────────────────────
     auto* prodGroup  = new QGroupBox(tr("Production Classes (Java only)"), inner);
     auto* prodLayout = new QVBoxLayout(prodGroup);
@@ -406,6 +423,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_namespace->setText(cfg.namespacePrefix);
     m_namespace->setEnabled(cfg.language == "CSharp" || cfg.language == "Java");
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
+    m_failEveryTest->setChecked(cfg.failEveryTest);
     m_copySpectable->setChecked(cfg.copySpectable);
     m_converterPath->setText(cfg.converterPath);
     m_imports->setPlainText(cfg.imports.join("\n"));
@@ -442,6 +460,7 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.framework       = m_framework->currentText();
     cfg.namespacePrefix = m_namespace->text().trimmed();
     cfg.overwriteGlue   = m_overwriteGlue->isChecked();
+    cfg.failEveryTest   = m_failEveryTest->isChecked();
     cfg.copySpectable   = m_copySpectable->isChecked();
     cfg.converterPath   = m_converterPath->text().trimmed();
     const QString impText = m_imports->toPlainText();

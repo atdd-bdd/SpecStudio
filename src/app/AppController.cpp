@@ -697,6 +697,7 @@ void AppController::onBuildCurrentFile()
         args << "--prod-dir" << cfg.productionClassesDir;
     if (!cfg.productionClassesPackage.isEmpty())
         args << "--prod-package" << cfg.productionClassesPackage;
+    if (cfg.failEveryTest)              args << "--fail-every-test";
     // Pass other .spectable files from the same project as context
     if (m_solution) {
         auto* ownerProj = m_solution->projectForFile(ed->filePath());
@@ -772,6 +773,7 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                     args << "--prod-dir" << cfg.productionClassesDir;
                 if (!cfg.productionClassesPackage.isEmpty())
                     args << "--prod-package" << cfg.productionClassesPackage;
+                if (cfg.failEveryTest)        args << "--fail-every-test";
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();

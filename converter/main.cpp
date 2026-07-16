@@ -81,6 +81,11 @@ int main(int argc, char* argv[])
         "Java package for generated production classes.", "package", "");
     cli.addOption(prodPkgOpt);
 
+    QCommandLineOption failEveryTestOpt("fail-every-test",
+        "Java only: insert an initial fail() call in every generated test method, "
+        "so a fresh scaffold starts all-red until each test is implemented.");
+    cli.addOption(failEveryTestOpt);
+
     cli.process(app);
 
     const QStringList pos = cli.positionalArguments();
@@ -144,6 +149,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = cli.isSet(failEveryTestOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {

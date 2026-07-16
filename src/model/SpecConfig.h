@@ -31,6 +31,9 @@ struct SpecConfig
     QString productionClassesDir;             // output folder for production classes
     QString productionClassesPackage;         // Java package for production classes
 
+    // Java only: insert an initial fail() in every generated test method
+    bool    failEveryTest = false;
+
     // Cross-project type imports — external .spectable files whose types are visible here
     QList<ExternalSpectable> externalSpectables;
 

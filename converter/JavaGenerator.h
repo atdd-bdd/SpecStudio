@@ -19,6 +19,7 @@ public:
         bool        createProductionClasses = false; // generate production stubs for DataTypes
         QString     productionClassesDir;            // output folder for production classes
         QString     productionClassesPackage;        // Java package for production classes
+        bool        failEveryTest = false;           // insert an initial fail() in every generated test
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
@@ -31,6 +32,7 @@ private:
     QString     m_framework;
     QStringList m_extraImports;
     QString     m_tagFilter;
+    bool        m_failEveryTest = false;
     static QString parseExpr(const QString& field, const QString& specType,
                               int line, QStringList& msgs,
                               const SpectableFile* file = nullptr,

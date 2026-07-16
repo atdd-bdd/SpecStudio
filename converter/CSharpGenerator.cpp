@@ -46,7 +46,8 @@ QString CSharpGenerator::csharpType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")          return "int";
-    if (t == "float"   || t == "decimal")      return "double";
+    if (t == "float"   || t == "scientific")   return "double";
+    if (t == "decimal")                        return "decimal";
     if (t == "boolean" || t == "yesno"
      || t == "bool")                           return "bool";
     if (t == "date" || t == "time"
@@ -63,7 +64,8 @@ QString CSharpGenerator::parseExpr(const QString& field, const QString& specType
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")     return QString("int.Parse(this.%1)").arg(field);
-    if (t == "float"   || t == "decimal") return QString("double.Parse(this.%1)").arg(field);
+    if (t == "float"   || t == "scientific") return QString("double.Parse(this.%1)").arg(field);
+    if (t == "decimal")                   return QString("decimal.Parse(this.%1)").arg(field);
     if (t == "boolean" || t == "yesno"
      || t == "bool")                      return QString(
         "(this.%1.Equals(\"true\", System.StringComparison.OrdinalIgnoreCase) "
@@ -122,7 +124,7 @@ QString CSharpGenerator::toCamelCase(const QString& fieldName)
 static bool isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo"
     };
     for (const QString& b : builtins)

@@ -50,7 +50,7 @@ QString GoGenerator::goType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")                                 return "int";
-    if (t == "float"   || t == "decimal")                             return "float64";
+    if (t == "float"   || t == "decimal" || t == "scientific")        return "float64";
     if (t == "boolean" || t == "yesno" || t == "bool")               return "bool";
     if (t == "string"  || t == "text" || t == "character" || t == "char") return "string";
     if (t == "date"    || t == "time" || t == "datetime" || t == "duration") return "string";
@@ -108,7 +108,7 @@ QString GoGenerator::toPackageName(const QString& name)
 bool GoGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character","String","Text","Integer","Float","Boolean",
+        "Character","String","Text","Integer","Float","Scientific","Decimal","Boolean",
         "Date","Time","DateTime","Duration","YesNo"
     };
     for (const QString& b : builtins)

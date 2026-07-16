@@ -34,6 +34,8 @@ SpecConfig SpecConfig::load(const QString& filePath)
         cfg.productionClassesDir = o["productionClassesDir"].toString();
     if (o.contains("productionClassesPackage"))
         cfg.productionClassesPackage = o["productionClassesPackage"].toString();
+    if (o.contains("failEveryTest"))
+        cfg.failEveryTest = o["failEveryTest"].toBool();
     if (o.contains("externalSpectables")) {
         for (const QJsonValue& v : o["externalSpectables"].toArray()) {
             const QJsonObject ev = v.toObject();
@@ -76,6 +78,8 @@ bool SpecConfig::save(const QString& filePath) const
         o["productionClassesDir"] = productionClassesDir;
     if (!productionClassesPackage.isEmpty())
         o["productionClassesPackage"] = productionClassesPackage;
+    if (failEveryTest)
+        o["failEveryTest"] = true;
     if (!externalSpectables.isEmpty()) {
         QJsonArray extArr;
         for (const ExternalSpectable& es : externalSpectables) {

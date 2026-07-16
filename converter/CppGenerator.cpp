@@ -50,7 +50,7 @@ QString CppGenerator::cppType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")                                    return "int";
-    if (t == "float"   || t == "decimal")                                return "double";
+    if (t == "float"   || t == "decimal" || t == "scientific")           return "double";
     if (t == "boolean" || t == "yesno" || t == "bool")                   return "bool";
     if (t == "string"  || t == "text"  || t == "character" || t == "char") return "std::string";
     if (t == "date"    || t == "time"  || t == "datetime"  || t == "duration") return "std::string";
@@ -62,7 +62,7 @@ QString CppGenerator::parseExpr(const QString& field, const QString& specType)
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
         return QString("!s.%1.empty() ? std::stoi(s.%1) : 0").arg(field);
-    if (t == "float" || t == "decimal")
+    if (t == "float" || t == "decimal" || t == "scientific")
         return QString("!s.%1.empty() ? std::stod(s.%1) : 0.0").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString("(s.%1 == \"true\" || s.%1 == \"t\" || s.%1 == \"yes\" || s.%1 == \"y\" || s.%1 == \"1\")").arg(field);
@@ -113,7 +113,7 @@ QString CppGenerator::toFnName(const QString& keyword, const QString& stepText)
 bool CppGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo"
     };
     for (const QString& b : builtins)
@@ -352,7 +352,7 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
             const QString tl = f.type.trimmed().toLower();
             if (tl == "integer" || tl == "int")
                 s << " = 0";
-            else if (tl == "float" || tl == "decimal")
+            else if (tl == "float" || tl == "decimal" || tl == "scientific")
                 s << " = 0.0";
             else if (tl == "boolean" || tl == "yesno" || tl == "bool")
                 s << " = false";
@@ -726,7 +726,7 @@ static QString genProductionEntityCpp(const AttrSet& as)
         const QString tl = f.type.trimmed().toLower();
         QString ctype;
         if      (tl == "integer" || tl == "int")                                    ctype = "int";
-        else if (tl == "float"   || tl == "decimal")                                ctype = "double";
+        else if (tl == "float"   || tl == "decimal" || tl == "scientific")          ctype = "double";
         else if (tl == "boolean" || tl == "yesno" || tl == "bool")                  ctype = "bool";
         else if (tl == "string"  || tl == "text"  || tl == "character" || tl == "char"
               || tl == "date"    || tl == "time"  || tl == "datetime"  || tl == "duration")
@@ -736,7 +736,7 @@ static QString genProductionEntityCpp(const AttrSet& as)
 
         s << "    " << ctype << " " << f.name;
         if (!f.defaultValue.isEmpty()) {
-            if (tl == "integer" || tl == "int" || tl == "float" || tl == "decimal")
+            if (tl == "integer" || tl == "int" || tl == "float" || tl == "decimal" || tl == "scientific")
                 s << " = " << f.defaultValue;
             else if (tl == "boolean" || tl == "yesno" || tl == "bool")
                 s << " = " << (f.defaultValue.toLower() == "true" || f.defaultValue == "1" || f.defaultValue.toLower() == "yes" ? "true" : "false");
@@ -744,7 +744,7 @@ static QString genProductionEntityCpp(const AttrSet& as)
                 s << " = \"" << f.defaultValue << "\"";
         } else {
             if (tl == "integer" || tl == "int") s << " = 0";
-            else if (tl == "float" || tl == "decimal") s << " = 0.0";
+            else if (tl == "float" || tl == "decimal" || tl == "scientific") s << " = 0.0";
             else if (tl == "boolean" || tl == "yesno" || tl == "bool") s << " = false";
         }
         s << ";\n";
@@ -758,7 +758,7 @@ static QString genProductionEntityCpp(const AttrSet& as)
         const QString tl = as.fields[i].type.trimmed().toLower();
         QString ctype;
         if      (tl == "integer" || tl == "int")   ctype = "int";
-        else if (tl == "float"   || tl == "decimal") ctype = "double";
+        else if (tl == "float"   || tl == "decimal" || tl == "scientific") ctype = "double";
         else if (tl == "boolean" || tl == "yesno" || tl == "bool") ctype = "bool";
         else if (tl == "string"  || tl == "text"  || tl == "character" || tl == "char"
               || tl == "date"    || tl == "time"  || tl == "datetime"  || tl == "duration")

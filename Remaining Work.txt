@@ -12,30 +12,33 @@ items confirmed implemented were moved to Done below, stale/incorrect
 
 Swift generator (C#, C++, Go, Java, JavaScript, Python, Rust already done).
 
-Scientific vs. Decimal fixed in Java only (see Done below) — the other
-  generators (CSharpGenerator.cpp:49, PythonGenerator.cpp:53, etc.) still
-  only know Float/Decimal and don't recognize "Scientific" at all. Apply
-  the same Decimal->BigDecimal-equivalent / Scientific->double split when
-  each generator gets its verification pass.
-
-While fixing Java, also found and fixed: generated glue/test files produced
-  invalid Java (`package ;` / `import .ClassName_glue;`) whenever no
-  namespace/package prefix was configured — see Done below. C# and Go
-  structurally can't hit this bug (their namespace/package name is always
-  derived from the spec/class name, never a bare optional prefix — e.g.
-  CSharpGenerator.cpp:1045, GoGenerator.cpp:801); Python/JS don't really
-  have the same "package" concept. C++/Rust not individually re-verified —
-  worth a quick look when each gets its dedicated pass.
-
-Config: directory where bare DataTypes (without String/Typed) should be
-  auto-created if missing; include that directory as an import automatically
-  (skip if already covered by an existing import, same de-dup logic as
-  production-class imports).
-
-Config option: "fail every test" toggle for generated scaffolding.
+True Decimal type separation for C++/Go/JavaScript/Rust: all 4 now correctly
+  recognize "Scientific" and "Decimal" as distinct keywords (previously
+  Scientific silently produced invalid output — e.g. C++/JS would emit a
+  reference to a nonexistent "Scientific" type), but their runtime
+  representation for Decimal is still the same double/float64/number/f64
+  used for Scientific, since none of these 4 have a zero-dependency native
+  fixed-precision type. C# (native `decimal`) and Python (stdlib
+  `decimal.Decimal`) got the real distinct type — see Done below. If true
+  Decimal precision is wanted for the other 4, it needs a design decision
+  first: Go/Rust could get a cheap newtype (`type Decimal float64` /
+  `struct Decimal(f64)`), but C++/JavaScript would need a small wrapper
+  class introduced somewhere shared, which doesn't exist yet for either.
 
 In-Out attribute support for Calculations/Business Rules — parser stores/
-  ignores the In-Out column today; no codegen uses it yet.
+  ignores the In-Out column today; confirmed intentional for now (used as
+  a documentation comment on the attribute, not consumed by codegen) —
+  no action needed unless that changes.
+
+NEW BUG found while verifying the bare-DataType production-class fix: the
+  ValidValues and Enumeration DataType glue stub templates
+  (JavaGenerator.cpp:1256 and :1274) call assertEquals with the message
+  argument FIRST (JUnit4 style: assertEquals(message, expected, actual)),
+  but these files import JUnit5's org.junit.jupiter.api.Assertions.assertEquals,
+  whose message parameter is LAST (expected, actual, message). Under JUnit5
+  (the default/common case) this fails to compile. Pre-existing, unrelated
+  to today's fixes — surfaced because this session was the first time an
+  Enum-typed AttrSet field's glue stub actually got compiled end-to-end.
 
 Multiples column is dead — the Collection keyword has replaced it. Decide
   whether to strip the old `multiples`/List<Type> codegen path out of the
@@ -198,6 +201,32 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 [x] DomainTerm name vs. DataType name: new checkDomainTermVsDataTypeNames() in
     SpecTableAnalyzer.cpp warns when a DomainTerm's name collides (case-insensitively) with
     either a user-declared DataType or a built-in DataType name (Character/String/Integer/etc.).
+[x] Scientific/Decimal parity across all 7 generators: CSharpGenerator.cpp (Decimal -> native
+    `decimal`, Scientific -> double), PythonGenerator.cpp (Decimal -> stdlib decimal.Decimal with
+    conditional `import decimal`, Scientific -> float), CppGenerator.cpp/GoGenerator.cpp/
+    JavaScriptGenerator.cpp/RustGenerator.cpp (both now explicitly recognized, previously
+    Scientific was silently unrecognized in all 4 — e.g. C++/JS would reference a nonexistent
+    "Scientific" type/class). Verified by generating Integer/Scientific/Decimal fields in all 7
+    languages and actually compiling+running the C# and Python output (dotnet run / python -c)
+    confirming three genuinely distinct runtime types (int/double/decimal in C#;
+    int/float/decimal.Decimal in Python).
+[x] Bare DataType production classes: JavaGenerator.cpp's production-class loop previously only
+    generated classes for DataTypes with ValidValues/EnumerationValues Examples tables — a plain
+    DataType with no Examples table (e.g. "DataType AccountRef" with just a Description/
+    Constraint) got NO class generated at all, even though Typed-class codegen assumes one exists
+    (parseExpr's "new TypeName(ref)"). Now generates the same String-constructor wrapper class
+    for these too. Also fixed while verifying: toJSON()/fromJSON() didn't handle custom
+    DataType/enum fields at all (fell through to raw obj.getString(), producing broken round-trips
+    or, for enum fields, code that wouldn't compile) — added proper dispatch (new isUserDataType()
+    helper distinguishes user DataTypes from built-ins) so custom DataType fields serialize via
+    their .value and enum fields via .name()/.valueOf(). Verified by generating and compiling a
+    bare-DataType test spec end-to-end.
+[x] "Fail every test" config toggle (Java only, matching existing production-class precedent):
+    new SpecConfig::failEveryTest, JavaGenerator::Options::failEveryTest, --fail-every-test CLI
+    flag, and a "Test Scaffolding" checkbox in SpecConfigEditor. When enabled, every generated
+    @Test method (Scenario and BusinessRule/Calculation/DataType) starts with a fail() call, so a
+    fresh scaffold is all-red until each test is implemented. Verified by generating with and
+    without the flag and compiling both outputs.
 [x] WhenThen clause: intended semantics clarified — not special "chaining" logic, just a way to
     specify a table with multiple When/Then value pairs that all share the same Given as context
     (analogous to a Business Rule Examples table). WhenThen is already a fully recognized step

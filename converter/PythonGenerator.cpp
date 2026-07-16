@@ -50,7 +50,8 @@ QString PythonGenerator::pythonType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")                          return "int";
-    if (t == "float"   || t == "decimal")                      return "float";
+    if (t == "float"   || t == "scientific")                   return "float";
+    if (t == "decimal")                                        return "decimal.Decimal";
     if (t == "boolean" || t == "yesno" || t == "bool")         return "bool";
     // date/time/duration — str without external dependencies
     return "str";
@@ -61,8 +62,10 @@ QString PythonGenerator::parseExpr(const QString& field, const QString& specType
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
         return QString("int(s.%1) if s.%1 else 0").arg(field);
-    if (t == "float" || t == "decimal")
+    if (t == "float" || t == "scientific")
         return QString("float(s.%1) if s.%1 else 0.0").arg(field);
+    if (t == "decimal")
+        return QString("decimal.Decimal(s.%1) if s.%1 else decimal.Decimal('0')").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString("s.%1.lower() in ('true', 't', 'yes', 'y', '1')").arg(field);
     // str / date / time / datetime / duration / user-defined
@@ -118,7 +121,7 @@ QString PythonGenerator::toModuleName(const QString& name)
 bool PythonGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo", "Bool", "Int", "Decimal"
     };
     for (const QString& b : builtins)
@@ -348,6 +351,11 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     QString out;
     QTextStream s(&out);
 
+    bool needsDecimal = false;
+    for (const Field& f : as.fields)
+        if (pythonType(f.type) == "decimal.Decimal") { needsDecimal = true; break; }
+
+    if (needsDecimal) s << "import decimal\n";
     s << "from ." << strMod << " import " << strCn << "\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
@@ -360,6 +368,7 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
         const QString fid = toIdentifier(f.name);
         const QString pt  = pythonType(f.type);
         const QString def = (pt == "int") ? "0" : (pt == "float") ? "0.0"
+                          : (pt == "decimal.Decimal") ? "decimal.Decimal('0')"
                           : (pt == "bool") ? "False" : "''";
         if (f.multiples)
             s << ", " << fid << ": list = None";
@@ -756,6 +765,11 @@ QString PythonGenerator::genProductionEntity(const AttrSet& as)
     QString out;
     QTextStream s(&out);
 
+    bool needsDecimal = false;
+    for (const Field& f : as.fields)
+        if (pythonType(f.type) == "decimal.Decimal") { needsDecimal = true; break; }
+    if (needsDecimal) s << "import decimal\n\n";
+
     const QString cn = toTypeName(as.name);
     s << "class " << cn << ":\n";
     s << "    def __init__(self";
@@ -763,7 +777,9 @@ QString PythonGenerator::genProductionEntity(const AttrSet& as)
         const QString fid = toIdentifier(f.name);
         const QString pt  = pythonType(f.type);
         const QString def = f.defaultValue.isEmpty()
-            ? ((pt == "int") ? "0" : (pt == "float") ? "0.0" : (pt == "bool") ? "False" : "''")
+            ? ((pt == "int") ? "0" : (pt == "float") ? "0.0"
+               : (pt == "decimal.Decimal") ? "decimal.Decimal('0')"
+               : (pt == "bool") ? "False" : "''")
             : f.defaultValue;
         s << ", " << fid << ": " << pt << " = " << def;
     }

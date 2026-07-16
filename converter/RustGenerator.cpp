@@ -45,7 +45,7 @@ QString RustGenerator::rustType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")                          return "i32";
-    if (t == "float"   || t == "decimal")                     return "f64";
+    if (t == "float"   || t == "decimal" || t == "scientific") return "f64";
     if (t == "boolean" || t == "yesno" || t == "bool")        return "bool";
     if (t == "string" || t == "text"
      || t == "character" || t == "char")                       return "String";
@@ -60,7 +60,7 @@ QString RustGenerator::parseExpr(const QString& field, const QString& specType)
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
         return QString("s.%1.parse::<i32>().unwrap_or_default()").arg(field);
-    if (t == "float" || t == "decimal")
+    if (t == "float" || t == "decimal" || t == "scientific")
         return QString("s.%1.parse::<f64>().unwrap_or_default()").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString(
@@ -125,7 +125,7 @@ static QString kindToSnake(const QString& kind)
 bool RustGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
-        "Character", "String", "Text", "Integer", "Float", "Boolean",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
         "Date", "Time", "DateTime", "Duration", "YesNo"
     };
     for (const QString& b : builtins)
