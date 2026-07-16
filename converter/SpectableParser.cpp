@@ -299,14 +299,26 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         state         = State::Top;
     };
 
+    // Number of leading space/tab characters on a line (its indentation column).
+    auto leadingWsCount = [](const QString& line) {
+        int i = 0;
+        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+        return i;
+    };
+
     // Append one line of docstring content, resolving Insert commands.
     // `lineNum` is captured by reference so it reflects the current loop variable.
+    // `indentCols` is the column of the opening """ — up to that many leading
+    // whitespace characters are stripped from literal content lines (structural
+    // indentation from nesting inside the .spectable file), preserving any
+    // indentation beyond that as intentional formatting within the docstring.
     static QRegularExpression reDocInsert(
         R"re(^\s*Insert\s+(?:"([^"]+)"|'([^']+)'|<([^>]+)>)\s*$)re",
         QRegularExpression::CaseInsensitiveOption);
     const QString baseDir = QFileInfo(absPath).absolutePath();
 
-    auto appendDocLine = [&](const QString& raw, QString& docStr, int lineNum) {
+    auto appendDocLine = [&](const QString& rawLine, QString& docStr, int lineNum, int indentCols) {
+        const QString raw = rawLine.mid(qMin(indentCols, leadingWsCount(rawLine)));
         auto m = reDocInsert.match(raw);
         if (m.hasMatch()) {
             const QString fname = !m.captured(1).isEmpty() ? m.captured(1)
@@ -362,7 +374,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                   : (inCleanupBlock ? State::InCleanup : State::InBackground);
                 curStep = nullptr;
             } else {
-                if (curStep) appendDocLine(raw, curStep->docString, lineNum);
+                if (curStep) appendDocLine(raw, curStep->docString, lineNum, curStep->docStringIndent);
             }
             continue;
         }
@@ -379,7 +391,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 curDefine = nullptr;
                 state = State::Top;
             } else {
-                if (curDefine) appendDocLine(raw, curDefine->docString, lineNum);
+                if (curDefine) appendDocLine(raw, curDefine->docString, lineNum, curDefine->docStringIndent);
             }
             continue;
         }
@@ -391,6 +403,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 && !curStep->hasDocString
                 && (state == State::InScenario || state == State::InBackground
                     || state == State::InCleanup)) {
+            curStep->docStringIndent = leadingWsCount(raw);
             state = State::InDocString;
             continue;
         }
@@ -639,6 +652,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // DocString opener for defines: """ immediately after Define Name (no rows yet)
         if (trimmed == "\"\"\"" && state == State::InDefineTable && curDefine
                 && curDefine->tableRows.isEmpty()) {
+            curDefine->docStringIndent = leadingWsCount(raw);
             state = State::InDefineDocString;
             continue;
         }

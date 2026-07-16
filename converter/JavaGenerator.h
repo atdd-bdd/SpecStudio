@@ -57,7 +57,7 @@ private:
     QString genGlueFile(const SpectableFile& file, const QString& specPkg,
                         const QString& domainPkg, const QString& className) const;
 
-    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
+    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file, QStringList* conflicts = nullptr);
     static QString genStubMethod(const GlueSig& sig);
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,

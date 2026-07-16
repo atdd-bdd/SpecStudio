@@ -53,22 +53,7 @@ Multiples column is dead — the Collection keyword has replaced it. Decide
 TypeScript syntax highlighting in the Markdown editor — not implemented;
   no Markdown-specific editor exists at all, .md falls back to plain text.
 
-DocString should preserve tabbing/indentation relative to the column
-  position of the opening """ — parser (SpectableParser.cpp:343) appends
-  each line's raw text verbatim with no dedent/normalize logic.
-
 --- Analyze / Validation ---
-
-Attributes/Entities must declare either a DataType or a built-in type —
-  PARTIAL: JavaGenerator.cpp:1816-1822 already warns "Field 'X' in 'Y' has
-  unknown type 'Z'" at build time, but there's no equivalent check in the
-  live editor Analyze pass (SpecTableAnalyzer.cpp).
-
-Glue methods should take only one parameter type; if the same glue method
-  is called with a different parameter type, report an error ("rename one
-  of the steps"). Not implemented — collectGlueSigs/appendMissingStubs
-  (JavaGenerator.cpp:1284-1342) only dedupe by signature string, no
-  parameter-type conflict check.
 
 Analyze-implementation command: flag glue-code methods that are never
   referenced by any step. Not implemented.
@@ -186,6 +171,27 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 
 --- Done ---
 
+[x] DocString indentation: Step/Define now record docStringIndent (the opening """'s column,
+    SpectableModel.h) at parse time; SpectableParser.cpp's appendDocLine strips up to that many
+    leading whitespace characters from each content line (leadingWsCount helper), so structural
+    file-nesting indentation is removed while any indentation beyond the opener's column is kept
+    as intentional relative formatting. Verified by generating a docstring with a deliberately
+    deeper-indented inner line and confirming the Java text block preserves exactly that relative
+    indent (JavaGenerator's emitTextBlock, which already dedented per-block, now works on already
+    correctly-anchored content).
+[x] Attributes/Entities must declare a known type: new checkAttributeFieldTypes() in
+    SpecTableAnalyzer.cpp scans every Attributes/Entity table's Type/DataType column and warns if
+    a value isn't a built-in, user DataType, Entity/Attributes/Collection name, or DomainTerm.
+    Verified with a standalone test harness built directly against SpecTableAnalyzer/
+    SpecTableIndex (both QtCore-only) — correctly flagged a typo'd type name and left valid
+    built-in/DataType references alone.
+[x] Glue method parameter-type conflict detection: collectGlueSigs() now takes an optional
+    QStringList* conflicts and warns when two steps map to the same glue method name but expect
+    different parameter types (e.g. two scenarios both saying "Given values are : X" where X is a
+    different AttrSet each time) — previously the second occurrence was silently dropped, which
+    generated a test file that failed to compile (List<X> where the glue only accepted List<Y>).
+    Verified by generating such a spec: the converter now emits a WARNING at the colliding line,
+    and compiling the previously-silent case confirms the real compile error it would have caused.
 [x] Proactive prompt for ad-hoc tables: SpecTableEditor::checkAdHocTableAttributeSet()
     (SpecTableEditor.cpp) fires via the same Enter-key hook as autoInsertTableHeader() — when
     the user finishes typing a table under a bare Given/When/Then/And/WhenThen line with no

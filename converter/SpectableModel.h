@@ -32,6 +32,7 @@ struct Define {
     bool                 vertical   = false;  // vertical key/value Define table
     QString              docString;           // for docstring-form Define
     bool                 hasDocString = false;
+    int                  docStringIndent = 0; // column of the opening """, for dedenting content lines
     int                  line       = 0;
     bool                 isContext  = false;  // from a context file
 };
@@ -55,6 +56,7 @@ struct Step {
     QString   defineRef;    // "=DefineName" in place of a table
     QString   docString;    // content between opening and closing """
     bool      hasDocString = false;
+    int       docStringIndent = 0; // column of the opening """, for dedenting content lines
     int       line = 0;
 };
 

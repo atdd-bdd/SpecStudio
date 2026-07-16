@@ -29,6 +29,7 @@ private:
     void checkDomainTermVsDataTypeNames   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkUnrecognizedLines           (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepsWithTableButNoAttrSet  (const QString& filePath, QList<Diagnostic>& out) const;
+    void checkAttributeFieldTypes         (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,

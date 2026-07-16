@@ -1093,32 +1093,60 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
 // Glue file
 // ---------------------------------------------------------------------------
 
-QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFile& file)
+QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFile& file, QStringList* conflicts)
 {
     QVector<GlueSig> sigs;
-    QSet<QString> seen;
+    QMap<QString, GlueSig> seen;   // method name -> first-seen signature
+
+    // Human-readable description of what a glue method expects, for conflict messages.
+    auto describe = [](const GlueSig& s) -> QString {
+        if (s.paramType.isEmpty())     return "no parameter";
+        if (s.paramType == "docstring") return "a docstring";
+        if (s.isAttrSet)               return QStringLiteral("a %1 table").arg(s.paramType.left(s.paramType.length() - 6));
+        if (!s.dataTypeName.isEmpty()) return QStringLiteral("a %1 grid").arg(s.dataTypeName);
+        return s.paramType;
+    };
+
+    auto recordSig = [&](const QString& meth, GlueSig sig, int line) {
+        auto it = seen.find(meth);
+        if (it == seen.end()) {
+            seen.insert(meth, sig);
+            sigs.push_back(sig);
+            return;
+        }
+        const GlueSig& prior = it.value();
+        const bool sameSig = prior.paramType == sig.paramType
+                           && prior.isAttrSet == sig.isAttrSet
+                           && prior.gridDataType == sig.gridDataType
+                           && prior.dataTypeName == sig.dataTypeName;
+        if (!sameSig && conflicts) {
+            *conflicts << QString(
+                "WARNING:%1:Step '%2' expects %3 here, but the same glue method elsewhere "
+                "in this project expects %4 — rename one of the steps so they don't collide")
+                .arg(line).arg(meth, describe(sig), describe(prior));
+        }
+        // Keep the first-seen signature; later occurrences don't get a second entry.
+    };
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
             const QString meth = toMethodName(step.keyword, step.text);
-            if (seen.contains(meth)) continue;
-            seen.insert(meth);
             if (step.hasDocString) {
-                sigs.push_back({ meth, "docstring" });
+                recordSig(meth, { meth, "docstring" }, step.line);
             } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
-                sigs.push_back({ meth, (def && def->hasDocString) ? "docstring" : "" });
+                recordSig(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
-                sigs.push_back({ meth, "" });                  // void / no parameter
+                recordSig(meth, { meth, "" }, step.line);                  // void / no parameter
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
-                sigs.push_back({ meth, effectiveName + "String", "", true });
+                recordSig(meth, { meth, effectiveName + "String", "", true }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, "List<List<String>>", step.attrSetName });
+                recordSig(meth, { meth, "List<List<String>>", step.attrSetName }, step.line);
             } else {
-                sigs.push_back({ meth, "List<List<String>>" });
+                recordSig(meth, { meth, "List<List<String>>" }, step.line);
             }
         }
     };
@@ -1132,22 +1160,20 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
     for (const NamedBlock& nb : file.namedBlocks) {
         if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "Examples_" + nb.kind + "_" + toClassName(nb.name);
-        if (seen.contains(meth)) continue;
-        seen.insert(meth);
         if (nb.kind == "DataType" &&
             nb.examples.attrSetName.compare("ValidValues", Qt::CaseInsensitive) == 0) {
-            sigs.push_back({ meth, "ValidValuesString", "", false, nb.name });
+            recordSig(meth, { meth, "ValidValuesString", "", false, nb.name }, nb.line);
         } else if (nb.kind == "DataType" &&
                    nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0) {
-            sigs.push_back({ meth, "EnumerationValuesString", "", false, nb.name });
+            recordSig(meth, { meth, "EnumerationValuesString", "", false, nb.name }, nb.line);
         } else {
             const AttrSet* as = nb.examples.attrSetName.isEmpty()
                 ? nullptr
                 : findAttrSet(nb.examples.attrSetName, file);
             if (as)
-                sigs.push_back({ meth, nb.examples.attrSetName + "String", "", true });
+                recordSig(meth, { meth, nb.examples.attrSetName + "String", "", true }, nb.line);
             else
-                sigs.push_back({ meth, "List<List<String>>" });
+                recordSig(meth, { meth, "List<List<String>>" }, nb.line);
         }
     }
 
@@ -1982,10 +2008,12 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
 
     {
         const QString gluePath = dir.filePath(className + "_glue.java");
+        QStringList sigConflicts;
+        const QVector<GlueSig> sigs = collectGlueSigs(augmented, &sigConflicts);
+        msgs << sigConflicts;
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specPkg, domainPkg, className), msgs);
         } else {
-            const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, augmented, msgs))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }

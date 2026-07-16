@@ -52,6 +52,7 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkDomainTermVsDataTypeNames  (filePath, visible, diags);
     checkUnrecognizedLines          (filePath, diags);
     checkStepsWithTableButNoAttrSet (filePath, diags);
+    checkAttributeFieldTypes        (filePath, visible, diags);
 
     return diags;
 }
@@ -836,6 +837,91 @@ void SpecTableAnalyzer::checkDomainTermColumnTypes(
                     QStringLiteral("DomainTerm '%1' has type '%2' but is declared as '%3' here")
                         .arg(attrName, dtType, declaredType),
                     Diagnostic::Severity::Warning));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check — every Attributes/Entity field must declare a recognized type:
+// a built-in, a user DataType, an Entity/Attributes/Collection name, or a
+// DomainTerm. Mirrors the build-time check already done in JavaGenerator's
+// parseExpr(), but runs live in the editor's Analyze pass.
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkAttributeFieldTypes(
+    const QString& filePath,
+    const SpecTableSymbols& visible,
+    QList<Diagnostic>& out) const
+{
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    static QRegularExpression reDecl(
+        R"(^\s*(Attributes|Entity)\s+\w+\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow(R"(^\s*\|)");
+    static QRegularExpression reSkip(
+        R"(^\s*(Description|Details|Notes|Constraint|In-Out)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines << in.readLine();
+
+    for (int i = 0; i < lines.size(); ++i) {
+        if (!reDecl.match(lines[i]).hasMatch()) continue;
+
+        // Find the first pipe row (header)
+        int j = i + 1;
+        while (j < lines.size()
+               && !reRow.match(lines[j]).hasMatch()
+               && (lines[j].trimmed().isEmpty() || reSkip.match(lines[j]).hasMatch()))
+            ++j;
+        if (j >= lines.size() || !reRow.match(lines[j]).hasMatch()) continue;
+
+        // Parse header columns
+        const QStringList hParts = lines[j].split('|');
+        QStringList headers;
+        for (int p = 1; p < hParts.size() - 1; ++p)
+            headers << hParts[p].trimmed();
+
+        int attrCol = -1, typeCol = -1;
+        for (int c = 0; c < headers.size(); ++c) {
+            const QString h = headers[c];
+            if (h.compare("Attribute", Qt::CaseInsensitive) == 0 ||
+                h.compare("Name", Qt::CaseInsensitive) == 0)
+                attrCol = c;
+            if (h.compare("Type", Qt::CaseInsensitive) == 0 ||
+                h.compare("DataType", Qt::CaseInsensitive) == 0)
+                typeCol = c;
+        }
+        if (typeCol < 0) continue;  // no Type/DataType column — nothing to check here
+
+        // Check each data row
+        for (int k = j + 1; k < lines.size(); ++k) {
+            const QString& ln = lines[k];
+            if (ln.trimmed().isEmpty() || ln.trimmed().startsWith('#')) continue;
+            if (!reRow.match(ln).hasMatch()) break;
+
+            const QStringList rParts = ln.split('|');
+            QStringList row;
+            for (int p = 1; p < rParts.size() - 1; ++p)
+                row << rParts[p].trimmed();
+
+            if (typeCol >= row.size() || row[typeCol].isEmpty()) continue;
+            const QString declaredType = row[typeCol];
+
+            const bool known = visible.hasDataType(declaredType)
+                             || visible.hasAttributeSet(declaredType)
+                             || visible.domainTerms.contains(declaredType);
+            if (known) continue;
+
+            const QString attrName = (attrCol >= 0 && attrCol < row.size()) ? row[attrCol] : QString();
+            out.append(makeDiag(filePath, k + 1,
+                QStringLiteral("Attribute '%1' has unknown type '%2' — not a built-in, "
+                               "DataType, Entity/Attributes, Collection, or DomainTerm")
+                    .arg(attrName, declaredType),
+                Diagnostic::Severity::Warning));
         }
     }
 }
