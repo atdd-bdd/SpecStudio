@@ -73,8 +73,8 @@ set(SOURCES
     git/GitStatusCache.h
     git/GitStatusCache.cpp
 
-    ui/dialogs/GitPushDialog.h
-    ui/dialogs/GitPushDialog.cpp
+    ui/dialogs/ShareChangesDialog.h
+    ui/dialogs/ShareChangesDialog.cpp
     ui/dialogs/SettingsDialog.h
     ui/dialogs/SettingsDialog.cpp
     ui/dialogs/NewFileDialog.h

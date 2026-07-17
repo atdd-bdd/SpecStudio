@@ -60,12 +60,18 @@ public slots:
     void onRefreshSolution();
     void onToggleShowAllFiles(bool show);
 
+    // Called from MainWindow::closeEvent, after the Save All prompt. Asks
+    // whether to share pending changes before exiting; does not block exit
+    // either way. No-op if there's no solution or nothing to share.
+    void promptShareOnExit();
+
 signals:
     void solutionLoaded(Solution* solution);
 
 private:
     void loadSolution(const QString& sspecPath);
     void setSolution(Solution* solution);
+    bool shareChanges();  // returns true if changes were shared successfully
     void applyFonts();
     void applyAutoReload();
     void setupBuildConnections();

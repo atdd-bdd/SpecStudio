@@ -14,7 +14,7 @@
 #include "../ui/dialogs/NewProjectDialog.h"
 #include "../ui/dialogs/NewFileDialog.h"
 #include "../ui/dialogs/ConflictResolutionDialog.h"
-#include "../ui/dialogs/GitPushDialog.h"
+#include "../ui/dialogs/ShareChangesDialog.h"
 #include "../ui/dialogs/SettingsDialog.h"
 #include "AppSettings.h"
 #include "../analyzer/ProjectIndex.h"
@@ -138,6 +138,14 @@ void AppController::loadSolution(const QString& sspecPath)
         return;
     }
     setSolution(sol);
+
+    if (!sol->projects().isEmpty()) {
+        const auto reply = QMessageBox::question(m_mainWindow, tr("Get Others' Changes?"),
+            tr("Do you want to get everyone else's changes now?"),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (reply == QMessageBox::Yes)
+            onPull();
+    }
 }
 
 void AppController::onNewSolution()
@@ -417,22 +425,28 @@ void AppController::onSettings()
     applyAutoReload();
 }
 
-void AppController::onCommitAndPush()
+bool AppController::shareChanges()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
         QMessageBox::information(m_mainWindow, tr("No Project"),
             tr("Open a project before committing."));
-        return;
+        return false;
     }
 
-    GitPushDialog dlg(m_mainWindow);
-    if (dlg.exec() != QDialog::Accepted) return;
+    ShareChangesDialog dlg(m_solution->projects(), m_mainWindow);
+    if (!dlg.hasAnyChanges()) {
+        QMessageBox::information(m_mainWindow, tr("Nothing to Share"),
+            tr("There are no changes to share right now."));
+        return false;
+    }
+    if (dlg.exec() != QDialog::Accepted) return false;
 
-    QString reason = dlg.changeReason();
+    QString reason = dlg.description();
+    if (reason.isEmpty()) reason = tr("Update");  // git requires a non-empty commit message
     m_mainWindow->outputPanel()->showBuildTab();
-    m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Commit and Push ---"));
+    m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Share Changes ---"));
 
-    // For simplicity commit+push all projects; per-project settings come in Phase 8
+    QStringList failedProjects;
     for (auto* proj : m_solution->projects()) {
         connect(proj->git(), &GitClient::outputReady,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
@@ -445,11 +459,48 @@ void AppController::onCommitAndPush()
         QString branch = m_settings->gitBranch(proj->rootPath());
         if (branch.isEmpty()) branch = "main";
 
-        bool ok = proj->git()->commitAndPush(reason, remote, branch);
-        if (!ok)
-            m_mainWindow->outputPanel()->appendBuildOutput(
-                tr("[%1] Push failed — check Output panel.").arg(proj->name()));
+        const bool ok = dlg.pushImmediately()
+            ? proj->git()->commitAndPush(reason, remote, branch)
+            : proj->git()->commitAll(reason);
+        if (!ok) failedProjects << proj->name();
     }
+
+    if (!failedProjects.isEmpty()) {
+        QMessageBox mb(QMessageBox::Warning,
+            tr("Trouble Sharing Changes"),
+            tr("Your changes were saved, but could not be shared for: %1.\n\n"
+               "Try \"Get Others' Changes\" first, then share again.")
+                .arg(failedProjects.join(", ")),
+            QMessageBox::Ok, m_mainWindow);
+        mb.setDetailedText(tr("Check the Output panel for the full git error text."));
+        mb.exec();
+        return false;
+    }
+
+    m_mainWindow->outputPanel()->appendBuildOutput(tr("Your changes have been shared."));
+    return true;
+}
+
+void AppController::onCommitAndPush()
+{
+    shareChanges();
+}
+
+void AppController::promptShareOnExit()
+{
+    if (!m_solution || m_solution->projects().isEmpty()) return;
+
+    bool anyChanges = false;
+    for (auto* proj : m_solution->projects())
+        if (proj->git()->hasUncommittedChanges()) { anyChanges = true; break; }
+    if (!anyChanges) return;
+
+    const auto reply = QMessageBox::question(m_mainWindow, tr("Share Changes?"),
+        tr("You have changes that haven't been shared yet.\n"
+           "Share them with everyone before closing?"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (reply == QMessageBox::Yes)
+        shareChanges();
 }
 
 void AppController::onFetch()

@@ -125,6 +125,8 @@ void MainWindow::closeEvent(QCloseEvent* event)
             for (auto* ed : dirty) ed->save();
     }
 
+    m_controller->promptShareOnExit();
+
     saveWindowState();
     event->accept();
 }

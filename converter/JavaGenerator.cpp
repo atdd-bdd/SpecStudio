@@ -253,18 +253,30 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
     for (const QString& h : block.examples.header)
         colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
 
-    // Warn about AttrSet fields not present in the examples table header
+    // Missing AttrSet field columns: error if the field has no default value to
+    // fall back on; otherwise it's fine — the default is used silently.
     for (const Field& f : as->fields) {
         bool found = false;
         for (const QString& h : block.examples.header)
             if (h.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
-        if (!found)
-            warnings << QString("WARNING:%1:%2 '%3' Examples table is missing column '%4' — empty string will be used")
+        if (!found && f.defaultValue.trimmed().isEmpty())
+            warnings << QString("ERROR:%1:%2 '%3' Examples table is missing column '%4' "
+                                 "and '%4' has no default value")
                         .arg(block.examples.line).arg(block.kind).arg(block.name).arg(f.name);
+    }
+
+    // Extra/unrecognized header columns: warn but keep compiling.
+    for (const QString& h : block.examples.header) {
+        if (!fieldIdx.contains(h.toLower()))
+            warnings << QString("WARNING:%1:%2 '%3' Examples table has column '%4' which doesn't "
+                                 "match any field on '%5' — it will be ignored")
+                        .arg(block.examples.line).arg(block.kind).arg(block.name).arg(h, as->name);
     }
 
     for (const QStringList& dr : block.examples.rows) {
         QStringList row(fieldCount);
+        for (int i = 0; i < as->fields.size(); ++i)
+            row[i] = as->fields[i].defaultValue;
         for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
             if (colMap[ci] >= 0) row[colMap[ci]] = resolveCell(dr[ci]);
         result << row;
@@ -344,6 +356,21 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
             QVector<int> colMap;
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+            if (!step.compareOnly) {
+                for (const Field& f : attrSet->fields) {
+                    bool found = false;
+                    for (const QString& h : hdrs)
+                        if (h.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
+                    if (!found && f.defaultValue.trimmed().isEmpty())
+                        errors << QString("ERROR:%1:Table is missing column '%2' and '%2' has no default value")
+                                    .arg(step.line).arg(f.name);
+                }
+            }
+            for (const QString& h : hdrs) {
+                if (!fieldIdx.contains(h.toLower()))
+                    errors << QString("WARNING:%1:Table has column '%2' which doesn't match any field on '%3' — it will be ignored")
+                                .arg(step.line).arg(h, attrSet->name);
+            }
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
                 QStringList row(fieldCount);
                 for (int i = 0; i < attrSet->fields.size(); ++i)
@@ -388,6 +415,21 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         QVector<int> colMap;
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+        if (!step.compareOnly) {
+            for (const Field& f : attrSet->fields) {
+                bool found = false;
+                for (const QString& h : hdrs)
+                    if (h.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
+                if (!found && f.defaultValue.trimmed().isEmpty())
+                    errors << QString("ERROR:%1:Table is missing column '%2' and '%2' has no default value")
+                                .arg(step.line).arg(f.name);
+            }
+        }
+        for (const QString& h : hdrs) {
+            if (!fieldIdx.contains(h.toLower()))
+                errors << QString("WARNING:%1:Table has column '%2' which doesn't match any field on '%3' — it will be ignored")
+                            .arg(step.line).arg(h, attrSet->name);
+        }
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
             QStringList row(fieldCount);
             for (int i = 0; i < attrSet->fields.size(); ++i)

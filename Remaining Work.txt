@@ -46,40 +46,21 @@ When a step name changes, rename/update the corresponding glue method name
   but only does a find/replace across the .spectable source; it never
   touches already-generated glue method names.
 
-Table column check only warns for missing columns today (JavaGenerator.cpp:
-  247, Examples tables). Still needs the other direction: a column in the
-  table that doesn't match any Attribute/Entity field (superset case) —
-  not confirmed anywhere in the analyzer.
-
 --- Git / Collaboration ---
-
-Store git remote URL + branch in a solution-level config file (created when
-  the solution is created) instead of per-user AppSettings. Not implemented
-  — SolutionSerializer.cpp has no gitRemoteUrl/gitBranch fields; still only
-  in AppSettings.
-
-Fetch the project automatically when a solution/project is opened.
-  GitClient::fetch() exists and works (AppController.cpp:465) but only from
-  the explicit "Get Others' Changes" action — not wired to project/solution
-  open.
-
-On exit, if there are unsaved/uncommitted changes, ask whether to commit
-  and push. Not implemented — MainWindow::closeEvent (MainWindow.cpp:109)
-  only prompts Save All / Discard / Cancel, no git prompt. Consider also
-  prompting just before a Build or Analyze — needs a decision on exactly
-  when to ask, possibly a setting.
 
 Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
   AppController.cpp:500) but it's a generic git working-tree diff, not a
   comparison against "the .spectable version that generated the current
   tests" — that provenance tracking doesn't exist yet.
 
-"Share Changes" (commit + push) and "Get Others' Changes" (fetch) dialogs
-  with a friendly non-jargon flow plus a collapsible Advanced/Developer
-  section — not implemented. GitPushDialog.cpp today is a bare "Commit and
-  Push" dialog with just a change-reason text field; no file list, no diff
-  view, no Advanced section, and there's no dedicated fetch-side dialog at
-  all. Full mockup is in the appendix below.
+Share Changes dialog is a real implementation now (see Done below) but is
+  simpler than the full appendix mockup: no inline per-file diff preview in
+  the dialog (use the existing Diff tab for that), no "Preview Details"
+  button, no "Allow empty description" checkbox (description is always
+  required). The full friendly error-recovery dialog (Retry Push/Fetch
+  buttons, Open Merge Tool, upstream status, etc.) also isn't built — push/
+  fetch failures currently show a plain QMessageBox with detailed text
+  rather than the richer mockup in the appendix.
 
 --- Example Projects ---
 
@@ -153,6 +134,32 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 
 --- Done ---
 
+[x] Git UX redesign per the appendix (pragmatic scope, see note above for what's simplified):
+    new ShareChangesDialog (replaces the bare GitPushDialog, now deleted) shows a friendly file
+    list grouped by project (each project has its own git repo — confirmed this is already the
+    architecture, not changed), a required description field, and a collapsed Advanced section
+    (per-project branch name, "push immediately after sharing" checkbox default on). On push
+    failure, shows a friendly QMessageBox with detailed git output rather than a raw error. New
+    prompts: opening a solution now asks "Get Others' Changes?" (Yes/No, default Yes per your
+    spec) and, if yes, runs the existing pull+conflict-resolution flow (AppController::onPull,
+    which already had ConflictResolutionDialog wired up for merge conflicts). Closing the app now
+    asks "Share Changes?" after the Save All prompt (Yes/No, default No — deliberately the
+    opposite default from the open-time prompt, since pushing to a shared remote is a more
+    consequential accidental-Enter than a local fetch; flag if you'd rather default Yes here too).
+    Confirmed already true and unchanged: one git repo per project (Project owns its own
+    GitClient, git init at project creation), and git username/password are stored only in local
+    per-project AppSettings (QSettings), never elsewhere. Verified: full solution build succeeds;
+    launched the app to confirm no startup crash; validated the git-status-porcelain parsing
+    logic (Modified/Added/Deleted) against a real throwaway git repo.
+[x] Table column check, both directions, with precise error/warning severity: missing column
+    with NO default value on the field -> ERROR (halts compilation); missing column WITH a
+    default value -> silent (default is used); extra/unmatched column not on the AttrSet ->
+    WARNING but compilation continues. Implemented in resolveExamplesRows (also fixed a related
+    bug: it never actually applied field defaults for missing columns, just left them empty) and
+    in both header-based branches of resolveStepRows (Define-table and step-table), skipped when
+    step.compareOnly is set since DNC already covers "don't care about this column". Verified all
+    three cases: extra column warns and still compiles; missing-with-default compiles silently;
+    missing-without-default halts with a clear ERROR message and correct line number.
 [x] JUnit5 assertEquals argument-order bug: new buildAssertEquals() helper in JavaGenerator.cpp
     builds the framework-correct call — JUnit4's org.junit.Assert only has a message-FIRST 3-arg
     overload, while JUnit5's Assertions and TestNG's Assert both take the message LAST (TestNG
@@ -330,7 +337,9 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 [x] Entity-containing-entity scenario proven out: TestProject/Entity with Entity.spectable — Entity Address nested in Entity TwoAddresses, two Defines, Then checks on nested fields, one level of nesting confirmed working
 
 ===============================================================================
-Appendix: Share Changes / error-recovery dialog design (not yet implemented)
+Appendix: Share Changes / error-recovery dialog design
+(core flow now implemented as ShareChangesDialog — see Done above for what's
+simplified vs. this original mockup; kept here as the reference design)
 ===============================================================================
 
 Share Changes (Commit + Push) / Get Others' Changes (Fetch)
