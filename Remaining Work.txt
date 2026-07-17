@@ -115,13 +115,6 @@ Consider a cleanup command for anything in common/ that is no longer
 
 Copy named comments in the .spectable into comments in the generated code.
 
-Put all production-related output (classes + helpers) under one directory
-  consistently — Entity/DataType/Collection classes already go to
-  --prod-dir consistently across all 7 generators, but Java's
-  ProductionHelper.java is still written to common/ (domainDir) instead of
-  prodDir (JavaGenerator.cpp:2013) — production output is split across two
-  directories.
-
 Have a tab / untab (indent/outdent) command for the file; decide whether
   there should also be a whole-file reformat/indent-normalize command. Not
   implemented — LineNumberEdit::keyPressEvent (LineNumberEdit.cpp:525-546)
@@ -135,6 +128,10 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 
 --- Done ---
 
+[x] Production output directory split: clarified as intentional, not a gap — ProductionHelper.java
+    contains test-support conversion helpers (TypedToProduction/ProductionToTyped), not production
+    code, so it correctly belongs in common/ alongside the other generated test-support classes
+    rather than in --prod-dir. No change needed.
 [x] Git UX redesign per the appendix (pragmatic scope, see note above for what's simplified):
     new ShareChangesDialog (replaces the bare GitPushDialog, now deleted) shows a friendly file
     list grouped by project (each project has its own git repo — confirmed this is already the
