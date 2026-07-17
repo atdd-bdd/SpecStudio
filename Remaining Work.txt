@@ -56,11 +56,12 @@ Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
 Share Changes dialog is a real implementation now (see Done below) but is
   simpler than the full appendix mockup: no inline per-file diff preview in
   the dialog (use the existing Diff tab for that), no "Preview Details"
-  button, no "Allow empty description" checkbox (description is always
-  required). The full friendly error-recovery dialog (Retry Push/Fetch
-  buttons, Open Merge Tool, upstream status, etc.) also isn't built — push/
-  fetch failures currently show a plain QMessageBox with detailed text
-  rather than the richer mockup in the appendix.
+  button (description is optional, falls back to "Update" as the commit
+  message if left blank — git requires a non-empty message). The full
+  friendly error-recovery dialog (Retry Push/Fetch buttons, Open Merge Tool,
+  upstream status, etc.) also isn't built — push/fetch failures currently
+  show a plain QMessageBox with detailed text rather than the richer mockup
+  in the appendix.
 
 --- Example Projects ---
 
@@ -137,7 +138,8 @@ Folder mirroring (spectables in folders -> tests in mirrored folders) only
 [x] Git UX redesign per the appendix (pragmatic scope, see note above for what's simplified):
     new ShareChangesDialog (replaces the bare GitPushDialog, now deleted) shows a friendly file
     list grouped by project (each project has its own git repo — confirmed this is already the
-    architecture, not changed), a required description field, and a collapsed Advanced section
+    architecture, not changed), an optional description field (defaults to "Update" as the commit
+    message if left blank), and a collapsed Advanced section
     (per-project branch name, "push immediately after sharing" checkbox default on). On push
     failure, shows a friendly QMessageBox with detailed git output rather than a raw error. New
     prompts: opening a solution now asks "Get Others' Changes?" (Yes/No, default Yes per your
