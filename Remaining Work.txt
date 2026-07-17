@@ -1,18 +1,36 @@
 Remaining Work — SpecStudio / SpecTable
 ========================================
-Last updated: 2026-07-14
-(Consolidated from Remaining Work.txt, Still more things to do and fix.txt,
-next to do.txt, another to do.txt, still more and more to do.txt,
-to do 1.txt, still still more to do.txt. Audited against current source on
-2026-07-14, then re-audited the same day after Java generator fixes —
-items confirmed implemented were moved to Done below, stale/incorrect
-"not implemented" claims were corrected in place.)
 
---- Code Generation ---
+Altered so that it is separated into Issues and Future Features 
 
-Swift generator (C#, C++, Go, Java, JavaScript, Python, Rust already done).
 
-True Decimal type separation for C++/Go/JavaScript/Rust: all 4 now correctly
+## Doing
+
+### Shopping cart: StandardExamplesTests/Shopping Cart.spectable has CatalogItem,
+  OrderItem, a Background Catalog, a working "Add an order item" scenario,
+  and — progress since last check — ShippingAddress/BillingAddress fields
+  are now live on Entity ShoppingCart with an active "A ShoppingCart with
+  Addresses" scenario (no longer commented out). Still open: TotalPrice/
+  Discount/Shipping fields and all total-computation scenarios remain
+  commented out — running-total logic is the only piece left.
+
+### Multiple-shipping-addresses scenario (bigger Define, longer match) —
+  stubbed out as future work inside Shopping Cart.spectable ("If/when
+  Multiple is allowed for attributes..."). Implement using the Collection
+  keyword, not the old (now dead) Multiples column.
+
+### Make up a project with all the feature files from GherkinExecutor and try
+  it out as a migration exercise.
+
+### Bowling project: bowling.spectable exists at the repo root with rich
+  scenarios (roll validation, scoring, frame display, game-complete checks),
+  but there's no generated code/glue anywhere yet and it isn't wired to run
+  from the IDE. Still need: generate, wire up glue, run for a passing and a
+  failing case, then change the spec and re-run.
+
+## Holding: 
+
+### True Decimal type separation for C++/Go/JavaScript/Rust: all 4 now correctly
   recognize "Scientific" and "Decimal" as distinct keywords (previously
   Scientific silently produced invalid output — e.g. C++/JS would emit a
   reference to a nonexistent "Scientific" type), but their runtime
@@ -25,35 +43,39 @@ True Decimal type separation for C++/Go/JavaScript/Rust: all 4 now correctly
   `struct Decimal(f64)`), but C++/JavaScript would need a small wrapper
   class introduced somewhere shared, which doesn't exist yet for either.
 
-In-Out attribute support for Calculations/Business Rules — parser stores/
-  ignores the In-Out column today; confirmed intentional for now (used as
-  a documentation comment on the attribute, not consumed by codegen) —
-  no action needed unless that changes.
+  *** Will hold for now.   
 
---- Editor ---
+## Future Enhancements: 
 
-TypeScript syntax highlighting in the Markdown editor — not implemented;
-  no Markdown-specific editor exists at all, .md falls back to plain text.
+### Have a tab / untab (indent/outdent) command for the file; decide whether
+  there should also be a whole-file reformat/indent-normalize command. Not
+  implemented — LineNumberEdit::keyPressEvent (LineNumberEdit.cpp:525-546)
+  only special-cases Tab/Backtab for the autocomplete popup.
 
---- Analyze / Validation ---
+### Copy named comments in the .spectable into comments in the generated code.
 
-Analyze-implementation command: flag glue-code methods that are never
+### Internal Markdown editor.   
+
+### Cleanup -  
+
+  #### Analyze-implementation command: flag glue-code methods that are never
   referenced by any step. Not implemented.
 
-When a step name changes, rename/update the corresponding glue method name
+  #### When a step name changes, rename/update the corresponding glue method name
   on the next build/analyze instead of leaving an orphaned method. Not
   implemented — AppController::onRenameStep (AppController.cpp:1386) exists
   but only does a find/replace across the .spectable source; it never
   touches already-generated glue method names.
 
---- Git / Collaboration ---
+  #### Consider a cleanup command for anything in common/ that is no longer
+  referenced by any generated code.
 
-Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
+### Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
   AppController.cpp:500) but it's a generic git working-tree diff, not a
   comparison against "the .spectable version that generated the current
   tests" — that provenance tracking doesn't exist yet.
 
-Share Changes dialog is a real implementation now (see Done below) but is
+### Share Changes dialog is a real implementation now (see Done below) but is
   simpler than the full appendix mockup: no inline per-file diff preview in
   the dialog (use the existing Diff tab for that), no "Preview Details"
   button (description is optional, falls back to "Update" as the commit
@@ -63,71 +85,68 @@ Share Changes dialog is a real implementation now (see Done below) but is
   show a plain QMessageBox with detailed text rather than the richer mockup
   in the appendix.
 
---- Example Projects ---
+### Define with Table 
+Define 
+| Name  | Value  | Notes                     |
+| TBR   | -1     | Roll has not occurred     |
+| TBS   | -1     | Score not yet computable  |
 
-Bowling project: bowling.spectable exists at the repo root with rich
-  scenarios (roll validation, scoring, frame display, game-complete checks),
-  but there's no generated code/glue anywhere yet and it isn't wired to run
-  from the IDE. Still need: generate, wire up glue, run for a passing and a
-  failing case, then change the spec and re-run.
 
-Shopping cart: StandardExamplesTests/Shopping Cart.spectable has CatalogItem,
-  OrderItem, a Background Catalog, a working "Add an order item" scenario,
-  and — progress since last check — ShippingAddress/BillingAddress fields
-  are now live on Entity ShoppingCart with an active "A ShoppingCart with
-  Addresses" scenario (no longer commented out). Still open: TotalPrice/
-  Discount/Shipping fields and all total-computation scenarios remain
-  commented out — running-total logic is the only piece left.
+## Doing Later 
 
-Multiple-shipping-addresses scenario (bigger Define, longer match) —
-  stubbed out as future work inside Shopping Cart.spectable ("If/when
-  Multiple is allowed for attributes..."). Implement using the Collection
-  keyword, not the old (now dead) Multiples column.
 
-Make up a project with all the feature files from GherkinExecutor and try
-  it out as a migration exercise.
 
---- Bigger Language Feature Ideas (not scoped/designed yet) ---
+## Bigger Language Feature Ideas (not scoped/designed yet) ---
 
-Sequence keyword: shows a sequence of operations where each step's Given is
+### Sequence keyword: shows a sequence of operations where each step's Given is
   the previous step's output.
 
-State table: State/Event grid (states down the side, events across the
+### State table: State/Event grid (states down the side, events across the
   top) filled in with transitions; generates glue code for every
   transition. Shorthand: "Given this state / When this event / Then this
   state." A state's target could reference a Define containing an if-clause
   for more complex transition logic.
 
-Karnaugh map style DataType/table with don't-cares ("DNC"), checked for
+### Karnaugh map style DataType/table with don't-cares ("DNC"), checked for
   completeness.
 
-Business Rule table with complex per-field conditions (e.g. ">10, >-10,
+### Business Rule table with complex per-field conditions (e.g. ">10, >-10,
   >10 & <12, =10 | =12" — and/or/not plus comparison operators) instead of
   plain examples; if the rule fields are typed, auto-generate the Examples
   rows from the condition table.
 
---- Ideas / Open Questions ---
+## Ideas / Open Questions ---
 
-Contact Vanguard (possible pilot/service to test against).
 
-Consider a cleanup command for anything in common/ that is no longer
-  referenced by any generated code.
 
-Copy named comments in the .spectable into comments in the generated code.
 
-Have a tab / untab (indent/outdent) command for the file; decide whether
-  there should also be a whole-file reformat/indent-normalize command. Not
-  implemented — LineNumberEdit::keyPressEvent (LineNumberEdit.cpp:525-546)
-  only special-cases Tab/Backtab for the autocomplete popup.
 
-Folder mirroring (spectables in folders -> tests in mirrored folders) only
-  works for 2 of 7 generators — CSharpGenerator.cpp and JavaGenerator.cpp
-  implement the source-subfolder-to-output mirroring; PythonGenerator.cpp,
-  GoGenerator.cpp, CppGenerator.cpp, JavaScriptGenerator.cpp, and
-  RustGenerator.cpp have none of it yet. Bigger gap than previously stated.
+## --- Done ---
 
---- Done ---
-
+[x] Swift generator: new SwiftGenerator.h/.cpp (converter/), wired into main.cpp (-l Swift) and
+    CMakeLists.txt. Modeled on RustGenerator's structure but using Swift idioms — camelCase
+    methods/properties, XCTest test methods, no artificial module-qualification needed since
+    Swift files in one target see each other automatically. Found and fixed a bug while
+    verifying: the isValid property on generated ValidValues production classes listed ALL
+    example values regardless of their IsValid column, so explicitly-invalid examples
+    incorrectly reported as valid — fixed in both the new Swift generator and the RustGenerator
+    it was copied from. Verified structurally (no Swift toolchain available on this Windows
+    machine to compile) across numeric types, enums, ValidValues, and Collection production
+    classes — output reviewed line by line for correctness.
+[x] Folder mirroring extended to all remaining generators: previously only CSharpGenerator.cpp
+    and JavaGenerator.cpp mirrored the .spectable's source subfolder into the output directory
+    (via --source-root). Now Rust, Python, C++, JavaScript, Go, and Swift do too — the IDE
+    already sent --source-root unconditionally for every language, so no IDE-side changes were
+    needed. Found and fixed two more bugs while verifying by actually compiling/running the
+    output: C++ and JavaScript generate file-relative #include/import paths that would silently
+    break once a spec's output moved into a subfolder (now computes the correct ../ depth per
+    nesting level), and a separate pre-existing bug in JavaScript's test file — it imported the
+    wrong glue filename entirely, unrelated to mirroring, breaking every JS generation whether
+    mirrored or not. Verified: all 7 generators produce clean mirrored output with a 2-level-deep
+    test spec; compiled the mirrored C++ output with g++; resolved the mirrored JavaScript import
+    chain with Node; ran the mirrored Python test end-to-end with real pytest (correctly
+    discovers/runs from the nested folder, fails with the expected NotImplementedError for the
+    unimplemented stub, not an import error).
 [x] Production output directory split: clarified as intentional, not a gap — ProductionHelper.java
     contains test-support conversion helpers (TypedToProduction/ProductionToTyped), not production
     code, so it correctly belongs in common/ alongside the other generated test-support classes
