@@ -9,6 +9,7 @@ class JavaScriptGenerator
 public:
     struct Options {
         QString     outputDir;
+        QString     sourceRoot;     // project root; used to mirror the .spectable's subfolder in output
         bool        overwriteGlue = false;
         bool        copySpectable = true;
         QStringList extraImports;              // extra import lines injected into generated files
@@ -56,8 +57,10 @@ private:
     QString genTypedClass(const AttrSet& as) const;
     QString genCommonIndex(const QVector<AttrSet>& attrSets) const;
     QString genTestFile(const SpectableFile& file, const QString& specName,
-                        const QString& glueClass, QStringList& errors) const;
-    QString genGlueFile(const SpectableFile& file, const QString& specName) const;
+                        const QString& glueClass, const QString& commonRelPath,
+                        QStringList& errors) const;
+    QString genGlueFile(const SpectableFile& file, const QString& specName,
+                        const QString& commonRelPath) const;
 
     // Production
     static QString genProductionEntity(const AttrSet& as);

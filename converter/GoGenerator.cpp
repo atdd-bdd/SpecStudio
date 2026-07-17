@@ -799,9 +799,23 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
     const QString glueType  = toExported(file.specName) + "Glue";
     const QString commonPkg = "common";
 
-    QDir outDir(opts.outputDir);
-    if (!outDir.exists() && !outDir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(outDir.path());
+    // Derive subfolder from the .spectable file's path relative to sourceRoot
+    QString specSubDir;
+    if (!opts.sourceRoot.isEmpty() && !file.filePath.isEmpty()) {
+        const QDir    srcDir(QFileInfo(opts.sourceRoot).absoluteFilePath());
+        const QString fileAbsDir = QFileInfo(file.filePath).absoluteDir().absolutePath();
+        const QString relPath = srcDir.relativeFilePath(fileAbsDir);
+        if (relPath != "." && !relPath.isEmpty()) {
+            QStringList parts;
+            for (const QString& p : relPath.split('/'))
+                if (!p.isEmpty() && p != "..") parts << p;
+            specSubDir = parts.join('/');
+        }
+    }
+
+    QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
+    if (!dir.exists() && !dir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(dir.path());
         return msgs;
     }
 
@@ -813,7 +827,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
 
     // Copy source .spectable
     if (opts.copySpectable && !file.filePath.isEmpty()) {
-        const QString dest = outDir.filePath(QFileInfo(file.filePath).fileName());
+        const QString dest = dir.filePath(QFileInfo(file.filePath).fileName());
         QFile::remove(dest);
         if (!QFile::copy(file.filePath, dest))
             msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, dest);
@@ -877,12 +891,12 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(outDir.filePath("test_" + specPkg + ".go"), testContent, msgs);
+            writeFile(dir.filePath("test_" + specPkg + ".go"), testContent, msgs);
     }
 
     // Glue file
     {
-        const QString gluePath = outDir.filePath(specPkg + "_glue.go");
+        const QString gluePath = dir.filePath(specPkg + "_glue.go");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specPkg, glueType), msgs);
         } else {

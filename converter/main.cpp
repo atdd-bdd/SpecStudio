@@ -6,6 +6,7 @@
 #include "CppGenerator.h"
 #include "JavaScriptGenerator.h"
 #include "GoGenerator.h"
+#include "SwiftGenerator.h"
 
 #include <QCoreApplication>
 #include <QCommandLineParser>
@@ -30,7 +31,7 @@ int main(int argc, char* argv[])
     cli.addPositionalArgument("output", "Output directory for generated files");
 
     QCommandLineOption langOpt({ "l", "language" },
-        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, Go", "language", "CSharp");
+        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, Go, Swift", "language", "CSharp");
     cli.addOption(langOpt);
 
     QCommandLineOption fwOpt({ "f", "framework" },
@@ -156,6 +157,7 @@ int main(int argc, char* argv[])
         RustGenerator::Options opts;
         opts.cratePrefix              = cli.value(nsOpt);
         opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
         opts.copySpectable            = !cli.isSet(noCopyOpt);
         opts.extraUses                = cli.values(importOpt);
@@ -168,6 +170,7 @@ int main(int argc, char* argv[])
         PythonGenerator::Options opts;
         opts.packagePrefix            = cli.value(nsOpt);
         opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
         opts.copySpectable            = !cli.isSet(noCopyOpt);
         opts.extraImports             = cli.values(importOpt);
@@ -181,6 +184,7 @@ int main(int argc, char* argv[])
             || language.compare("C++", Qt::CaseInsensitive) == 0) {
         CppGenerator::Options opts;
         opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
         opts.copySpectable            = !cli.isSet(noCopyOpt);
         opts.extraIncludes            = cli.values(importOpt);
@@ -193,6 +197,7 @@ int main(int argc, char* argv[])
             || language.compare("JS", Qt::CaseInsensitive) == 0) {
         JavaScriptGenerator::Options opts;
         opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
         opts.copySpectable            = !cli.isSet(noCopyOpt);
         opts.extraImports             = cli.values(importOpt);
@@ -204,6 +209,7 @@ int main(int argc, char* argv[])
     } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
         GoGenerator::Options opts;
         opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
         opts.copySpectable            = !cli.isSet(noCopyOpt);
         opts.extraImports             = cli.values(importOpt);
@@ -212,6 +218,18 @@ int main(int argc, char* argv[])
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         GoGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("Swift", Qt::CaseInsensitive) == 0) {
+        SwiftGenerator::Options opts;
+        opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraImports             = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        SwiftGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
         // Default: C#

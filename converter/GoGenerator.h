@@ -8,6 +8,7 @@ class GoGenerator {
 public:
     struct Options {
         QString     outputDir;
+        QString     sourceRoot;     // project root; used to mirror the .spectable's subfolder in output
         bool        overwriteGlue = false;
         bool        copySpectable = true;
         QStringList extraImports;

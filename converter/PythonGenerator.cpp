@@ -864,9 +864,23 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
     const QString specSnake  = toIdentifier(file.specName);
     const QString glueClass  = toTypeName(file.specName) + "Glue";
 
-    QDir outDir(opts.outputDir);
-    if (!outDir.exists() && !outDir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(outDir.path());
+    // Derive subfolder from the .spectable file's path relative to sourceRoot
+    QString specSubDir;
+    if (!opts.sourceRoot.isEmpty() && !file.filePath.isEmpty()) {
+        const QDir    srcDir(QFileInfo(opts.sourceRoot).absoluteFilePath());
+        const QString fileAbsDir = QFileInfo(file.filePath).absoluteDir().absolutePath();
+        const QString relPath = srcDir.relativeFilePath(fileAbsDir);
+        if (relPath != "." && !relPath.isEmpty()) {
+            QStringList parts;
+            for (const QString& p : relPath.split('/'))
+                if (!p.isEmpty() && p != "..") parts << p;
+            specSubDir = parts.join('/');
+        }
+    }
+
+    QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
+    if (!dir.exists() && !dir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(dir.path());
         return msgs;
     }
 
@@ -878,7 +892,7 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
 
     // Copy source .spectable (if enabled)
     if (opts.copySpectable && !file.filePath.isEmpty()) {
-        const QString dest = outDir.filePath(QFileInfo(file.filePath).fileName());
+        const QString dest = dir.filePath(QFileInfo(file.filePath).fileName());
         QFile::remove(dest);
         if (!QFile::copy(file.filePath, dest))
             msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, dest);
@@ -936,12 +950,12 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(outDir.filePath("Test_" + toTypeName(file.specName) + ".py"), testContent, msgs);
+            writeFile(dir.filePath("Test_" + toTypeName(file.specName) + ".py"), testContent, msgs);
     }
 
     // Glue file (write fresh if absent; append missing stubs otherwise)
     {
-        const QString gluePath = outDir.filePath(specSnake + "_glue.py");
+        const QString gluePath = dir.filePath(specSnake + "_glue.py");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, glueClass), msgs);
         } else {

@@ -393,14 +393,15 @@ QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets) const
 // ---------------------------------------------------------------------------
 
 QString CppGenerator::genTestFile(const SpectableFile& file, const QString& specSnake,
-                                   const QString& glueClass, QStringList& errors) const
+                                   const QString& glueClass, const QString& commonRelPath,
+                                   QStringList& errors) const
 {
     QString out;
     QTextStream s(&out);
 
     s << "#include <gtest/gtest.h>\n";
     s << "#include <iostream>\n";
-    s << "#include \"common/common.h\"\n";
+    s << "#include \"" << commonRelPath << "/common.h\"\n";
     s << "#include \"" << specSnake << "_glue.h\"\n";
     for (const QString& inc : m_extraIncludes) s << inc << "\n";
     s << "\n";
@@ -665,7 +666,8 @@ bool CppGenerator::appendMissingStubs(const QString& gluePath,
     return true;
 }
 
-QString CppGenerator::genGlueFile(const SpectableFile& file, const QString& glueClass) const
+QString CppGenerator::genGlueFile(const SpectableFile& file, const QString& glueClass,
+                                   const QString& commonRelPath) const
 {
     const QVector<GlueSig> sigs = collectGlueSigs(file);
     QString out;
@@ -676,7 +678,7 @@ QString CppGenerator::genGlueFile(const SpectableFile& file, const QString& glue
     s << "#include <iostream>\n";
     s << "#include <string>\n";
     s << "#include <vector>\n";
-    s << "#include \"common/common.h\"\n";
+    s << "#include \"" << commonRelPath << "/common.h\"\n";
     for (const QString& inc : m_extraIncludes) s << inc << "\n";
     s << "\n";
     s << "class " << glueClass << " {\n";
@@ -855,9 +857,23 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
     const QString specSnake  = toIdentifier(file.specName);
     const QString glueClass  = toTypeName(file.specName) + "Glue";
 
-    QDir outDir(opts.outputDir);
-    if (!outDir.exists() && !outDir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(outDir.path());
+    // Derive subfolder from the .spectable file's path relative to sourceRoot
+    QString specSubDir;
+    if (!opts.sourceRoot.isEmpty() && !file.filePath.isEmpty()) {
+        const QDir    srcDir(QFileInfo(opts.sourceRoot).absoluteFilePath());
+        const QString fileAbsDir = QFileInfo(file.filePath).absoluteDir().absolutePath();
+        const QString relPath = srcDir.relativeFilePath(fileAbsDir);
+        if (relPath != "." && !relPath.isEmpty()) {
+            QStringList parts;
+            for (const QString& p : relPath.split('/'))
+                if (!p.isEmpty() && p != "..") parts << p;
+            specSubDir = parts.join('/');
+        }
+    }
+
+    QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
+    if (!dir.exists() && !dir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(dir.path());
         return msgs;
     }
 
@@ -867,9 +883,12 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
         return msgs;
     }
 
+    // Relative #include path from the (possibly mirrored) output dir back to common/
+    const QString commonRelPath = dir.relativeFilePath(commonDir.path());
+
     // Copy source .spectable
     if (opts.copySpectable && !file.filePath.isEmpty()) {
-        const QString dest = outDir.filePath(QFileInfo(file.filePath).fileName());
+        const QString dest = dir.filePath(QFileInfo(file.filePath).fileName());
         QFile::remove(dest);
         if (!QFile::copy(file.filePath, dest))
             msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, dest);
@@ -922,19 +941,19 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
     // Test file (always overwritten)
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(augmented, specSnake, glueClass, testErrs);
+        const QString testContent = genTestFile(augmented, specSnake, glueClass, commonRelPath, testErrs);
         msgs << testErrs;
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(outDir.filePath("test_" + specSnake + ".cpp"), testContent, msgs);
+            writeFile(dir.filePath("test_" + specSnake + ".cpp"), testContent, msgs);
     }
 
     // Glue file
     {
-        const QString gluePath = outDir.filePath(specSnake + "_glue.h");
+        const QString gluePath = dir.filePath(specSnake + "_glue.h");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(augmented, glueClass), msgs);
+            writeFile(gluePath, genGlueFile(augmented, glueClass, commonRelPath), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))

@@ -10,6 +10,7 @@ public:
     struct Options {
         QString     packagePrefix;              // module prefix (currently unused but reserved)
         QString     outputDir;
+        QString     sourceRoot;     // project root; used to mirror the .spectable's subfolder in output
         bool        overwriteGlue = false;
         bool        copySpectable = true;
         QStringList extraImports;               // injected as verbatim "import ..." lines

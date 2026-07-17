@@ -4,15 +4,14 @@
 #include <QString>
 #include <QStringList>
 
-class RustGenerator {
+class SwiftGenerator {
 public:
     struct Options {
-        QString     cratePrefix;    // reserved — always uses "crate::" paths
         QString     outputDir;
         QString     sourceRoot;     // project root; used to mirror the .spectable's subfolder in output
         bool        overwriteGlue = false;
         bool        copySpectable = true;
-        QStringList extraUses;     // extra "use" lines injected at top of generated files
+        QStringList extraImports;   // extra "import" lines injected at top of generated files
         QString     tagFilter;
         bool        createProductionClasses = false;
         QString     productionClassesDir;
@@ -21,16 +20,16 @@ public:
     QStringList generate(const SpectableFile& file, const Options& opts);
 
     // Public so production-class free functions can call them
-    static QString rustType(const QString& specType);
-    static QString toIdentifier(const QString& name);  // snake_case
-    static QString toTypeName(const QString& name);    // PascalCase
+    static QString swiftType(const QString& specType);
+    static QString toIdentifier(const QString& name);  // lowerCamelCase — properties, functions
+    static QString toTypeName(const QString& name);    // UpperCamelCase — struct/class/enum names
 
 private:
-    QStringList m_extraUses;
+    QStringList m_extraImports;
     QString     m_tagFilter;
 
     static QString parseExpr(const QString& field, const QString& specType);
-    static QString toFnName(const QString& keyword, const QString& stepText);  // snake_case
+    static QString toFnName(const QString& keyword, const QString& stepText);  // lowerCamelCase
 
     static bool        isDataType(const QString& name, const SpectableFile& file);
     static const AttrSet* findAttrSet(const QString& name, const SpectableFile& file);
@@ -44,14 +43,13 @@ private:
 
     QString genStringStruct(const AttrSet& as) const;
     QString genTypedStruct(const AttrSet& as) const;
-    QString genCommonMod(const QVector<AttrSet>& attrSets) const;
-    QString genTestFile(const SpectableFile& file, const QString& specSnake,
-                        const QString& glueStruct, QStringList& errors) const;
-    QString genGlueFile(const SpectableFile& file, const QString& glueStruct) const;
+    QString genTestFile(const SpectableFile& file, const QString& className,
+                        const QString& glueClass, QStringList& errors) const;
+    QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;
 
     struct GlueSig {
         QString method;
-        QString paramType;  // "" = void; struct name = &[Struct]; "grid" = &[Vec<String>]
+        QString paramType;  // "" = void; struct name = [Struct]; "grid" = [[String]]
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
     static QString genStubFn(const GlueSig& sig);

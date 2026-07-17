@@ -410,9 +410,10 @@ QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets) co
 // ---------------------------------------------------------------------------
 
 QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QString& specName,
-                                          const QString& glueClass, QStringList& errors) const
+                                          const QString& glueClass, const QString& commonRelPath,
+                                          QStringList& errors) const
 {
-    const QString glueFile = toFileName(glueClass) + "_glue.js";
+    const QString glueFile = toFileName(specName) + "_glue.js";
     QString out;
     QTextStream s(&out);
 
@@ -440,7 +441,7 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
     QStringList typeList = usedTypes.values();
     std::sort(typeList.begin(), typeList.end());
     s << typeList.join(", ");
-    s << " } from \"./common/index.js\";\n";
+    s << " } from \"" << commonRelPath << "/index.js\";\n";
     s << "import { " << glueClass << " } from \"./" << glueFile << "\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
@@ -733,14 +734,15 @@ bool JavaScriptGenerator::appendMissingStubs(const QString& gluePath,
 }
 
 QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
-                                          const QString& specName) const
+                                          const QString& specName,
+                                          const QString& commonRelPath) const
 {
     const QVector<GlueSig> sigs = collectGlueSigs(file);
     const QString glueClass = toPascalCase(specName) + "Glue";
     QString out;
     QTextStream s(&out);
 
-    s << "import { } from \"./common/index.js\";\n";
+    s << "import { } from \"" << commonRelPath << "/index.js\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << glueClass << " {\n";
@@ -848,9 +850,23 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
     const QString glueClass = toPascalCase(specName) + "Glue";
     const QString specSnake = toFileName(specName);
 
-    QDir outDir(opts.outputDir);
-    if (!outDir.exists() && !outDir.mkpath(".")) {
-        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(outDir.path());
+    // Derive subfolder from the .spectable file's path relative to sourceRoot
+    QString specSubDir;
+    if (!opts.sourceRoot.isEmpty() && !file.filePath.isEmpty()) {
+        const QDir    srcDir(QFileInfo(opts.sourceRoot).absoluteFilePath());
+        const QString fileAbsDir = QFileInfo(file.filePath).absoluteDir().absolutePath();
+        const QString relPath = srcDir.relativeFilePath(fileAbsDir);
+        if (relPath != "." && !relPath.isEmpty()) {
+            QStringList parts;
+            for (const QString& p : relPath.split('/'))
+                if (!p.isEmpty() && p != "..") parts << p;
+            specSubDir = parts.join('/');
+        }
+    }
+
+    QDir dir(specSubDir.isEmpty() ? opts.outputDir : opts.outputDir + "/" + specSubDir);
+    if (!dir.exists() && !dir.mkpath(".")) {
+        msgs << QString("ERROR:0:Cannot create output directory: %1").arg(dir.path());
         return msgs;
     }
 
@@ -860,9 +876,13 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
         return msgs;
     }
 
+    // Relative import path from the (possibly mirrored) output dir back to common/
+    QString commonRelPath = dir.relativeFilePath(commonDir.path());
+    if (!commonRelPath.startsWith('.')) commonRelPath.prepend("./");
+
     // Copy source .spectable
     if (opts.copySpectable && !file.filePath.isEmpty()) {
-        const QString dest = outDir.filePath(QFileInfo(file.filePath).fileName());
+        const QString dest = dir.filePath(QFileInfo(file.filePath).fileName());
         QFile::remove(dest);
         if (!QFile::copy(file.filePath, dest))
             msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, dest);
@@ -912,19 +932,19 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
     // 2. Test file (always overwritten)
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(augmented, specName, glueClass, testErrs);
+        const QString testContent = genTestFile(augmented, specName, glueClass, commonRelPath, testErrs);
         msgs << testErrs;
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(outDir.filePath("test_" + specSnake + ".test.js"), testContent, msgs);
+            writeFile(dir.filePath("test_" + specSnake + ".test.js"), testContent, msgs);
     }
 
     // 3. Glue file
     {
-        const QString gluePath = outDir.filePath(specSnake + "_glue.js");
+        const QString gluePath = dir.filePath(specSnake + "_glue.js");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(augmented, specName), msgs);
+            writeFile(gluePath, genGlueFile(augmented, specName, commonRelPath), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))

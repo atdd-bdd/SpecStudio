@@ -1,4 +1,4 @@
-#include "RustGenerator.h"
+#include "SwiftGenerator.h"
 #include "TagFilter.h"
 
 #include <QDir>
@@ -29,7 +29,7 @@ static QString resolveValue(const QString& cell, const SpectableFile& file)
     return resolveCell(cell);
 }
 
-static QString rustEscape(const QString& s)
+static QString swiftEscape(const QString& s)
 {
     QString r = s;
     r.replace('\\', "\\\\");
@@ -41,53 +41,54 @@ static QString rustEscape(const QString& s)
 // Type mapping
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::rustType(const QString& specType)
+QString SwiftGenerator::swiftType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
-    if (t == "integer" || t == "int")                          return "i32";
-    if (t == "float"   || t == "decimal" || t == "scientific") return "f64";
-    if (t == "boolean" || t == "yesno" || t == "bool")        return "bool";
+    if (t == "integer" || t == "int")                          return "Int";
+    if (t == "float"   || t == "decimal" || t == "scientific") return "Double";
+    if (t == "boolean" || t == "yesno" || t == "bool")         return "Bool";
     if (t == "string" || t == "text"
      || t == "character" || t == "char")                       return "String";
-    // date/time/duration — returned as String without external crate dependencies
+    // date/time/duration — returned as String without external dependencies
     if (t == "date" || t == "time" || t == "datetime"
      || t == "duration")                                       return "String";
     return specType.trimmed();
 }
 
-QString RustGenerator::parseExpr(const QString& field, const QString& specType)
+QString SwiftGenerator::parseExpr(const QString& field, const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
-        return QString("s.%1.parse::<i32>().unwrap_or_default()").arg(field);
+        return QString("Int(s.%1) ?? 0").arg(field);
     if (t == "float" || t == "decimal" || t == "scientific")
-        return QString("s.%1.parse::<f64>().unwrap_or_default()").arg(field);
+        return QString("Double(s.%1) ?? 0.0").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString(
-            "matches!(s.%1.to_lowercase().as_str(), \"true\" | \"t\" | \"yes\" | \"y\" | \"1\")")
-            .arg(field);
+            "[\"true\", \"t\", \"yes\", \"y\", \"1\"].contains(s.%1.lowercased())").arg(field);
     // String-backed built-ins (date/time/datetime/duration/string/text/char)
     if (t == "string" || t == "text" || t == "character" || t == "char"
      || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
-        return QString("s.%1.clone()").arg(field);
-    // User-defined type — use From<String> convention, same intent as Java's new Type(this.field)
-    return QString("%1::from(s.%2.clone())").arg(specType.trimmed()).arg(field);
+        return QString("s.%1").arg(field);
+    // User-defined type — assumes a String-based init(_:), same intent as Rust's Type::from(...)
+    return QString("%1(s.%2)").arg(specType.trimmed()).arg(field);
 }
 
 // ---------------------------------------------------------------------------
 // Identifier helpers
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::toIdentifier(const QString& name)
+QString SwiftGenerator::toIdentifier(const QString& name)
 {
-    QString s = name.trimmed();
-    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
-    s.remove(QRegularExpression("^_+|_+$"));
-    if (!s.isEmpty() && s[0].isDigit()) s.prepend('_');
-    return s.toLower();
+    const QStringList parts = name.trimmed().split(QRegularExpression(R"([\s_]+)"), Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return "value";
+    QString result = parts[0][0].toLower() + parts[0].mid(1);
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    if (!result.isEmpty() && result[0].isDigit()) result.prepend('_');
+    return result;
 }
 
-QString RustGenerator::toTypeName(const QString& name)
+QString SwiftGenerator::toTypeName(const QString& name)
 {
     QString s = name.trimmed();
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), " ");
@@ -99,30 +100,31 @@ QString RustGenerator::toTypeName(const QString& name)
     return result;
 }
 
-QString RustGenerator::toFnName(const QString& keyword, const QString& stepText)
+QString SwiftGenerator::toFnName(const QString& keyword, const QString& stepText)
 {
-    QString s = keyword + "_" + stepText;
-    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
-    s.remove(QRegularExpression("^_+|_+$"));
-    return s.toLower();
+    QString combined = (keyword + " " + stepText).toLower();
+    combined.replace(QRegularExpression(R"([^a-z0-9]+)"), " ");
+    const QStringList parts = combined.split(' ', Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return "step";
+    QString result = parts[0];
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    return result;
 }
 
-static QString kindToSnake(const QString& kind)
+static QString kindToTitle(const QString& kind)
 {
-    if (kind == "BusinessRule") return "business_rule";
-    if (kind == "Calculation")  return "calculation";
-    if (kind == "DataType")     return "data_type";
-    QString s = kind.toLower();
-    s.replace(QRegularExpression(R"([^a-z0-9]+)"), "_");
-    s.remove(QRegularExpression("^_+|_+$"));
-    return s;
+    if (kind == "BusinessRule") return "BusinessRule";
+    if (kind == "Calculation")  return "Calculation";
+    if (kind == "DataType")     return "DataType";
+    return SwiftGenerator::toTypeName(kind);
 }
 
 // ---------------------------------------------------------------------------
 // DataType detection
 // ---------------------------------------------------------------------------
 
-bool RustGenerator::isDataType(const QString& name, const SpectableFile& file)
+bool SwiftGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
         "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
@@ -139,14 +141,14 @@ bool RustGenerator::isDataType(const QString& name, const SpectableFile& file)
 // Lookup helpers
 // ---------------------------------------------------------------------------
 
-const AttrSet* RustGenerator::findAttrSet(const QString& name, const SpectableFile& file)
+const AttrSet* SwiftGenerator::findAttrSet(const QString& name, const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
         if (as.name.compare(name, Qt::CaseInsensitive) == 0) return &as;
     return nullptr;
 }
 
-const Define* RustGenerator::findDefine(const QString& name, const SpectableFile& file)
+const Define* SwiftGenerator::findDefine(const QString& name, const SpectableFile& file)
 {
     for (const Define& d : file.defines)
         if (d.name.compare(name, Qt::CaseInsensitive) == 0) return &d;
@@ -154,10 +156,10 @@ const Define* RustGenerator::findDefine(const QString& name, const SpectableFile
 }
 
 // ---------------------------------------------------------------------------
-// Row resolution (same logic as JavaGenerator)
+// Row resolution (same logic as RustGenerator/JavaGenerator)
 // ---------------------------------------------------------------------------
 
-QVector<QStringList> RustGenerator::resolveStepRows(
+QVector<QStringList> SwiftGenerator::resolveStepRows(
     const Step& step, const AttrSet* attrSet,
     const SpectableFile& file, QStringList& errors)
 {
@@ -250,7 +252,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
     return result;
 }
 
-QVector<QStringList> RustGenerator::resolveExamplesRows(
+QVector<QStringList> SwiftGenerator::resolveExamplesRows(
     const NamedBlock& block, const AttrSet* as)
 {
     QVector<QStringList> result;
@@ -284,47 +286,48 @@ QVector<QStringList> RustGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::genStringStruct(const AttrSet& as) const
+QString SwiftGenerator::genStringStruct(const AttrSet& as) const
 {
     const QString typeName = toTypeName(as.name) + "String";
     QString out;
     QTextStream s(&out);
 
-    s << "#![allow(dead_code, unused_imports, unused_variables)]\n\n";
-    for (const QString& u : m_extraUses) s << u << "\n";
-    if (!m_extraUses.isEmpty()) s << "\n";
+    for (const QString& imp : m_extraImports) s << imp << "\n";
+    if (!m_extraImports.isEmpty()) s << "\n";
 
-    s << "#[derive(Debug, Clone, Default)]\n";
-    s << "pub struct " << typeName << " {\n";
+    s << "public struct " << typeName << ": CustomStringConvertible, Equatable {\n";
     for (const Field& f : as.fields)
-        s << "    pub " << toIdentifier(f.name) << ": String,\n";
-    s << "}\n\n";
+        s << "    public let " << toIdentifier(f.name) << ": String\n";
+    s << "\n";
 
-    s << "impl " << typeName << " {\n";
-    s << "    pub fn from_vec(v: &[&str]) -> Self {\n";
-    s << "        Self {\n";
+    s << "    public init(";
     for (int i = 0; i < as.fields.size(); ++i) {
-        s << "            " << toIdentifier(as.fields[i].name)
-          << ": v.get(" << i << ").copied().unwrap_or(\"\").to_string(),\n";
+        if (i) s << ", ";
+        const QString fid = toIdentifier(as.fields[i].name);
+        s << fid << ": String";
     }
-    s << "        }\n    }\n}\n\n";
+    s << ") {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        s << "        self." << fid << " = " << fid << "\n";
+    }
+    s << "    }\n\n";
 
-    s << "impl std::fmt::Display for " << typeName << " {\n";
-    s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
-    s << "        write!(f,\n";
+    s << "    public init(fromArray v: [String]) {\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const QString fid = toIdentifier(as.fields[i].name);
+        s << "        self." << fid << " = v.count > " << i << " ? v[" << i << "] : \"\"\n";
+    }
+    s << "    }\n\n";
 
-    QStringList placeholders, args;
-    for (const Field& field : as.fields) {
-        placeholders << (field.name + "={}");
-        args << "self." + toIdentifier(field.name);
-    }
-    s << "            \"" << placeholders.join(", ") << "\",\n";
-    for (int i = 0; i < args.size(); ++i) {
-        s << "            " << args[i];
-        if (i < args.size() - 1) s << ",";
-        s << "\n";
-    }
-    s << "        )\n    }\n}\n";
+    s << "    public var description: String {\n";
+    s << "        return \"";
+    QStringList parts;
+    for (const Field& f : as.fields)
+        parts << (f.name + "=\\(" + toIdentifier(f.name) + ")");
+    s << parts.join(", ") << "\"\n";
+    s << "    }\n";
+    s << "}\n";
 
     return out;
 }
@@ -333,55 +336,45 @@ QString RustGenerator::genStringStruct(const AttrSet& as) const
 // Typed struct
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::genTypedStruct(const AttrSet& as) const
+QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
 {
     const QString strTypeName = toTypeName(as.name) + "String";
     const QString typedName   = toTypeName(as.name) + "Typed";
-    const QString strMod      = toIdentifier(as.name) + "_string";
     QString out;
     QTextStream s(&out);
 
-    s << "#![allow(dead_code, unused_imports, unused_variables)]\n\n";
-    s << "use super::" << strMod << "::" << strTypeName << ";\n";
-    for (const QString& u : m_extraUses) s << u << "\n";
+    for (const QString& imp : m_extraImports) s << imp << "\n";
+    if (!m_extraImports.isEmpty()) s << "\n";
+
+    s << "public struct " << typedName << " {\n";
+    for (const Field& f : as.fields) {
+        const QString st = swiftType(f.type);
+        s << "    public let " << toIdentifier(f.name) << ": " << st << "\n";
+    }
     s << "\n";
 
-    s << "#[derive(Debug, Clone, Default)]\n";
-    s << "pub struct " << typedName << " {\n";
-    for (const Field& f : as.fields) {
-        const QString rt = rustType(f.type);
-        s << "    pub " << toIdentifier(f.name) << ": " << rt << ",\n";
+    s << "    public init(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        const Field& f = as.fields[i];
+        s << toIdentifier(f.name) << ": " << swiftType(f.type);
     }
-    s << "}\n\n";
+    s << ") {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        s << "        self." << fid << " = " << fid << "\n";
+    }
+    s << "    }\n\n";
 
-    s << "impl " << typedName << " {\n";
-    s << "    pub fn from_str_struct(s: &" << strTypeName << ") -> Self {\n";
-    s << "        Self {\n";
+    s << "    public init(from s: " << strTypeName << ") {\n";
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
         const QString expr = parseExpr(fid, f.type);
-        s << "            " << fid << ": " << expr << ",\n";
+        s << "        self." << fid << " = " << expr << "\n";
     }
-    s << "        }\n    }\n}\n";
+    s << "    }\n";
+    s << "}\n";
 
-    return out;
-}
-
-// ---------------------------------------------------------------------------
-// Common mod.rs
-// ---------------------------------------------------------------------------
-
-QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets) const
-{
-    QString out;
-    QTextStream s(&out);
-    for (const AttrSet& as : attrSets) {
-        const QString mod = toIdentifier(as.name);
-        s << "pub mod " << mod << "_string;\n";
-        s << "pub mod " << mod << "_typed;\n";
-        s << "pub use " << mod << "_string::*;\n";
-        s << "pub use " << mod << "_typed::*;\n";
-    }
     return out;
 }
 
@@ -389,55 +382,43 @@ QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets) const
 // Test file
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::genTestFile(const SpectableFile& file, const QString& specSnake,
-                                    const QString& glueStruct, QStringList& errors) const
+QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& className,
+                                     const QString& glueClass, QStringList& errors) const
 {
     QString out;
     QTextStream s(&out);
 
-    s << "#![allow(unused_mut, unused_variables, unused_imports)]\n\n";
-    s << "use crate::common::*;\n";
-    s << "use crate::" << specSnake << "_glue::" << glueStruct << ";\n";
-    for (const QString& u : m_extraUses) s << u << "\n";
+    s << "import XCTest\n";
+    for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
 
-    // Helper: emit a slice of AttrSetString rows inline
-    auto emitStrSlice = [&](const QString& listType, const QVector<QStringList>& rows) {
-        if (rows.size() == 1) {
-            s << "&[" << listType << "::from_vec(&[";
-            const QStringList& row = rows[0];
+    // Helper: emit an array literal of AttrSetString rows inline
+    auto emitStrArray = [&](const QString& listType, const QVector<QStringList>& rows) {
+        s << "[\n";
+        for (const QStringList& row : rows) {
+            s << "            " << listType << "(fromArray: [";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci) s << ", ";
-                s << "\"" << rustEscape(row[ci]) << "\"";
+                s << "\"" << swiftEscape(row[ci]) << "\"";
             }
-            s << "])]";
-        } else {
-            s << "&[\n";
-            for (const QStringList& row : rows) {
-                s << "        " << listType << "::from_vec(&[";
-                for (int ci = 0; ci < row.size(); ++ci) {
-                    if (ci) s << ", ";
-                    s << "\"" << rustEscape(row[ci]) << "\"";
-                }
-                s << "]),\n";
-            }
-            s << "    ]";
+            s << "]),\n";
         }
+        s << "        ]";
     };
 
-    // Helper: emit a slice of Vec<String> rows inline
-    auto emitGridSlice = [&](const QVector<QStringList>& rows, int startRow = 0) {
-        s << "&[\n";
+    // Helper: emit an array literal of [String] rows inline
+    auto emitGridArray = [&](const QVector<QStringList>& rows, int startRow = 0) {
+        s << "[\n";
         for (int ri = startRow; ri < rows.size(); ++ri) {
-            s << "        vec![";
+            s << "            [";
             const QStringList& r = rows[ri];
             for (int ci = 0; ci < r.size(); ++ci) {
                 if (ci) s << ", ";
-                s << "\"" << rustEscape(resolveValue(r[ci], file)) << "\".to_string()";
+                s << "\"" << swiftEscape(resolveValue(r[ci], file)) << "\"";
             }
             s << "],\n";
         }
-        s << "    ]";
+        s << "        ]";
     };
 
     auto emitSteps = [&](const QVector<Step>& steps) {
@@ -448,7 +429,7 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                 esc.replace("\\", "\\\\");
                 esc.replace("\"", "\\\"");
                 esc.replace("\n", "\\n");
-                s << "    glue." << meth << "(\"" << esc << "\");\n";
+                s << "        glue." << meth << "(\"" << esc << "\")\n";
                 continue;
             }
             if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
@@ -459,13 +440,13 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                     esc.replace("\\", "\\\\");
                     esc.replace("\"", "\\\"");
                     esc.replace("\n", "\\n");
-                    s << "    glue." << meth << "(\"" << esc << "\");\n";
+                    s << "        glue." << meth << "(\"" << esc << "\")\n";
                     continue;
                 }
             }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
                 const QString meth = toFnName(step.keyword, step.text);
-                s << "    glue." << meth << "();\n";
+                s << "        glue." << meth << "()\n";
                 continue;
             }
 
@@ -486,39 +467,37 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                 QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
                 errors << localErrs;
                 const QString listType = toTypeName(step.attrSetName) + "String";
-                s << "    glue." << meth << "(";
-                emitStrSlice(listType, rows);
-                s << ");\n";
+                s << "        glue." << meth << "(";
+                emitStrArray(listType, rows);
+                s << ")\n";
             } else {
                 const StepTable& tbl = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && isDataType(step.attrSetName, file);
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
-                s << "    glue." << meth << "(";
-                emitGridSlice(tbl.rows, startRow);
-                s << ");\n";
+                s << "        glue." << meth << "(";
+                emitGridArray(tbl.rows, startRow);
+                s << ")\n";
             }
         }
     };
 
-    // ── Scenario tests ──────────────────────────────────────────────────────
-    if (!file.scenarios.isEmpty())
-        s << "// --- Scenario Tests ---\n\n";
+    s << "final class " << className << "Tests: XCTestCase {\n\n";
 
+    // ── Scenario tests ──────────────────────────────────────────────────────
     for (const Scenario& sc : file.scenarios) {
         const QStringList effectiveGenTags = file.generatorTags + sc.generatorTags;
         if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
-        const QString fn = "scenario_" + toIdentifier(sc.name);
+        const QString fn = "test" + toTypeName(sc.name);
 
         const QStringList allTags = file.tags + sc.tags;
         if (!allTags.isEmpty())
-            s << "// Tags: " << allTags.join(", ") << "\n";
-        s << "#[test]\n";
-        s << "fn " << fn << "() {\n";
-        s << "    let mut glue = " << glueStruct << "::new();\n";
+            s << "    // Tags: " << allTags.join(", ") << "\n";
+        s << "    func " << fn << "() {\n";
+        s << "        let glue = " << glueClass << "()\n";
         emitSteps(file.backgroundSteps);
         emitSteps(sc.steps);
-        s << "}\n\n";
+        s << "    }\n\n";
     }
 
     // ── BusinessRule / Calculation / DataType tests ──────────────────────────
@@ -529,42 +508,39 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
             if (nb.hasExamples && nb.kind == kind) { hasKind = true; break; }
         if (!hasKind) continue;
 
-        const QString ks = kindToSnake(kind);
-        s << "// --- " << kind << " Tests ---\n\n";
-
         for (const NamedBlock& nb : file.namedBlocks) {
             if (!nb.hasExamples || nb.kind != kind) continue;
             const QStringList effectiveGenTags = file.generatorTags + nb.generatorTags;
             if (!TagFilter::matches(m_tagFilter, effectiveGenTags)) continue;
 
-            const QString fn      = ks + "_" + toIdentifier(nb.name);
-            const QString glueFn  = "examples_" + ks + "_" + toIdentifier(nb.name);
+            const QString fn     = "test" + kindToTitle(kind) + toTypeName(nb.name);
+            const QString glueFn = "examples" + kindToTitle(kind) + toTypeName(nb.name);
             const AttrSet* as = nb.examples.attrSetName.isEmpty()
                 ? nullptr
                 : findAttrSet(nb.examples.attrSetName, file);
 
             if (!nb.tags.isEmpty())
-                s << "// Tags: " << nb.tags.join(", ") << "\n";
-            s << "#[test]\n";
-            s << "fn " << fn << "() {\n";
-            s << "    let mut glue = " << glueStruct << "::new();\n";
+                s << "    // Tags: " << nb.tags.join(", ") << "\n";
+            s << "    func " << fn << "() {\n";
+            s << "        let glue = " << glueClass << "()\n";
 
             if (as) {
                 const QVector<QStringList> rows = resolveExamplesRows(nb, as);
                 const QString listType = toTypeName(nb.examples.attrSetName) + "String";
-                s << "    glue." << glueFn << "(";
-                emitStrSlice(listType, rows);
-                s << ");\n";
+                s << "        glue." << glueFn << "(";
+                emitStrArray(listType, rows);
+                s << ")\n";
             } else {
                 const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
-                s << "    glue." << glueFn << "(";
-                emitGridSlice(rows);
-                s << ");\n";
+                s << "        glue." << glueFn << "(";
+                emitGridArray(rows);
+                s << ")\n";
             }
-            s << "}\n\n";
+            s << "    }\n\n";
         }
     }
 
+    s << "}\n";
     return out;
 }
 
@@ -572,7 +548,7 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
 // Glue file
 // ---------------------------------------------------------------------------
 
-QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFile& file)
+QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const SpectableFile& file)
 {
     QVector<GlueSig> sigs;
     QSet<QString> seen;
@@ -604,7 +580,7 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
 
     for (const NamedBlock& nb : file.namedBlocks) {
         if (!nb.hasExamples) continue;
-        const QString meth = "examples_" + kindToSnake(nb.kind) + "_" + toIdentifier(nb.name);
+        const QString meth = "examples" + kindToTitle(nb.kind) + toTypeName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
         const AttrSet* as = nb.examples.attrSetName.isEmpty()
@@ -616,37 +592,37 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
     return sigs;
 }
 
-QString RustGenerator::genStubFn(const GlueSig& sig)
+QString SwiftGenerator::genStubFn(const GlueSig& sig)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
-        s << "    pub fn " << sig.method << "(&mut self) {\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        s << "    public func " << sig.method << "() {\n";
+        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     } else if (sig.paramType == "docstring") {
-        s << "    pub fn " << sig.method << "(&mut self, value: &str) {\n";
-        s << "        println!(\"{}\", value);\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        s << "    public func " << sig.method << "(_ value: String) {\n";
+        s << "        print(value)\n";
+        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
-        s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<String>]) {\n";
-        s << "        for value in values { println!(\"{:?}\", value); }\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        s << "    public func " << sig.method << "(_ values: [[String]]) {\n";
+        s << "        for value in values { print(value) }\n";
+        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     } else {
         const QString pt = toTypeName(sig.paramType);
-        s << "    pub fn " << sig.method << "(&mut self, values: &[" << pt << "]) {\n";
-        s << "        for value in values { println!(\"{:?}\", value); }\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        s << "    public func " << sig.method << "(_ values: [" << pt << "]) {\n";
+        s << "        for value in values { print(value) }\n";
+        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     }
     return out;
 }
 
-bool RustGenerator::appendMissingStubs(const QString& gluePath,
-                                        const QVector<GlueSig>& sigs,
-                                        QStringList& msgs)
+bool SwiftGenerator::appendMissingStubs(const QString& gluePath,
+                                         const QVector<GlueSig>& sigs,
+                                         QStringList& msgs)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -655,7 +631,7 @@ bool RustGenerator::appendMissingStubs(const QString& gluePath,
 
     QString stubs;
     for (const GlueSig& sig : sigs) {
-        if (!content.contains(QStringLiteral("fn %1(").arg(sig.method)))
+        if (!content.contains(QStringLiteral("func %1(").arg(sig.method)))
             stubs += "\n" + genStubFn(sig);
     }
     if (stubs.isEmpty()) return false;
@@ -677,23 +653,17 @@ bool RustGenerator::appendMissingStubs(const QString& gluePath,
     return true;
 }
 
-QString RustGenerator::genGlueFile(const SpectableFile& file, const QString& glueStruct) const
+QString SwiftGenerator::genGlueFile(const SpectableFile& file, const QString& glueClass) const
 {
     const QVector<GlueSig> sigs = collectGlueSigs(file);
     QString out;
     QTextStream s(&out);
 
-    s << "#![allow(dead_code, unused_variables, unused_imports)]\n\n";
-    s << "use crate::common::*;\n";
-    for (const QString& u : m_extraUses) s << u << "\n";
+    s << "import XCTest\n";
+    for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
-    s << "pub struct " << glueStruct << " {\n";
-    s << "    // Add state fields here\n";
-    s << "}\n\n";
-    s << "impl " << glueStruct << " {\n";
-    s << "    pub fn new() -> Self {\n";
-    s << "        Self {}\n";
-    s << "    }\n";
+    s << "public class " << glueClass << " {\n";
+    s << "    public init() {}\n";
     for (const GlueSig& sig : sigs)
         s << "\n" << genStubFn(sig);
     s << "}\n";
@@ -705,19 +675,16 @@ QString RustGenerator::genGlueFile(const SpectableFile& file, const QString& glu
 // Production class generators
 // ---------------------------------------------------------------------------
 
-// DataType ValidValues → struct with is_valid() method
-static QString genRustProductionClass(const NamedBlock& nb)
+// DataType ValidValues → struct with isValid property
+static QString genSwiftProductionClass(const NamedBlock& nb)
 {
-    const QString name = RustGenerator::toTypeName(nb.name);
+    const QString name = SwiftGenerator::toTypeName(nb.name);
     QString out;
     QTextStream s(&out);
-    s << "#[derive(Debug, Clone, PartialEq, Eq)]\n";
-    s << "pub struct " << name << " {\n";
-    s << "    pub value: String,\n";
-    s << "}\n\n";
-    s << "impl " << name << " {\n";
-    s << "    pub fn new(value: impl Into<String>) -> Self {\n";
-    s << "        Self { value: value.into() }\n";
+    s << "public struct " << name << ": Equatable, CustomStringConvertible {\n";
+    s << "    public let value: String\n\n";
+    s << "    public init(_ value: String) {\n";
+    s << "        self.value = value\n";
     s << "    }\n\n";
 
     int valueCol = -1, isValidCol = -1;
@@ -736,26 +703,22 @@ static QString genRustProductionClass(const NamedBlock& nb)
                                    || iv == "y" || iv == "1");
                 if (!isTrue) continue;  // skip examples marked invalid
             }
-            vals << "\"" + row[valueCol].trimmed() + "\"";
+            vals << "\"" + row[valueCol].trimmed().toLower() + "\"";
         }
         if (!vals.isEmpty()) {
-            s << "    pub fn is_valid(&self) -> bool {\n";
-            s << "        matches!(self.value.to_lowercase().as_str(),\n";
-            QStringList lower;
-            for (const QString& v : vals) lower << v.toLower();
-            s << "            " << lower.join(" | ") << "\n";
-            s << "        )\n    }\n";
+            s << "    public var isValid: Bool {\n";
+            s << "        return [" << vals.join(", ") << "].contains(value.lowercased())\n";
+            s << "    }\n\n";
         }
     }
-    s << "}\n\n";
-    s << "impl std::fmt::Display for " << name << " {\n";
-    s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
-    s << "        write!(f, \"{}\", self.value)\n    }\n}\n";
+
+    s << "    public var description: String { return value }\n";
+    s << "}\n";
     return out;
 }
 
 // EnumerationValues DataType → enum
-static QString genRustProductionEnum(const NamedBlock& nb)
+static QString genSwiftProductionEnum(const NamedBlock& nb)
 {
     int valueCol = -1;
     for (int i = 0; i < nb.examples.header.size(); ++i)
@@ -768,87 +731,78 @@ static QString genRustProductionEnum(const NamedBlock& nb)
             if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
                 variants << row[valueCol].trimmed();
 
-    const QString name = RustGenerator::toTypeName(nb.name);
+    const QString name = SwiftGenerator::toTypeName(nb.name);
     QString out;
     QTextStream s(&out);
-    s << "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n";
-    s << "pub enum " << name << " {\n";
+    s << "public enum " << name << ": String, CaseIterable {\n";
     for (const QString& v : variants)
-        s << "    " << v << ",\n";
+        s << "    case " << SwiftGenerator::toIdentifier(v) << " = \"" << v << "\"\n";
     s << "}\n";
     return out;
 }
 
-// Entity → production struct with impl new()
-static QString genRustProductionEntity(const AttrSet& as, const SpectableFile& file)
+// Entity → production struct with memberwise init
+static QString genSwiftProductionEntity(const AttrSet& as, const SpectableFile& file)
 {
     (void)file;  // reserved for cross-entity type lookup
-    const QString name = RustGenerator::toTypeName(as.name);
+    const QString name = SwiftGenerator::toTypeName(as.name);
     QString out;
     QTextStream s(&out);
 
-    s << "#[derive(Debug, Clone)]\n";
-    s << "pub struct " << name << " {\n";
+    s << "public struct " << name << " {\n";
     for (const Field& f : as.fields) {
-        const QString fid = RustGenerator::toIdentifier(f.name);
-        const QString rt  = RustGenerator::rustType(f.type);
-        s << "    pub " << fid << ": " << rt << ",\n";
+        const QString fid = SwiftGenerator::toIdentifier(f.name);
+        const QString st  = SwiftGenerator::swiftType(f.type);
+        s << "    public let " << fid << ": " << st << "\n";
     }
-    s << "}\n\n";
-    s << "impl " << name << " {\n";
-    s << "    pub fn new(";
+    s << "\n";
+    s << "    public init(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        const QString fid = RustGenerator::toIdentifier(as.fields[i].name);
-        const QString rt  = RustGenerator::rustType(as.fields[i].type);
-        s << fid << ": " << rt;
+        const QString fid = SwiftGenerator::toIdentifier(as.fields[i].name);
+        const QString st  = SwiftGenerator::swiftType(as.fields[i].type);
+        s << fid << ": " << st;
     }
-    s << ") -> Self {\n";
-    s << "        Self {";
-    for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        s << " " << RustGenerator::toIdentifier(as.fields[i].name);
+    s << ") {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = SwiftGenerator::toIdentifier(f.name);
+        s << "        self." << fid << " = " << fid << "\n";
     }
-    s << " }\n    }\n}\n";
+    s << "    }\n";
+    s << "}\n";
     return out;
 }
 
-// Collection → production struct with add/delete/read/update/size
-static QString genRustProductionCollection(const Collection& col)
+// Collection → production class with add/delete/read/update/size
+static QString genSwiftProductionCollection(const Collection& col)
 {
-    const QString name     = RustGenerator::toTypeName(col.name);
-    const QString elemType = RustGenerator::toTypeName(col.elementType);
+    const QString name     = SwiftGenerator::toTypeName(col.name);
+    const QString elemType = SwiftGenerator::toTypeName(col.elementType);
     QString out;
     QTextStream s(&out);
     if (!col.minimum.isEmpty())
-        s << "pub const " << RustGenerator::toIdentifier(col.name).toUpper()
-          << "_MINIMUM: usize = " << col.minimum << ";\n";
+        s << "public let " << SwiftGenerator::toIdentifier(col.name) << "Minimum = " << col.minimum << "\n";
     if (!col.maximum.isEmpty())
-        s << "pub const " << RustGenerator::toIdentifier(col.name).toUpper()
-          << "_MAXIMUM: usize = " << col.maximum << ";\n";
+        s << "public let " << SwiftGenerator::toIdentifier(col.name) << "Maximum = " << col.maximum << "\n";
     if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) s << "\n";
 
-    s << "#[derive(Debug, Clone, Default)]\n";
-    s << "pub struct " << name << " {\n";
-    s << "    items: Vec<" << elemType << ">,\n";
-    s << "}\n\n";
-    s << "impl " << name << " {\n";
-    s << "    pub fn new() -> Self { Self::default() }\n\n";
-    s << "    pub fn add(&mut self, item: " << elemType << ") {\n";
-    s << "        self.items.push(item);\n    }\n\n";
-    s << "    pub fn delete(&mut self, item: &" << elemType << ") -> bool\n";
-    s << "    where\n        " << elemType << ": PartialEq,\n    {\n";
-    s << "        if let Some(pos) = self.items.iter().position(|x| x == item) {\n";
-    s << "            self.items.remove(pos);\n";
-    s << "            true\n        } else { false }\n    }\n\n";
-    s << "    pub fn read(&self) -> &[" << elemType << "] {\n";
-    s << "        &self.items\n    }\n\n";
-    s << "    pub fn update(&mut self, old_item: &" << elemType << ", new_item: " << elemType << ") -> bool\n";
-    s << "    where\n        " << elemType << ": PartialEq,\n    {\n";
-    s << "        if let Some(pos) = self.items.iter().position(|x| x == old_item) {\n";
-    s << "            self.items[pos] = new_item;\n";
-    s << "            true\n        } else { false }\n    }\n\n";
-    s << "    pub fn size(&self) -> usize { self.items.len() }\n";
+    s << "public class " << name << " {\n";
+    s << "    private var items: [" << elemType << "] = []\n\n";
+    s << "    public init() {}\n\n";
+    s << "    public func add(_ item: " << elemType << ") {\n";
+    s << "        items.append(item)\n    }\n\n";
+    s << "    public func delete(_ item: " << elemType << ") -> Bool where " << elemType << ": Equatable {\n";
+    s << "        if let idx = items.firstIndex(where: { $0 == item }) {\n";
+    s << "            items.remove(at: idx)\n";
+    s << "            return true\n        }\n        return false\n    }\n\n";
+    s << "    public func read() -> [" << elemType << "] {\n";
+    s << "        return items\n    }\n\n";
+    s << "    public func update(_ oldItem: " << elemType << ", with newItem: " << elemType
+      << ") -> Bool where " << elemType << ": Equatable {\n";
+    s << "        if let idx = items.firstIndex(where: { $0 == oldItem }) {\n";
+    s << "            items[idx] = newItem\n";
+    s << "            return true\n        }\n        return false\n    }\n\n";
+    s << "    public var size: Int { return items.count }\n";
     s << "}\n";
     return out;
 }
@@ -857,7 +811,7 @@ static QString genRustProductionCollection(const Collection& col)
 // File write helper
 // ---------------------------------------------------------------------------
 
-bool RustGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
+bool SwiftGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
 {
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -872,19 +826,19 @@ bool RustGenerator::writeFile(const QString& path, const QString& content, QStri
 // Entry point
 // ---------------------------------------------------------------------------
 
-QStringList RustGenerator::generate(const SpectableFile& file, const Options& opts)
+QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& opts)
 {
     QStringList msgs;
-    m_extraUses = opts.extraUses;
-    m_tagFilter = opts.tagFilter;
+    m_extraImports = opts.extraImports;
+    m_tagFilter    = opts.tagFilter;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
         return msgs;
     }
 
-    const QString specSnake  = toIdentifier(file.specName);
-    const QString glueStruct = toTypeName(file.specName) + "Glue";
+    const QString className = toTypeName(file.specName);
+    const QString glueClass = className + "Glue";
 
     // Derive subfolder from the .spectable file's path relative to sourceRoot
     QString specSubDir;
@@ -920,7 +874,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, dest);
     }
 
-    // Synthesize implicit AttrSets for NamedBlocks (same as JavaGenerator)
+    // Synthesize implicit AttrSets for NamedBlocks (same as JavaGenerator/RustGenerator)
     SpectableFile augmented = file;
     {
         QSet<QString> known;
@@ -948,8 +902,9 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         }
     }
 
-    // Write common structs
-    QVector<AttrSet> domainSets;
+    // Write common structs. Swift files in the same target see each other
+    // without per-file imports, so — unlike Rust's mod.rs — no index file
+    // or "use" statement is needed to wire them together.
     for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;
         if (as.fields.isEmpty()) {
@@ -957,29 +912,27 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
                     .arg(as.line).arg(as.name);
             continue;
         }
-        const QString mid = toIdentifier(as.name);
-        writeFile(commonDir.filePath(mid + "_string.rs"), genStringStruct(as), msgs);
-        writeFile(commonDir.filePath(mid + "_typed.rs"),  genTypedStruct(as),  msgs);
-        domainSets.push_back(as);
+        const QString tn = toTypeName(as.name);
+        writeFile(commonDir.filePath(tn + "String.swift"), genStringStruct(as), msgs);
+        writeFile(commonDir.filePath(tn + "Typed.swift"),  genTypedStruct(as),  msgs);
     }
-    writeFile(commonDir.filePath("mod.rs"), genCommonMod(domainSets), msgs);
 
     // Test file
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(augmented, specSnake, glueStruct, testErrs);
+        const QString testContent = genTestFile(augmented, className, glueClass, testErrs);
         msgs << testErrs;
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(dir.filePath("test_" + specSnake + ".rs"), testContent, msgs);
+            writeFile(dir.filePath(className + "Tests.swift"), testContent, msgs);
     }
 
     // Glue file
     {
-        const QString gluePath = dir.filePath(specSnake + "_glue.rs");
+        const QString gluePath = dir.filePath(className + "Glue.swift");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(augmented, glueStruct), msgs);
+            writeFile(gluePath, genGlueFile(augmented, glueClass), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs))
@@ -987,12 +940,12 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         }
     }
 
-    // Production classes (DataType → struct/enum, Entity → struct, Collection → struct)
+    // Production classes (DataType → struct/enum, Entity → struct, Collection → class)
     if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
-        // DataType ValidValues → struct with is_valid(); EnumerationValues → enum
+        // DataType ValidValues → struct with isValid; EnumerationValues → enum
         for (const NamedBlock& nb : file.namedBlocks) {
             if (nb.isContext || !nb.hasExamples || nb.kind != "DataType") continue;
             const bool isValidValues =
@@ -1000,26 +953,26 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             const bool isEnum =
                 nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
             if (!isValidValues && !isEnum) continue;
-            const QString prodPath = prodDir.filePath(toIdentifier(nb.name) + ".rs");
+            const QString prodPath = prodDir.filePath(toTypeName(nb.name) + ".swift");
             if (QFile::exists(prodPath)) continue;
-            writeFile(prodPath, isValidValues ? genRustProductionClass(nb)
-                                              : genRustProductionEnum(nb), msgs);
+            writeFile(prodPath, isValidValues ? genSwiftProductionClass(nb)
+                                              : genSwiftProductionEnum(nb), msgs);
         }
 
-        // Entity → struct + impl new()
+        // Entity → struct with memberwise init
         for (const AttrSet& as : file.attrSets) {
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
-            const QString prodPath = prodDir.filePath(toIdentifier(as.name) + ".rs");
+            const QString prodPath = prodDir.filePath(toTypeName(as.name) + ".swift");
             if (QFile::exists(prodPath)) continue;
-            writeFile(prodPath, genRustProductionEntity(as, file), msgs);
+            writeFile(prodPath, genSwiftProductionEntity(as, file), msgs);
         }
 
-        // Collection → struct with add/delete/read/update/size
+        // Collection → class with add/delete/read/update/size
         for (const Collection& col : file.collections) {
             if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
-            const QString prodPath = prodDir.filePath(toIdentifier(col.name) + ".rs");
+            const QString prodPath = prodDir.filePath(toTypeName(col.name) + ".swift");
             if (QFile::exists(prodPath)) continue;
-            writeFile(prodPath, genRustProductionCollection(col), msgs);
+            writeFile(prodPath, genSwiftProductionCollection(col), msgs);
         }
     }
 

@@ -8,6 +8,7 @@ class CppGenerator {
 public:
     struct Options {
         QString     outputDir;
+        QString     sourceRoot;     // project root; used to mirror the .spectable's subfolder in output
         bool        overwriteGlue          = false;
         bool        copySpectable          = true;
         QStringList extraIncludes;          // extra #include lines injected into generated files
@@ -48,8 +49,10 @@ private:
     QString genTypedHeader(const AttrSet& as) const;
     QString genCommonHeader(const QVector<AttrSet>& attrSets) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
-                        const QString& glueClass, QStringList& errors) const;
-    QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;
+                        const QString& glueClass, const QString& commonRelPath,
+                        QStringList& errors) const;
+    QString genGlueFile(const SpectableFile& file, const QString& glueClass,
+                        const QString& commonRelPath) const;
 
     struct GlueSig {
         QString method;

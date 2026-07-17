@@ -11,6 +11,7 @@ add_executable(SpecTableConverter
     CppGenerator.cpp
     JavaScriptGenerator.cpp
     GoGenerator.cpp
+    SwiftGenerator.cpp
 )
 
 target_compile_features(SpecTableConverter PRIVATE cxx_std_17)
