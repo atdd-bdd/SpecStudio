@@ -685,6 +685,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     result.attrSets.push_back(as);
                 for (const Define& def : imp.defines)
                     result.defines.push_back(def);
+                for (NamedBlock nb : imp.namedBlocks) {
+                    nb.isContext = true;
+                    result.namedBlocks.push_back(nb);
+                }
+                for (const QString& dt : imp.dataTypeNames)
+                    if (!result.dataTypeNames.contains(dt))
+                        result.dataTypeNames.push_back(dt);
             }
             continue;
         }

@@ -642,6 +642,89 @@ static QString resolveOutputDir(const SpecConfig& cfg, const QString& configFile
     return QDir(base).absoluteFilePath(out);
 }
 
+// Rewrite a single .spectable file's Insert "..." / Insert '...' / Insert <...> /
+// Import "..." statements that resolve to oldAbsPath, pointing them at newAbsPath
+// instead (as a path relative to this file). Returns true if the file was changed.
+static bool rewriteInsertImportRefs(const QString& spectablePath,
+                                    const QString& oldAbsPath, const QString& newAbsPath)
+{
+    QFile f(spectablePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    QString content = QTextStream(&f).readAll();
+    f.close();
+
+    const QString fileDir  = QFileInfo(spectablePath).absolutePath();
+    const QString oldCanon = QFileInfo(oldAbsPath).absoluteFilePath();
+
+    static QRegularExpression reRef(
+        R"re(^([ \t]*(?:Insert|Import)[ \t]+)(?:"([^"]+)"|'([^']+)'|<([^>]+)>))re",
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::MultilineOption);
+
+    struct Repl { qsizetype start; qsizetype len; QString text; };
+    QVector<Repl> repls;
+
+    auto it = reRef.globalMatch(content);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const int grp = !m.captured(2).isEmpty() ? 2 : !m.captured(3).isEmpty() ? 3
+                       : !m.captured(4).isEmpty() ? 4 : -1;
+        if (grp < 0) continue;
+        const QString ref = m.captured(grp);
+        const QString refAbs = QFileInfo(fileDir + "/" + ref).absoluteFilePath();
+        if (refAbs.compare(oldCanon, Qt::CaseInsensitive) != 0) continue;
+        repls.push_back({ m.capturedStart(grp), m.capturedLength(grp),
+                          QDir(fileDir).relativeFilePath(newAbsPath) });
+    }
+    if (repls.isEmpty()) return false;
+
+    for (auto rit = repls.crbegin(); rit != repls.crend(); ++rit)
+        content.replace(rit->start, rit->len, rit->text);
+
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
+    QTextStream(&f) << content;
+    return true;
+}
+
+// Rewrite a .specconfig's externalSpectables[].file entries that resolve to
+// oldAbsPath, pointing them at newAbsPath instead. Returns true if changed.
+static bool rewriteSpecConfigRefs(const QString& cfgPath,
+                                   const QString& oldAbsPath, const QString& newAbsPath)
+{
+    SpecConfig cfg = SpecConfig::load(cfgPath);
+    if (cfg.externalSpectables.isEmpty()) return false;
+
+    const QString cfgDir   = QFileInfo(cfgPath).absolutePath();
+    const QString oldCanon = QFileInfo(oldAbsPath).absoluteFilePath();
+    bool changed = false;
+    for (ExternalSpectable& es : cfg.externalSpectables) {
+        const QString abs = QFileInfo(es.file).isAbsolute()
+            ? es.file : QDir(cfgDir).absoluteFilePath(es.file);
+        if (QFileInfo(abs).absoluteFilePath().compare(oldCanon, Qt::CaseInsensitive) != 0)
+            continue;
+        es.file = QDir(cfgDir).relativeFilePath(newAbsPath);
+        changed = true;
+    }
+    return changed && cfg.save(cfgPath);
+}
+
+// Update every .spectable Insert/Import statement and every .specconfig
+// externalSpectables entry across the whole solution that points at oldAbsPath,
+// so a file Move/Rename doesn't silently break references to it.
+static void rewriteReferencesAfterMove(Solution* solution,
+                                        const QString& oldAbsPath, const QString& newAbsPath)
+{
+    if (!solution) return;
+    for (auto* proj : solution->projects()) {
+        for (auto* pf : proj->files()) {
+            if (pf->absolutePath() == oldAbsPath) continue; // the moved file itself
+            if (pf->type() == FileType::SpecTable)
+                rewriteInsertImportRefs(pf->absolutePath(), oldAbsPath, newAbsPath);
+            else if (pf->type() == FileType::SpecConfig)
+                rewriteSpecConfigRefs(pf->absolutePath(), oldAbsPath, newAbsPath);
+        }
+    }
+}
+
 // Returns the project for the currently selected Solution Explorer node,
 // or the project that owns the current editor's file, or nullptr (→ all projects).
 Project* AppController::activeProject() const
@@ -1095,6 +1178,8 @@ void AppController::onRenameFile(const QString& absolutePath)
         return;
     }
 
+    rewriteReferencesAfterMove(m_solution, absolutePath, newPath);
+
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
@@ -1138,6 +1223,8 @@ void AppController::onMoveFile(const QString& absolutePath)
             tr("Could not move '%1'.").arg(fileName));
         return;
     }
+
+    rewriteReferencesAfterMove(m_solution, absolutePath, newPath);
 
     for (auto* proj : m_solution->projects()) {
         proj->scanFiles();
