@@ -188,6 +188,7 @@ void GridDialog::showRowContextMenu(const QPoint& pos)
 void GridDialog::showCornerContextMenu(const QPoint& globalPos)
 {
     QMenu menu(this);
+    menu.addAction(tr("Copy Table"),  this, &GridDialog::copyTable);
     menu.addAction(tr("Paste Table"), this, &GridDialog::pasteTable);
     menu.addAction(tr("Transform"),   this, &GridDialog::transformTable);
     menu.addAction(tr("Undo"),        this, &GridDialog::undoTable);
@@ -325,6 +326,29 @@ QVector<QStringList> GridDialog::parseClipboardTable() const
             result << row;
     }
     return result;
+}
+
+void GridDialog::copyTable()
+{
+    const QVector<QStringList> data = currentData();
+    if (data.isEmpty()) return;
+
+    int cols = 0;
+    for (const auto& row : data) cols = qMax(cols, row.size());
+
+    QVector<int> widths(cols, 0);
+    for (const auto& row : data)
+        for (int c = 0; c < cols; ++c)
+            widths[c] = qMax(widths[c], (c < row.size() ? row[c] : QString()).length());
+
+    QStringList lines;
+    for (const auto& row : data) {
+        QStringList cells;
+        for (int c = 0; c < cols; ++c)
+            cells << (c < row.size() ? row[c] : QString()).leftJustified(widths[c]);
+        lines << "| " + cells.join(" | ") + " |";
+    }
+    QApplication::clipboard()->setText(lines.join('\n'));
 }
 
 void GridDialog::pasteTable()

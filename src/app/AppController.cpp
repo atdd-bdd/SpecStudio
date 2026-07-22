@@ -782,14 +782,11 @@ void AppController::onBuildCurrentFile()
         return;
     }
 
-    // Locate config — prefer user-selected active config for this project
-    const QString projRoot = m_solution
-        ? (m_solution->projectForFile(ed->filePath())
-           ? m_solution->projectForFile(ed->filePath())->rootPath() : QString())
-        : QString();
-    QString cfgPath = projRoot.isEmpty() ? QString()
-                                         : m_settings->activeBuildConfig(projRoot);
-    if (cfgPath.isEmpty() || !QFile::exists(cfgPath))
+    // Locate config — prefer the active (most-recently-set) config for this project
+    Project* ownerForCfg = m_solution ? m_solution->projectForFile(ed->filePath()) : nullptr;
+    const QString projRoot = ownerForCfg ? ownerForCfg->rootPath() : QString();
+    QString cfgPath = ownerForCfg ? resolveActiveConfig(ownerForCfg) : QString();
+    if (cfgPath.isEmpty())
         cfgPath = findSpecConfig(QFileInfo(ed->filePath()).dir().absolutePath(),
                                  projRoot.isEmpty()
                                  ? QFileInfo(ed->filePath()).dir().absolutePath()
@@ -877,10 +874,8 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
     setupBuildConnections();
 
     for (auto* proj : targets) {
-        // Prefer the user-selected config; fall back to nearest .specconfig in tree
-        QString cfgPath = m_settings->activeBuildConfig(proj->rootPath());
-        if (cfgPath.isEmpty() || !QFile::exists(cfgPath))
-            cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
+        // Prefer the active (most-recently-set) config for this project
+        const QString cfgPath = resolveActiveConfig(proj);
         const SpecConfig cfg  = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
         const QString converter = cfg.converterPath.isEmpty() ? autoDetectConverter()
                                                                : cfg.converterPath;
@@ -966,6 +961,39 @@ void AppController::onSetActiveBuildConfig(const QString& configAbsPath)
         tr("Build configuration set to: %1").arg(QFileInfo(configAbsPath).fileName()));
 }
 
+QString AppController::resolveActiveConfig(Project* proj)
+{
+    if (!proj) return {};
+
+    const QString active = m_settings->activeBuildConfig(proj->rootPath());
+    if (!active.isEmpty() && QFile::exists(active))
+        return active;
+
+    const QDir projDir(proj->rootPath());
+    const QStringList cfgFiles = projDir.entryList({ "*.specconfig" }, QDir::Files, QDir::Name);
+    if (cfgFiles.isEmpty())
+        return {};
+    if (cfgFiles.size() == 1) {
+        const QString only = projDir.absoluteFilePath(cfgFiles.first());
+        m_settings->setActiveBuildConfig(proj->rootPath(), only);
+        return only;
+    }
+
+    // Multiple candidates and no active choice recorded — ask which to use.
+    bool ok = false;
+    const QString picked = QInputDialog::getItem(
+        m_mainWindow, tr("Select Build Configuration"),
+        tr("Project '%1' has more than one .specconfig and no active configuration is set.\n"
+           "Which one should Analyze/Build use?").arg(proj->name()),
+        cfgFiles, 0, false, &ok);
+    if (!ok || picked.isEmpty())
+        return {};
+
+    const QString chosen = projDir.absoluteFilePath(picked);
+    m_settings->setActiveBuildConfig(proj->rootPath(), chosen);
+    return chosen;
+}
+
 void AppController::onBuildSolution()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
@@ -1002,9 +1030,7 @@ void AppController::doAnalyze(const QList<Project*>& targets)
         // Resolve external spectables from config
         QStringList externalFiles;
         {
-            QString cfgPath = m_settings->activeBuildConfig(proj->rootPath());
-            if (cfgPath.isEmpty() || !QFile::exists(cfgPath))
-                cfgPath = findSpecConfig(proj->rootPath(), proj->rootPath());
+            const QString cfgPath = resolveActiveConfig(proj);
             if (!cfgPath.isEmpty()) {
                 const SpecConfig extCfg = SpecConfig::load(cfgPath);
                 const QString cfgDir = QFileInfo(cfgPath).absolutePath();

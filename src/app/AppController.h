@@ -77,6 +77,12 @@ private:
     void setupBuildConnections();
     void doBuildProjects(const QList<Project*>& targets);
     void doAnalyze(const QList<Project*>& targets);
+    // Resolves the .specconfig to use for a project: the active (most-recently-set)
+    // configuration if one is set, the sole .specconfig if the project root has
+    // exactly one, or — if there's no active choice and multiple candidates exist —
+    // prompts the user to pick one and remembers it as active. Returns an absolute
+    // path, or empty if no .specconfig exists for the project.
+    QString resolveActiveConfig(Project* proj);
     Project* activeProject() const;  // project in Explorer selection, or current editor's project
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);

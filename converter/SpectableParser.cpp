@@ -534,24 +534,17 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 if (!curStep) break;
                 curStep->hasTable = true;
                 state = State::InStepTable;
-                // Detect format
-                if (!curStep->vertical && cells.size() >= 2) {
-                    QString h0 = cells[0].toLower();
-                    if (h0 == "attribute" || h0 == "name") {
-                        // Implicit vertical: | Attribute | Value | header
-                        curStep->vertical       = true;
-                        curStep->table.vertical = true;
-                        curStep->table.hasHeader  = true;
-                        // This row is the header — don't add to rows
-                    } else {
-                        // Normal: first row = column headers
-                        curStep->table.hasHeader = true;
-                        curStep->table.rows.push_back(cells);
-                    }
-                } else if (curStep->vertical) {
-                    // Explicit Vertical: no header row
-                    curStep->table.vertical = true;
-                    curStep->table.hasHeader  = false;
+                // Orientation comes only from the explicit " : AttrSet Vertical"
+                // clause (curStep->vertical, set from the step's colon clause
+                // before any table rows arrive) — never guessed from the header
+                // row's text. A header row that happens to start with "Name" or
+                // "Attribute" (a very common field name) is still a normal
+                // horizontal table unless "Vertical" was written explicitly.
+                if (curStep->vertical) {
+                    // Explicit Vertical: no header row, every row is an
+                    // (Attribute, Value...) pair.
+                    curStep->table.vertical  = true;
+                    curStep->table.hasHeader = false;
                     curStep->table.rows.push_back(cells);
                 } else {
                     curStep->table.hasHeader = true;

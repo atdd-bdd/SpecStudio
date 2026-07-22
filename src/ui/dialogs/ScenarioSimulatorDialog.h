@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QSet>
 #include <QStringList>
 #include <QVector>
 
@@ -53,9 +54,14 @@ private:
                           QVector<DisplayDefine>& defines) const;
     QString renderSteps(const QVector<DisplayStep>& steps,
                         QVector<DisplayDefine>& defines) const;
+    // `resolving` guards against a Define whose table cells (directly or
+    // transitively) reference back to itself.
     QString renderTable(const QVector<QStringList>& rows,
-                        bool vertical, bool hasHeader) const;
-    QString resolveDefine(const QString& defName, QVector<DisplayDefine>& defines) const;
+                        bool vertical, bool hasHeader,
+                        QVector<DisplayDefine>& defines,
+                        const QSet<QString>& resolving = {}) const;
+    QString resolveDefine(const QString& defName, QVector<DisplayDefine>& defines,
+                         const QSet<QString>& resolving = {}) const;
 
     QString m_filePath;
     int     m_cursorLine;

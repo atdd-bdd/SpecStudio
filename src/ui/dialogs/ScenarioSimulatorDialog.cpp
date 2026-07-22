@@ -8,6 +8,7 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QTextBrowser>
+#include <QTextEdit>
 #include <QTextStream>
 #include <QVBoxLayout>
 
@@ -28,6 +29,12 @@ ScenarioSimulatorDialog::ScenarioSimulatorDialog(const QString& filePath,
 
     m_browser = new QTextBrowser(this);
     m_browser->setOpenLinks(false);
+    // Defines can expand into sizeable nested tables (see renderTable/resolveDefine),
+    // so let the document grow to its natural width/height and scroll both ways
+    // instead of squeezing wide tables to fit.
+    m_browser->setLineWrapMode(QTextEdit::NoWrap);
+    m_browser->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_browser->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
     m_refresh = new QPushButton(tr("Refresh"), this);
 
@@ -150,20 +157,13 @@ ScenarioSimulatorDialog::ParsedFile ScenarioSimulatorDialog::parseFile(const QSt
             } else if (state == State::AwaitStepTable && curStep) {
                 curStep->tableRows << cells;
                 state = State::InStepTable;
-                if (!curStep->vertical && cells.size() >= 2) {
-                    QString h0 = cells[0].toLower();
-                    if (h0 == "attribute" || h0 == "name") {
-                        curStep->vertical = true;
-                        curStep->hasHeader  = true;
-                        curStep->tableRows.clear();
-                    } else {
-                        curStep->hasHeader = true;
-                    }
-                } else if (curStep->vertical) {
-                    curStep->hasHeader = false;
-                } else {
-                    curStep->hasHeader = true;
-                }
+                // Orientation comes only from the explicit " : AttrSet Vertical"
+                // clause (curStep->vertical, already set from the step's colon
+                // clause) — never guessed from the header row's text. A header
+                // row that happens to start with "Name" or "Attribute" (a very
+                // common field name) is still a normal horizontal table unless
+                // "Vertical" was written explicitly.
+                curStep->hasHeader = !curStep->vertical;
             } else if (state == State::InStepTable && curStep) {
                 curStep->tableRows << cells;
             }
@@ -310,11 +310,21 @@ ScenarioSimulatorDialog::findDefine(const QString& name, QVector<DisplayDefine>&
 }
 
 QString ScenarioSimulatorDialog::renderTable(const QVector<QStringList>& rows,
-                                              bool vertical, bool hasHeader) const
+                                              bool vertical, bool hasHeader,
+                                              QVector<DisplayDefine>& defines,
+                                              const QSet<QString>& resolving) const
 {
     if (rows.isEmpty()) return {};
 
-    auto cellVal = [](const QString& raw) {
+    static QRegularExpression reCellDef(R"(^=(\w+)$)");
+
+    // A cell whose whole value is "=DefineName" is replaced with the actual
+    // value: inline text for a scalar Define, or — since the Define represents
+    // a whole entity/record — a nested header+data table for a table Define.
+    auto cellHtml = [&](const QString& raw) -> QString {
+        auto m = reCellDef.match(raw.trimmed());
+        if (m.hasMatch())
+            return resolveDefine(m.captured(1), defines, resolving);
         return QString(raw).replace('~', ' ').toHtmlEscaped();
     };
 
@@ -327,10 +337,10 @@ QString ScenarioSimulatorDialog::renderTable(const QVector<QStringList>& rows,
             html += "<tr>";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci == 0)
-                    html += "<th style='background:#3C3C3C; color:#DCDCDC; text-align:left; padding:3px 6px;'>"
-                            + cellVal(row[ci]) + "</th>";
+                    html += "<th style='background:#E8E8E8; color:#1E1E1E; text-align:left; padding:3px 6px;'>"
+                            + cellHtml(row[ci]) + "</th>";
                 else
-                    html += "<td style='padding:3px 6px;'>" + cellVal(row[ci]) + "</td>";
+                    html += "<td style='padding:3px 6px;'>" + cellHtml(row[ci]) + "</td>";
             }
             html += "</tr>\n";
         }
@@ -340,10 +350,10 @@ QString ScenarioSimulatorDialog::renderTable(const QVector<QStringList>& rows,
             const bool isHdr = (hasHeader && ri == 0);
             for (const QString& cell : rows[ri]) {
                 if (isHdr)
-                    html += "<th style='background:#3C3C3C; color:#DCDCDC; padding:3px 6px;'>"
-                            + cellVal(cell) + "</th>";
+                    html += "<th style='background:#E8E8E8; color:#1E1E1E; padding:3px 6px;'>"
+                            + cellHtml(cell) + "</th>";
                 else
-                    html += "<td style='padding:3px 6px;'>" + cellVal(cell) + "</td>";
+                    html += "<td style='padding:3px 6px;'>" + cellHtml(cell) + "</td>";
             }
             html += "</tr>\n";
         }
@@ -353,14 +363,19 @@ QString ScenarioSimulatorDialog::renderTable(const QVector<QStringList>& rows,
 }
 
 QString ScenarioSimulatorDialog::resolveDefine(const QString& defName,
-                                                QVector<DisplayDefine>& defines) const
+                                                QVector<DisplayDefine>& defines,
+                                                const QSet<QString>& resolving) const
 {
+    if (resolving.contains(defName.toLower()))
+        return "<i>(circular reference to '" + defName.toHtmlEscaped() + "')</i>";
     DisplayDefine* def = findDefine(defName, defines);
     if (!def)
         return "<i>(Define '" + defName.toHtmlEscaped() + "' not found)</i>";
     if (!def->isTable)
         return "<span style='color:#CE9178;'>" + def->scalarValue.toHtmlEscaped() + "</span>";
-    return renderTable(def->tableRows, def->vertical, !def->vertical);
+    QSet<QString> next = resolving;
+    next.insert(defName.toLower());
+    return renderTable(def->tableRows, def->vertical, !def->vertical, defines, next);
 }
 
 QString ScenarioSimulatorDialog::renderSteps(const QVector<DisplayStep>& steps,
@@ -377,12 +392,12 @@ QString ScenarioSimulatorDialog::renderSteps(const QVector<DisplayStep>& steps,
 
     QString html;
     for (const DisplayStep& step : steps) {
-        const QString col = kwColors.value(step.keyword.toLower(), "#DCDCDC");
+        const QString col = kwColors.value(step.keyword.toLower(), "#333333");
         html += "<p style='margin:6px 0 2px 0;'>"
                 "<b style='color:" + col + ";'>" + step.keyword.toHtmlEscaped() + "</b>"
                 " " + step.text.toHtmlEscaped();
         if (!step.attrSetName.isEmpty())
-            html += ": <i style='color:#9CDCFE;'>" + step.attrSetName.toHtmlEscaped() + "</i>";
+            html += ": <i style='color:#0969DA;'>" + step.attrSetName.toHtmlEscaped() + "</i>";
         if (step.vertical)
             html += " <span style='color:#C586C0;'>(Vertical)</span>";
         html += "</p>\n";
@@ -391,11 +406,11 @@ QString ScenarioSimulatorDialog::renderSteps(const QVector<DisplayStep>& steps,
             html += "<div style='margin-left:16px;'>"
                     "<span style='color:#CE9178;'>=</span>"
                     "<b>" + step.defineRef.toHtmlEscaped() + "</b><br/>\n"
-                    + resolveDefine(step.defineRef, const_cast<QVector<DisplayDefine>&>(defines))
+                    + resolveDefine(step.defineRef, defines)
                     + "</div>\n";
         } else if (!step.tableRows.isEmpty()) {
             html += "<div style='margin-left:16px;'>"
-                    + renderTable(step.tableRows, step.vertical, step.hasHeader)
+                    + renderTable(step.tableRows, step.vertical, step.hasHeader, defines)
                     + "</div>\n";
         }
     }
@@ -410,7 +425,7 @@ QString ScenarioSimulatorDialog::renderSection(const QString& title,
     QString html;
     html += "<h3 style='color:" + titleColor.name() + "; margin:12px 0 4px 0;'>"
             + title.toHtmlEscaped() + "</h3>"
-            "<hr style='border-color:#3C3C3C; margin-bottom:4px;'/>";
+            "<hr style='border-color:#CCCCCC; margin-bottom:4px;'/>";
     html += renderSteps(steps, defines);
     return html;
 }
@@ -432,7 +447,7 @@ QString ScenarioSimulatorDialog::buildHtml(const ParsedFile& pf, int cursorLine)
 
     QString html;
     html += "<html><body style='font-family:Consolas,\"Courier New\",monospace; "
-            "font-size:10pt; background:#1E1E1E; color:#DCDCDC; margin:8px;'>";
+            "font-size:10pt; background:#FFFFFF; color:#1E1E1E; margin:8px;'>";
 
     QVector<DisplayDefine> defines = pf.defines;
 
@@ -443,7 +458,7 @@ QString ScenarioSimulatorDialog::buildHtml(const ParsedFile& pf, int cursorLine)
         const QString scenTitle = target->keyword + ": " + target->name;
         html += renderSection(scenTitle, QColor("#569CD6"), target->steps, defines);
     } else {
-        html += "<p style='color:#F48771;'><i>No Scenario found at cursor position.</i></p>";
+        html += "<p style='color:#C0392B;'><i>No Scenario found at cursor position.</i></p>";
     }
 
     if (!pf.cleanupSteps.isEmpty())

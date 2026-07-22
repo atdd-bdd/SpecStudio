@@ -138,20 +138,13 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
             } else if (state == State::AwaitStepTable && curStep) {
                 curStep->tableRows << cells;
                 state = State::InStepTable;
-                if (!curStep->vertical && cells.size() >= 2) {
-                    QString h0 = cells[0].toLower();
-                    if (h0 == "attribute" || h0 == "name") {
-                        curStep->vertical = true;
-                        curStep->hasHeader  = true;
-                        curStep->tableRows.clear(); // header consumed
-                    } else {
-                        curStep->hasHeader = true;
-                    }
-                } else if (curStep->vertical) {
-                    curStep->hasHeader = false;
-                } else {
-                    curStep->hasHeader = true;
-                }
+                // Orientation comes only from the explicit " : AttrSet Vertical"
+                // clause (curStep->vertical, already set from the step's colon
+                // clause) — never guessed from the header row's text. A header
+                // row that happens to start with "Name" or "Attribute" (a very
+                // common field name) is still a normal horizontal table unless
+                // "Vertical" was written explicitly.
+                curStep->hasHeader = !curStep->vertical;
             } else if (state == State::InStepTable && curStep) {
                 curStep->tableRows << cells;
             }
@@ -325,7 +318,7 @@ QString BackgroundCleanupDialog::renderTable(const QVector<QStringList>& rows,
             html += "<tr>";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci == 0)
-                    html += "<th style='background:#3C3C3C; color:#DCDCDC; text-align:left; "
+                    html += "<th style='background:#E8E8E8; color:#1E1E1E; text-align:left; "
                             "padding:3px 6px;'>" + cellVal(row[ci]) + "</th>";
                 else
                     html += "<td style='padding:3px 6px;'>" + cellVal(row[ci]) + "</td>";
@@ -338,7 +331,7 @@ QString BackgroundCleanupDialog::renderTable(const QVector<QStringList>& rows,
             const bool isHdr = (hasHeader && ri == 0);
             for (const QString& cell : rows[ri]) {
                 if (isHdr)
-                    html += "<th style='background:#3C3C3C; color:#DCDCDC; padding:3px 6px;'>"
+                    html += "<th style='background:#E8E8E8; color:#1E1E1E; padding:3px 6px;'>"
                             + cellVal(cell) + "</th>";
                 else
                     html += "<td style='padding:3px 6px;'>" + cellVal(cell) + "</td>";
@@ -375,12 +368,12 @@ QString BackgroundCleanupDialog::buildHtml(const QVector<DisplayStep>& steps,
 
     QString html;
     for (const DisplayStep& step : steps) {
-        const QString col = kwColors.value(step.keyword.toLower(), "#DCDCDC");
+        const QString col = kwColors.value(step.keyword.toLower(), "#333333");
         html += "<p style='margin:8px 0 2px 0;'>"
                 "<b style='color:" + col + ";'>" + step.keyword.toHtmlEscaped() + "</b>"
                 " " + step.text.toHtmlEscaped();
         if (!step.attrSetName.isEmpty())
-            html += ": <i style='color:#9CDCFE;'>" + step.attrSetName.toHtmlEscaped() + "</i>";
+            html += ": <i style='color:#0969DA;'>" + step.attrSetName.toHtmlEscaped() + "</i>";
         if (step.vertical)
             html += " <span style='color:#C586C0;'>(Vertical)</span>";
         html += "</p>\n";
@@ -415,9 +408,9 @@ void BackgroundCleanupDialog::refresh()
 
     const QString html =
         "<html><body style='font-family:Consolas,\"Courier New\",monospace; "
-        "font-size:10pt; background:#1E1E1E; color:#DCDCDC;'>"
+        "font-size:10pt; background:#FFFFFF; color:#1E1E1E;'>"
         "<h3 style='color:#569CD6; margin-bottom:4px;'>" + sectionTitle + "</h3>"
-        "<hr style='border-color:#3C3C3C;'/>"
+        "<hr style='border-color:#CCCCCC;'/>"
         + buildHtml(steps, pf.defines)
         + "</body></html>";
 

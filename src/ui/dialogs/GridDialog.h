@@ -36,6 +36,7 @@ private slots:
     void copyRow();
     void pasteRow();
 
+    void copyTable();
     void pasteTable();
     void transformTable();
     void undoTable();
