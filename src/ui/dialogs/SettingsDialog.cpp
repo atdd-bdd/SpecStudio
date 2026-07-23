@@ -34,7 +34,6 @@ SettingsDialog::SettingsDialog(AppSettings* settings,
     auto* tabs = new QTabWidget(this);
     buildGeneralTab(tabs);
     buildEditorTab(tabs);
-    buildGitTab(tabs);
     buildFeaturexTab(tabs);
     buildAppearanceTab(tabs);
     buildFontsTab(tabs);
@@ -149,28 +148,6 @@ void SettingsDialog::buildEditorTab(QTabWidget* tabs)
     tabs->addTab(widget, tr("Editors"));
 }
 
-void SettingsDialog::buildGitTab(QTabWidget* tabs)
-{
-    auto* widget = new QWidget(tabs);
-    auto* form   = new QFormLayout(widget);
-
-    m_urlEdit    = new QLineEdit(widget);
-    m_branchEdit = new QLineEdit(widget);
-    m_userEdit   = new QLineEdit(widget);
-    m_passEdit   = new QLineEdit(widget);
-    m_passEdit->setEchoMode(QLineEdit::Password);
-
-    form->addRow(tr("Remote URL:"), m_urlEdit);
-    form->addRow(tr("Branch:"),     m_branchEdit);
-    form->addRow(tr("User name:"),  m_userEdit);
-    form->addRow(tr("Password:"),   m_passEdit);
-
-    if (!m_project)
-        widget->setEnabled(false);
-
-    tabs->addTab(widget, tr("Git"));
-}
-
 void SettingsDialog::buildFeaturexTab(QTabWidget* tabs)
 {
     auto* widget = new QWidget(tabs);
@@ -270,10 +247,6 @@ void SettingsDialog::loadValues()
     if (!m_settings || !m_project) return;
 
     const QString& root = m_project->rootPath();
-    m_urlEdit->setText(m_settings->gitRemoteUrl(root));
-    m_branchEdit->setText(m_settings->gitBranch(root));
-    m_userEdit->setText(m_settings->gitUser(root));
-    m_passEdit->setText(m_settings->gitPassword(root));
 
     m_implicitImport->setChecked(m_settings->implicitFolderImport(root));
     m_uniqueScenario->setChecked(m_settings->uniqueScenarioNames(root));
@@ -326,11 +299,6 @@ void SettingsDialog::saveValues()
 
     if (!m_project) return;
     const QString& root = m_project->rootPath();
-
-    m_settings->setGitRemoteUrl(root, m_urlEdit->text().trimmed());
-    m_settings->setGitBranch(root,    m_branchEdit->text().trimmed());
-    m_settings->setGitUser(root,      m_userEdit->text().trimmed());
-    m_settings->setGitPassword(root,  m_passEdit->text());
 
     m_settings->setImplicitFolderImport(root, m_implicitImport->isChecked());
     m_settings->setUniqueScenarioNames(root,  m_uniqueScenario->isChecked());

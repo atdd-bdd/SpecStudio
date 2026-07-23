@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSet>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QVBoxLayout>
@@ -27,7 +28,9 @@ QString friendlyStatus(const QString& code)
 
 } // namespace
 
-ShareChangesDialog::ShareChangesDialog(const QList<Project*>& projects, QWidget* parent)
+ShareChangesDialog::ShareChangesDialog(const QList<Project*>& projects,
+                                       const QMap<Project*, GitClient*>& gitClients,
+                                       QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle(tr("Share Changes"));
@@ -41,8 +44,13 @@ ShareChangesDialog::ShareChangesDialog(const QList<Project*>& projects, QWidget*
     m_fileTree->setRootIsDecorated(true);
 
     int totalFiles = 0;
+    QSet<GitClient*> shownClients; // dedupe: several projects may share one GitClient
     for (Project* proj : projects) {
-        const QStringList lines = proj->git()->status();
+        GitClient* git = gitClients.value(proj);
+        if (!git || shownClients.contains(git)) continue;
+        shownClients.insert(git);
+
+        const QStringList lines = git->status();
         if (lines.isEmpty()) continue;
 
         auto* projItem = new QTreeWidgetItem(m_fileTree, { proj->name() });
@@ -81,8 +89,15 @@ ShareChangesDialog::ShareChangesDialog(const QList<Project*>& projects, QWidget*
     m_advancedPanel = new QWidget(this);
     auto* advForm = new QFormLayout(m_advancedPanel);
     advForm->setContentsMargins(16, 4, 0, 4);
-    for (Project* proj : projects)
-        advForm->addRow(tr("%1 branch:").arg(proj->name()), new QLabel(proj->git()->currentBranch(), m_advancedPanel));
+    {
+        QSet<GitClient*> shownBranches;
+        for (Project* proj : projects) {
+            GitClient* git = gitClients.value(proj);
+            if (!git || shownBranches.contains(git)) continue;
+            shownBranches.insert(git);
+            advForm->addRow(tr("%1 branch:").arg(proj->name()), new QLabel(git->currentBranch(), m_advancedPanel));
+        }
+    }
     m_pushImmediately = new QCheckBox(tr("Push immediately after sharing"), m_advancedPanel);
     m_pushImmediately->setChecked(true);
     advForm->addRow(m_pushImmediately);

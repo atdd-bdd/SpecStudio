@@ -13,6 +13,8 @@ bool SolutionSerializer::save(Solution* solution, QString& errorOut)
     QJsonObject root;
     root["version"] = 1;
     root["name"]    = solution->name();
+    root["repoScope"] = (solution->repoScope() == Solution::RepoScope::Combined)
+                       ? "combined" : "separate";
 
     QJsonArray projects;
     for (const auto* proj : solution->projects()) {
@@ -56,6 +58,8 @@ Solution* SolutionSerializer::load(const QString& sspecPath, QString& errorOut)
     QString rootPath     = QFileInfo(sspecPath).absolutePath();
 
     auto* solution = new Solution(solutionName, rootPath);
+    solution->setRepoScope(root["repoScope"].toString() == "combined"
+                           ? Solution::RepoScope::Combined : Solution::RepoScope::Separate);
 
     for (const QJsonValue& val : root["projects"].toArray()) {
         QJsonObject p = val.toObject();

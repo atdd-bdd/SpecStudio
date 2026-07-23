@@ -5,6 +5,7 @@
 class MainWindow;
 class Solution;
 class Project;
+class GitClient;
 class AppSettings;
 class SolutionTreeModel;
 class ProjectIndex;
@@ -33,6 +34,7 @@ public slots:
     void onSaveAll();
     void onPrint();
     void onSettings();
+    void onRepositorySettings();
     void onCommitAndPush();
     void onFetch();
     void onPull();
@@ -84,6 +86,9 @@ private:
     // path, or empty if no .specconfig exists for the project.
     QString resolveActiveConfig(Project* proj);
     Project* activeProject() const;  // project in Explorer selection, or current editor's project
+    // Returns the GitClient to use for a project's git actions: the solution's
+    // shared client when its RepoScope is Combined, else the project's own.
+    GitClient* gitFor(Project* proj) const;
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);
     void findStepUsages(const QString& keyword, const QString& stepText);

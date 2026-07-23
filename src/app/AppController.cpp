@@ -16,6 +16,7 @@
 #include "../ui/dialogs/ConflictResolutionDialog.h"
 #include "../ui/dialogs/ShareChangesDialog.h"
 #include "../ui/dialogs/SettingsDialog.h"
+#include "../ui/dialogs/RepositorySettingsDialog.h"
 #include "AppSettings.h"
 #include "../analyzer/ProjectIndex.h"
 #include "../analyzer/FeatureXAnalyzer.h"
@@ -227,21 +228,28 @@ void AppController::onNewProject()
         }
     }
 
-    // Run git init in the project directory
+    // Run git init — in the project directory (Separate scope, the default),
+    // or once at the solution root (Combined scope — every project shares it).
     {
-        QProcess proc;
-        proc.setWorkingDirectory(projDir);
-        proc.start("git", {"init"});
-        const bool ok = proc.waitForFinished(10000) && proc.exitCode() == 0;
-        if (!ok) {
-            QMessageBox::warning(m_mainWindow, tr("Git Init Failed"),
-                tr("Could not run 'git init' in '%1'.\n"
-                   "Make sure git is installed and on your PATH.\n\n"
-                   "The project was created but has no git repository.")
-                .arg(projDir));
-        } else {
-            m_mainWindow->outputPanel()->appendBuildOutput(
-                tr("Initialized git repository in %1").arg(projDir));
+        const bool combined = m_solution->repoScope() == Solution::RepoScope::Combined;
+        const QString initDir = combined ? m_solution->rootPath() : projDir;
+        const bool alreadyInitialized = combined && QDir(initDir + "/.git").exists();
+
+        if (!alreadyInitialized) {
+            QProcess proc;
+            proc.setWorkingDirectory(initDir);
+            proc.start("git", {"init"});
+            const bool ok = proc.waitForFinished(10000) && proc.exitCode() == 0;
+            if (!ok) {
+                QMessageBox::warning(m_mainWindow, tr("Git Init Failed"),
+                    tr("Could not run 'git init' in '%1'.\n"
+                       "Make sure git is installed and on your PATH.\n\n"
+                       "The project was created but has no git repository.")
+                    .arg(initDir));
+            } else {
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    tr("Initialized git repository in %1").arg(initDir));
+            }
         }
     }
 
@@ -346,10 +354,10 @@ void AppController::onSave()
         if (m_solution) {
             Project* proj = m_solution->projectForFile(ed->filePath());
             if (proj) {
-                connect(proj->git(), &GitClient::outputReady,
+                connect(gitFor(proj), &GitClient::outputReady,
                         m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                         Qt::UniqueConnection);
-                proj->git()->commitAll(tr("Auto-save"));
+                gitFor(proj)->commitAll(tr("Auto-save"));
             }
         }
     }
@@ -383,13 +391,24 @@ void AppController::onSaveAs()
 void AppController::onSaveAll()
 {
     m_mainWindow->editorTabs()->saveAllFiles();
-    // Auto-commit each project that has a dirty file
+    // Auto-commit each project that has a dirty file. When the solution's
+    // repos are Combined, every project resolves to the same shared
+    // GitClient — commit once, not once per project.
     if (m_solution) {
-        for (auto* proj : m_solution->projects()) {
-            connect(proj->git(), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            proj->git()->commitAll(tr("Auto-save all"));
+        if (m_solution->repoScope() == Solution::RepoScope::Combined) {
+            if (!m_solution->projects().isEmpty()) {
+                connect(m_solution->git(), &GitClient::outputReady,
+                        m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                        Qt::UniqueConnection);
+                m_solution->git()->commitAll(tr("Auto-save all"));
+            }
+        } else {
+            for (auto* proj : m_solution->projects()) {
+                connect(gitFor(proj), &GitClient::outputReady,
+                        m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                        Qt::UniqueConnection);
+                gitFor(proj)->commitAll(tr("Auto-save all"));
+            }
         }
         // Re-analyze after saving so diagnostics reflect the saved state
         QTimer::singleShot(0, this, [this] {
@@ -425,6 +444,22 @@ void AppController::onSettings()
     applyAutoReload();
 }
 
+void AppController::onRepositorySettings()
+{
+    if (!m_solution) {
+        QMessageBox::information(m_mainWindow, tr("No Solution"),
+            tr("Open a solution first."));
+        return;
+    }
+
+    RepositorySettingsDialog dlg(m_settings, m_solution, m_mainWindow);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    QString error;
+    if (!SolutionSerializer::save(m_solution, error))
+        QMessageBox::warning(m_mainWindow, tr("Save Warning"), error);
+}
+
 bool AppController::shareChanges()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
@@ -433,7 +468,11 @@ bool AppController::shareChanges()
         return false;
     }
 
-    ShareChangesDialog dlg(m_solution->projects(), m_mainWindow);
+    QMap<Project*, GitClient*> gitClients;
+    for (auto* proj : m_solution->projects())
+        gitClients.insert(proj, gitFor(proj));
+
+    ShareChangesDialog dlg(m_solution->projects(), gitClients, m_mainWindow);
     if (!dlg.hasAnyChanges()) {
         QMessageBox::information(m_mainWindow, tr("Nothing to Share"),
             tr("There are no changes to share right now."));
@@ -447,22 +486,42 @@ bool AppController::shareChanges()
     m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Share Changes ---"));
 
     QStringList failedProjects;
-    for (auto* proj : m_solution->projects()) {
-        connect(proj->git(), &GitClient::outputReady,
+    if (m_solution->repoScope() == Solution::RepoScope::Combined) {
+        // Every project resolves to the same shared GitClient -- act once.
+        GitClient* git = m_solution->git();
+        connect(git, &GitClient::outputReady,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
-        connect(proj->git(), &GitClient::errorOccurred,
+        connect(git, &GitClient::errorOccurred,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
 
         QString remote = "origin";
-        QString branch = m_settings->gitBranch(proj->rootPath());
+        QString branch = m_settings->solutionGitBranch(m_solution->rootPath());
         if (branch.isEmpty()) branch = "main";
 
         const bool ok = dlg.pushImmediately()
-            ? proj->git()->commitAndPush(reason, remote, branch)
-            : proj->git()->commitAll(reason);
-        if (!ok) failedProjects << proj->name();
+            ? git->commitAndPush(reason, remote, branch)
+            : git->commitAll(reason);
+        if (!ok) failedProjects << m_solution->name();
+    } else {
+        for (auto* proj : m_solution->projects()) {
+            connect(gitFor(proj), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            connect(gitFor(proj), &GitClient::errorOccurred,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+
+            QString remote = "origin";
+            QString branch = m_settings->gitBranch(proj->rootPath());
+            if (branch.isEmpty()) branch = "main";
+
+            const bool ok = dlg.pushImmediately()
+                ? gitFor(proj)->commitAndPush(reason, remote, branch)
+                : gitFor(proj)->commitAll(reason);
+            if (!ok) failedProjects << proj->name();
+        }
     }
 
     if (!failedProjects.isEmpty()) {
@@ -492,7 +551,7 @@ void AppController::promptShareOnExit()
 
     bool anyChanges = false;
     for (auto* proj : m_solution->projects())
-        if (proj->git()->hasUncommittedChanges()) { anyChanges = true; break; }
+        if (gitFor(proj)->hasUncommittedChanges()) { anyChanges = true; break; }
     if (!anyChanges) return;
 
     const auto reply = QMessageBox::question(m_mainWindow, tr("Share Changes?"),
@@ -511,10 +570,10 @@ void AppController::onFetch()
     m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Fetch ---"));
 
     for (auto* proj : m_solution->projects()) {
-        connect(proj->git(), &GitClient::outputReady,
+        connect(gitFor(proj), &GitClient::outputReady,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
-        proj->git()->fetch();
+        gitFor(proj)->fetch();
     }
 }
 
@@ -545,7 +604,7 @@ void AppController::onDiffCurrentFile()
         return;
     }
 
-    const QString diffText = ownerProject->git()->diff(relPath);
+    const QString diffText = gitFor(ownerProject)->diff(relPath);
     const QString title    = QFileInfo(filePath).fileName();
 
     if (diffText.trimmed().isEmpty()) {
@@ -568,21 +627,21 @@ void AppController::onPull()
     m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Pull ---"));
 
     for (auto* proj : m_solution->projects()) {
-        connect(proj->git(), &GitClient::outputReady,
+        connect(gitFor(proj), &GitClient::outputReady,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
-        connect(proj->git(), &GitClient::errorOccurred,
+        connect(gitFor(proj), &GitClient::errorOccurred,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
 
         const QString branch = m_settings->gitBranch(proj->rootPath());
-        bool ok = proj->git()->pull("origin", branch);
+        bool ok = gitFor(proj)->pull("origin", branch);
 
         if (!ok) {
-            const QStringList conflicts = proj->git()->conflictedFiles();
+            const QStringList conflicts = gitFor(proj)->conflictedFiles();
             if (!conflicts.isEmpty()) {
                 auto* dlg = new ConflictResolutionDialog(
-                    proj->name(), proj->git(), proj->rootPath(), conflicts, m_mainWindow);
+                    proj->name(), gitFor(proj), proj->rootPath(), conflicts, m_mainWindow);
                 connect(dlg, &ConflictResolutionDialog::openFileRequested,
                         this, &AppController::onOpenFile);
                 dlg->exec();
@@ -737,6 +796,14 @@ Project* AppController::activeProject() const
     auto* ed = m_mainWindow->editorTabs()->currentEditor();
     if (ed) return m_solution->projectForFile(ed->filePath());
     return nullptr;
+}
+
+GitClient* AppController::gitFor(Project* proj) const
+{
+    if (!proj) return nullptr;
+    if (m_solution && m_solution->repoScope() == Solution::RepoScope::Combined)
+        return m_solution->git();
+    return proj->git();
 }
 
 // Set up build signal connections (call after disconnect)
@@ -1209,10 +1276,10 @@ void AppController::onRenameFile(const QString& absolutePath)
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
-            connect(proj->git(), &GitClient::outputReady,
+            connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
-            proj->git()->commitAll(tr("Rename %1 to %2").arg(fi.fileName(), newName));
+            gitFor(proj)->commitAll(tr("Rename %1 to %2").arg(fi.fileName(), newName));
         }
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1254,10 +1321,10 @@ void AppController::onMoveFile(const QString& absolutePath)
 
     for (auto* proj : m_solution->projects()) {
         proj->scanFiles();
-        connect(proj->git(), &GitClient::outputReady,
+        connect(gitFor(proj), &GitClient::outputReady,
                 m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                 Qt::UniqueConnection);
-        proj->git()->commitAll(tr("Move %1").arg(fileName));
+        gitFor(proj)->commitAll(tr("Move %1").arg(fileName));
     }
     m_treeModel->refresh();
     m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1355,10 +1422,10 @@ void AppController::onDeleteFile(const QString& absolutePath)
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
-            connect(proj->git(), &GitClient::outputReady,
+            connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
-            proj->git()->commitAll(tr("Delete %1").arg(name));
+            gitFor(proj)->commitAll(tr("Delete %1").arg(name));
         }
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1403,10 +1470,10 @@ void AppController::onPasteFile(const QString& targetProjectRoot)
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
-            connect(proj->git(), &GitClient::outputReady,
+            connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
-            proj->git()->commitAll(tr("Add %1 (copied from %2)").arg(newName.trimmed(), srcInfo.fileName()));
+            gitFor(proj)->commitAll(tr("Add %1 (copied from %2)").arg(newName.trimmed(), srcInfo.fileName()));
         }
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1610,10 +1677,10 @@ void AppController::onRenameStep()
         }
 
         if (projModified) {
-            connect(proj->git(), &GitClient::outputReady,
+            connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
-            proj->git()->commitAll(tr("Rename: %1 → %2").arg(oldText, newText));
+            gitFor(proj)->commitAll(tr("Rename: %1 → %2").arg(oldText, newText));
         }
     }
 
@@ -1678,10 +1745,10 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
                 pte->suppressNextExternalChange();
         }
         if (projModified) {
-            connect(proj->git(), &GitClient::outputReady,
+            connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
-            proj->git()->commitAll(tr("Rename: %1 → %2").arg(oldName, newName));
+            gitFor(proj)->commitAll(tr("Rename: %1 → %2").arg(oldName, newName));
         }
     }
 

@@ -24,7 +24,6 @@ public:
 private:
     void buildGeneralTab(class QTabWidget* tabs);
     void buildEditorTab(QTabWidget* tabs);
-    void buildGitTab(QTabWidget* tabs);
     void buildFeaturexTab(QTabWidget* tabs);
     void buildAppearanceTab(QTabWidget* tabs);
     void buildFontsTab(QTabWidget* tabs);
@@ -34,12 +33,6 @@ private:
 
     AppSettings*  m_settings       = nullptr;
     Project*      m_project        = nullptr;
-
-    // Git fields
-    QLineEdit*    m_urlEdit        = nullptr;
-    QLineEdit*    m_branchEdit     = nullptr;
-    QLineEdit*    m_userEdit       = nullptr;
-    QLineEdit*    m_passEdit       = nullptr;
 
     // FeatureX fields
     QCheckBox*    m_implicitImport = nullptr;

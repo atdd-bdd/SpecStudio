@@ -1,10 +1,12 @@
 #include "Solution.h"
 #include "Project.h"
+#include "../git/GitClient.h"
 
 Solution::Solution(const QString& name, const QString& rootPath, QObject* parent)
     : QObject(parent)
     , m_name(name)
     , m_rootPath(rootPath)
+    , m_git(new GitClient(rootPath, this))
 {}
 
 Solution::~Solution()

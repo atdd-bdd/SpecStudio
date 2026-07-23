@@ -75,6 +75,8 @@ set(SOURCES
 
     ui/dialogs/ShareChangesDialog.h
     ui/dialogs/ShareChangesDialog.cpp
+    ui/dialogs/RepositorySettingsDialog.h
+    ui/dialogs/RepositorySettingsDialog.cpp
     ui/dialogs/SettingsDialog.h
     ui/dialogs/SettingsDialog.cpp
     ui/dialogs/NewFileDialog.h

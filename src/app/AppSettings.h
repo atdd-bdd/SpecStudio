@@ -28,6 +28,20 @@ public:
     QString gitPassword(const QString& projectRoot) const;
     void    setGitPassword(const QString& projectRoot, const QString& password);
 
+    // Git settings (per-solution, keyed by solution root path — used when the
+    // solution's RepoScope is Combined, i.e. all its projects share one repo)
+    QString solutionGitRemoteUrl(const QString& solutionRoot) const;
+    void    setSolutionGitRemoteUrl(const QString& solutionRoot, const QString& url);
+
+    QString solutionGitBranch(const QString& solutionRoot) const;
+    void    setSolutionGitBranch(const QString& solutionRoot, const QString& branch);
+
+    QString solutionGitUser(const QString& solutionRoot) const;
+    void    setSolutionGitUser(const QString& solutionRoot, const QString& user);
+
+    QString solutionGitPassword(const QString& solutionRoot) const;
+    void    setSolutionGitPassword(const QString& solutionRoot, const QString& password);
+
     // FeatureX options (per-project)
     bool       implicitFolderImport(const QString& projectRoot) const;
     void       setImplicitFolderImport(const QString& projectRoot, bool value);
@@ -90,6 +104,7 @@ public:
 
 private:
     static QString projectKey(const QString& projectRoot);
+    static QString solutionKey(const QString& solutionRoot);
 
     mutable QSettings m_settings;
 };

@@ -262,11 +262,14 @@ void MainWindow::setupMenuBar()
     auto* actPull       = gitMenu->addAction(tr("Pull"));
     gitMenu->addSeparator();
     auto* actDiff = gitMenu->addAction(tr("Diff Current File"), QKeySequence(Qt::CTRL | Qt::Key_D));
+    gitMenu->addSeparator();
+    auto* actRepoSettings = gitMenu->addAction(tr("Repository Settings..."));
 
-    connect(actCommitPush, &QAction::triggered, m_controller, &AppController::onCommitAndPush);
-    connect(actFetch,      &QAction::triggered, m_controller, &AppController::onFetch);
-    connect(actPull,       &QAction::triggered, m_controller, &AppController::onPull);
-    connect(actDiff,       &QAction::triggered, m_controller, &AppController::onDiffCurrentFile);
+    connect(actCommitPush,   &QAction::triggered, m_controller, &AppController::onCommitAndPush);
+    connect(actFetch,        &QAction::triggered, m_controller, &AppController::onFetch);
+    connect(actPull,         &QAction::triggered, m_controller, &AppController::onPull);
+    connect(actDiff,         &QAction::triggered, m_controller, &AppController::onDiffCurrentFile);
+    connect(actRepoSettings, &QAction::triggered, m_controller, &AppController::onRepositorySettings);
 
     // ---- Build ----
     auto* buildMenu = menuBar()->addMenu(tr("&Build"));

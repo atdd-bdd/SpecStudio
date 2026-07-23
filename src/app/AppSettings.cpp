@@ -17,6 +17,13 @@ QString AppSettings::projectKey(const QString& projectRoot)
                QCryptographicHash::hash(projectRoot.toUtf8(), QCryptographicHash::Md5).toHex());
 }
 
+QString AppSettings::solutionKey(const QString& solutionRoot)
+{
+    return "Solutions/" +
+           QString::fromLatin1(
+               QCryptographicHash::hash(solutionRoot.toUtf8(), QCryptographicHash::Md5).toHex());
+}
+
 // ---- Editor associations ----
 
 QString AppSettings::editorForExtension(const QString& ext) const
@@ -69,6 +76,48 @@ QString AppSettings::gitPassword(const QString& projectRoot) const
 void AppSettings::setGitPassword(const QString& projectRoot, const QString& password)
 {
     m_settings.setValue(projectKey(projectRoot) + "/gitPassword", password);
+}
+
+// ---- Git settings (per-solution, used when RepoScope is Combined) ----
+
+QString AppSettings::solutionGitRemoteUrl(const QString& solutionRoot) const
+{
+    return m_settings.value(solutionKey(solutionRoot) + "/gitRemoteUrl").toString();
+}
+
+void AppSettings::setSolutionGitRemoteUrl(const QString& solutionRoot, const QString& url)
+{
+    m_settings.setValue(solutionKey(solutionRoot) + "/gitRemoteUrl", url);
+}
+
+QString AppSettings::solutionGitBranch(const QString& solutionRoot) const
+{
+    return m_settings.value(solutionKey(solutionRoot) + "/gitBranch", "main").toString();
+}
+
+void AppSettings::setSolutionGitBranch(const QString& solutionRoot, const QString& branch)
+{
+    m_settings.setValue(solutionKey(solutionRoot) + "/gitBranch", branch);
+}
+
+QString AppSettings::solutionGitUser(const QString& solutionRoot) const
+{
+    return m_settings.value(solutionKey(solutionRoot) + "/gitUser").toString();
+}
+
+void AppSettings::setSolutionGitUser(const QString& solutionRoot, const QString& user)
+{
+    m_settings.setValue(solutionKey(solutionRoot) + "/gitUser", user);
+}
+
+QString AppSettings::solutionGitPassword(const QString& solutionRoot) const
+{
+    return m_settings.value(solutionKey(solutionRoot) + "/gitPassword").toString();
+}
+
+void AppSettings::setSolutionGitPassword(const QString& solutionRoot, const QString& password)
+{
+    m_settings.setValue(solutionKey(solutionRoot) + "/gitPassword", password);
 }
 
 // ---- FeatureX options ----
