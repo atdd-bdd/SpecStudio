@@ -630,7 +630,7 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
     QSet<QString> seenNamed;
     for (const QString& kind : namedKinds) {
         for (const NamedBlock& nb : file.namedBlocks) {
-            if (!nb.hasExamples || nb.kind != kind) continue;
+            if (!nb.hasExamples || nb.kind != kind || nb.isContext) continue;
             const QString blockKey = kind + ":" + nb.name.toLower();
             if (seenNamed.contains(blockKey)) {
                 errors << QString("WARNING:%1:%2 '%3' declared in multiple files")

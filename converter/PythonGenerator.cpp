@@ -545,7 +545,7 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
     for (const QString& kind : namedKinds) {
         bool hasKind = false;
         for (const NamedBlock& nb : file.namedBlocks)
-            if (nb.hasExamples && nb.kind == kind
+            if (nb.hasExamples && nb.kind == kind && !nb.isContext
                 && !seenNamedBlocks.contains(kind + ":" + nb.name.toLower()))
                 { hasKind = true; break; }
         if (!hasKind) continue;
@@ -553,7 +553,7 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
         s << "# --- " << kind << " Tests ---\n\n";
 
         for (const NamedBlock& nb : file.namedBlocks) {
-            if (!nb.hasExamples || nb.kind != kind) continue;
+            if (!nb.hasExamples || nb.kind != kind || nb.isContext) continue;
             const QString blockKey = kind + ":" + nb.name.toLower();
             if (seenNamedBlocks.contains(blockKey)) {
                 errors << QString("WARNING:%1:%2 '%3' declared in multiple files — only first is tested")

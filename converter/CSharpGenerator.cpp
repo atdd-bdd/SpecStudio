@@ -566,7 +566,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
     for (const QString& kind : namedKinds) {
         bool hasKind = false;
         for (const NamedBlock& nb : file.namedBlocks)
-            if (nb.hasExamples && nb.kind == kind
+            if (nb.hasExamples && nb.kind == kind && !nb.isContext
                 && !seenNamedBlocks.contains(kind + ":" + nb.name.toLower()))
                 { hasKind = true; break; }
         if (!hasKind) continue;
@@ -576,7 +576,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
         s << "// -------------------------\n";
 
         for (const NamedBlock& nb : file.namedBlocks) {
-            if (!nb.hasExamples || nb.kind != kind) continue;
+            if (!nb.hasExamples || nb.kind != kind || nb.isContext) continue;
             const QString blockKey = kind + ":" + nb.name.toLower();
             if (seenNamedBlocks.contains(blockKey)) {
                 errors << QString("WARNING:%1:%2 '%3' is declared in multiple files — only the first definition is tested")
