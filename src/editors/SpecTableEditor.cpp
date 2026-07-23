@@ -842,10 +842,12 @@ void SpecTableEditor::autoInsertTableHeader()
 }
 
 // ---------------------------------------------------------------------------
-// Proactive prompt: the user just finished typing an ad-hoc table (no
-// ": AttrSetName" on the owning step line) — offer to create a new
-// AttributeSet from the table's columns, or link the table to an existing
-// one, instead of requiring the manual "Extract as AttributeSet..." action.
+// Proactive prompt: the user just finished typing an ad-hoc table under a
+// step that either has no ": AttrSetName" at all, or names one that isn't
+// actually defined — offer to create a new AttributeSet from the table's
+// columns (using the step's own name directly when it already has one), or
+// link the table to an existing AttributeSet, instead of requiring the
+// manual "Extract as AttributeSet..." action.
 // ---------------------------------------------------------------------------
 
 void SpecTableEditor::checkAdHocTableAttributeSet()
@@ -873,9 +875,26 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         R"(^\s*(Given|When|Then|And|WhenThen)\b)",
         QRegularExpression::CaseInsensitiveOption);
     if (!reBareStep.match(stepLine).hasMatch()) return;
-    if (stepLine.contains(':')) return;  // already declares an AttrSet/DataType
 
     if (!m_index) return;
+    const SpecTableSymbols& syms = m_index->projectSymbols();
+
+    // If the step already names a real, known AttrSet/DataType it's fully
+    // linked — nothing to do. A step naming something NOT yet defined is
+    // treated the same as a bare step, just using that name directly instead
+    // of prompting for one.
+    static QRegularExpression reColonName(
+        R"(:\s*(\w+)(?:\s+(?:Vertical|CompareOnly))?\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+    QString existingName;
+    {
+        auto cm = reColonName.match(stepLine);
+        if (cm.hasMatch()) {
+            existingName = cm.captured(1);
+            if (syms.hasAttributeSet(existingName) || syms.dataTypes.contains(existingName))
+                return; // already linked to a real, known AttrSet/DataType
+        }
+    }
 
     QString hdrLine = firstRow.text().trimmed();
     if (hdrLine.startsWith('|')) hdrLine = hdrLine.mid(1);
@@ -885,7 +904,6 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
     headers.removeAll({});
     if (headers.isEmpty()) return;
 
-    const SpecTableSymbols& syms = m_index->projectSymbols();
     QStringList known;
     for (auto it = syms.attributes.begin(); it != syms.attributes.end(); ++it)
         known << it.key();
@@ -893,10 +911,16 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         if (!known.contains(it.key())) known << it.key();
     known.sort(Qt::CaseInsensitive);
 
-    QMessageBox box(QMessageBox::Question, tr("Ad-hoc Table"),
-        tr("This table isn't linked to an Attribute/Entity/DataType.\n\n"
-           "What would you like to do?"), QMessageBox::NoButton, textEdit());
-    QPushButton* createBtn = box.addButton(tr("Create AttributeSet..."), QMessageBox::AcceptRole);
+    const QString msg = existingName.isEmpty()
+        ? tr("This table isn't linked to an Attribute/Entity/DataType.\n\n"
+             "What would you like to do?")
+        : tr("AttributeSet '%1' referenced by this step is not defined.\n\n"
+             "What would you like to do?").arg(existingName);
+    const QString createLabel = existingName.isEmpty()
+        ? tr("Create AttributeSet...") : tr("Create '%1'").arg(existingName);
+
+    QMessageBox box(QMessageBox::Question, tr("Ad-hoc Table"), msg, QMessageBox::NoButton, textEdit());
+    QPushButton* createBtn = box.addButton(createLabel, QMessageBox::AcceptRole);
     QPushButton* pickBtn   = known.isEmpty() ? nullptr
                            : box.addButton(tr("Use Existing..."), QMessageBox::ActionRole);
     box.addButton(tr("Not Now"), QMessageBox::RejectRole);
@@ -904,16 +928,20 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
 
     QAbstractButton* clicked = box.clickedButton();
     if (clicked == static_cast<QAbstractButton*>(createBtn)) {
-        bool ok = false;
-        const QString name = QInputDialog::getText(textEdit(), tr("Create AttributeSet"),
-            tr("AttributeSet name:"), QLineEdit::Normal, {}, &ok);
-        if (!ok || name.trimmed().isEmpty()) return;
+        QString name = existingName;
+        if (name.isEmpty()) {
+            bool ok = false;
+            name = QInputDialog::getText(textEdit(), tr("Create AttributeSet"),
+                tr("AttributeSet name:"), QLineEdit::Normal, {}, &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+        }
+        name = name.trimmed();
 
         QString indent;
         for (const QChar ch : firstRow.text()) { if (!ch.isSpace()) break; indent += ch; }
 
         QStringList lines;
-        lines << (indent + "Attributes " + name.trimmed());
+        lines << (indent + "Attributes " + name);
         lines << (indent + "| Attribute | DataType |");
         for (const QString& h : headers)
             lines << (indent + "| " + h + " | String |");
@@ -923,9 +951,12 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         insertPos.movePosition(QTextCursor::StartOfBlock);
         insertPos.insertText(lines.join("\n") + "\n");
 
-        QTextCursor stepCur(stepBlk);
-        stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-        stepCur.insertText(stepBlk.text() + " : " + name.trimmed());
+        if (existingName.isEmpty()) {
+            QTextCursor stepCur(stepBlk);
+            stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            stepCur.insertText(stepBlk.text() + " : " + name);
+        }
+        // else: the step already says " : <name>" — nothing to rewrite there.
     } else if (pickBtn && clicked == static_cast<QAbstractButton*>(pickBtn)) {
         bool ok = false;
         const QString picked = QInputDialog::getItem(textEdit(), tr("Use Existing AttributeSet"),
@@ -933,8 +964,18 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         if (!ok || picked.isEmpty()) return;
 
         QTextCursor stepCur(stepBlk);
+        stepCur.movePosition(QTextCursor::StartOfBlock);
         stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-        stepCur.insertText(stepBlk.text() + " : " + picked);
+        QString newStepLine = stepBlk.text();
+        if (existingName.isEmpty())
+            newStepLine += " : " + picked;
+        else
+            newStepLine.replace(
+                QRegularExpression(R"(:\s*)" + QRegularExpression::escape(existingName)
+                                   + R"((\s+(?:Vertical|CompareOnly))?\s*$)",
+                                   QRegularExpression::CaseInsensitiveOption),
+                ": " + picked);
+        stepCur.insertText(newStepLine);
     }
 }
 
