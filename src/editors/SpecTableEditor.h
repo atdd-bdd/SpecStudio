@@ -4,6 +4,7 @@
 #include <QStringList>
 
 class QMenu;
+class QTextBlock;
 class SpecTableIndex;
 
 class SpecTableEditor : public PlainTextEditor
@@ -41,6 +42,9 @@ private:
     void autoInsertTableHeader();
     void checkAdHocTableAttributeSet();
     void insertTableHeaderForCurrentStep();
+    void createAttributeSetFromExamplesTable();
+    void offerCreateAttributeSetFromTable(QTextBlock ownerLineBlock, const QString& existingName,
+                                          const QStringList& headers, bool ownerIsStepLine);
     void extractAsAttributeSet();
     void extractAsDefine();
     void toggleLineComment();

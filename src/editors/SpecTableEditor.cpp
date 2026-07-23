@@ -626,6 +626,27 @@ void SpecTableEditor::transposeTable()
     tc.insertText(newLines.join("\n"));
 }
 
+// Finds the last non-empty line of the top-level block (Scenario/ScenarioGroup/
+// Background/Cleanup/BusinessRule/Calculation/etc.) containing `from`, so a
+// new declaration can be inserted right after that block ends instead of
+// splicing into its middle.
+static QTextBlock endOfEnclosingBlock(const QTextBlock& from)
+{
+    static QRegularExpression reTopLevel(
+        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    QTextBlock last = from;
+    QTextBlock b = from.next();
+    while (b.isValid()) {
+        if (reTopLevel.match(b.text()).hasMatch())
+            break;
+        if (!b.text().trimmed().isEmpty())
+            last = b;
+        b = b.next();
+    }
+    return last;
+}
+
 // ---------------------------------------------------------------------------
 // Auto-insert table header when Enter is pressed at the end of a step line
 // ---------------------------------------------------------------------------
@@ -675,20 +696,116 @@ void SpecTableEditor::autoInsertTableHeader()
         }
     }
 
-    // ── Case 2: Examples: ValidValues / EnumerationValues ────────────────────
+    // ── Case 2: Examples: Name — ValidValues/EnumerationValues built-ins, a
+    //    known AttrSet, or an unknown one (prompt to create/pick) ────────────
     {
         static QRegularExpression reExamples(
-            R"(^\s*Examples:\s*(ValidValues|EnumerationValues)\s*$)",
+            R"(^\s*Examples:\s*(\w+)\s*$)",
             QRegularExpression::CaseInsensitiveOption);
         auto m = reExamples.match(prevLine);
         if (m.hasMatch()) {
-            const QString kind = m.captured(1).toLower();
-            const QString hdr = (kind == "validvalues")
-                ? indent + "| Value | IsValid |"
-                : indent + "| Value |";
-            tc.movePosition(QTextCursor::StartOfBlock);
-            tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-            tc.insertText(hdr);
+            const QString name      = m.captured(1);
+            const QString nameLower = name.toLower();
+
+            if (nameLower == "validvalues" || nameLower == "enumerationvalues") {
+                const QString hdr = (nameLower == "validvalues")
+                    ? indent + "| Value | IsValid |"
+                    : indent + "| Value |";
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                tc.insertText(hdr);
+                return;
+            }
+
+            if (!m_index) return;
+            const SpecTableSymbols& syms = m_index->projectSymbols();
+
+            if (syms.hasAttributeSet(name)) {
+                const QVector<QStringList> attrDef = m_index->attributeRows(name);
+                if (attrDef.size() < 2) return;
+                QStringList attrNames;
+                for (int r = 1; r < attrDef.size(); ++r)
+                    if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
+                if (attrNames.isEmpty()) return;
+
+                QString hdr = indent + "|", data = indent + "|";
+                for (const QString& a : attrNames) {
+                    hdr  += " " + a + " |";
+                    data += " " + QString(a.length(), ' ') + " |";
+                }
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                tc.insertText(hdr + "\n" + data);
+                return;
+            }
+
+            if (syms.dataTypes.contains(name)) return; // handled elsewhere; not this table shape
+
+            // Unknown AttributeSet referenced by Examples: — same offer as an
+            // unknown step AttrSet, anchored to this Examples: line instead.
+            QStringList known;
+            for (auto it = syms.attributes.begin(); it != syms.attributes.end(); ++it)
+                known << it.key();
+            for (auto it = syms.entities.begin(); it != syms.entities.end(); ++it)
+                if (!known.contains(it.key())) known << it.key();
+            known.sort(Qt::CaseInsensitive);
+
+            QMessageBox box(QMessageBox::Question,
+                tr("Unknown AttributeSet"),
+                tr("AttributeSet '%1' is not defined in this project.\n\n"
+                   "What would you like to do?").arg(name),
+                QMessageBox::NoButton, textEdit());
+            QPushButton* createBtn = box.addButton(tr("Create '%1'").arg(name), QMessageBox::AcceptRole);
+            QPushButton* pickBtn   = nullptr;
+            if (!known.isEmpty())
+                pickBtn = box.addButton(tr("Pick Existing..."), QMessageBox::ActionRole);
+            box.addButton(QMessageBox::Cancel);
+            box.exec();
+
+            QAbstractButton* clicked = box.clickedButton();
+            if (clicked == static_cast<QAbstractButton*>(createBtn)) {
+                QTextBlock afterBlock = endOfEnclosingBlock(prevBlk);
+                QTextCursor end(afterBlock);
+                end.movePosition(QTextCursor::EndOfBlock);
+                end.insertText(QString("\n\nAttributes %1\n| Attribute | Type | Default | Notes |\n|           |      |         |       |")
+                               .arg(name));
+
+                const QString hdr = indent + "| " + name + " |  |";
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                tc.insertText(hdr);
+            } else if (pickBtn && clicked == static_cast<QAbstractButton*>(pickBtn)) {
+                bool ok = false;
+                const QString picked = QInputDialog::getItem(
+                    textEdit(), tr("Pick AttributeSet"),
+                    tr("Replace '%1' with:").arg(name),
+                    known, 0, false, &ok);
+                if (ok && !picked.isEmpty()) {
+                    QTextCursor prev(prevBlk);
+                    prev.movePosition(QTextCursor::StartOfBlock);
+                    prev.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                    prev.insertText(indent + "Examples: " + picked);
+
+                    QTimer::singleShot(0, this, [this, picked, indent]() {
+                        if (!m_index) return;
+                        const QVector<QStringList> attrDef = m_index->attributeRows(picked);
+                        if (attrDef.size() < 2) return;
+                        QStringList attrNames;
+                        for (int r = 1; r < attrDef.size(); ++r)
+                            if (!attrDef[r].isEmpty()) attrNames << attrDef[r][0];
+                        if (attrNames.isEmpty()) return;
+                        QString hdr2 = indent + "|", data2 = indent + "|";
+                        for (const QString& a : attrNames) {
+                            hdr2  += " " + a + " |";
+                            data2 += " " + QString(a.length(), ' ') + " |";
+                        }
+                        QTextCursor tc2 = textEdit()->textCursor();
+                        tc2.movePosition(QTextCursor::StartOfBlock);
+                        tc2.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                        tc2.insertText(hdr2 + "\n" + data2);
+                    });
+                }
+            }
             return;
         }
     }
@@ -841,26 +958,6 @@ void SpecTableEditor::autoInsertTableHeader()
     }
 }
 
-// Finds the last non-empty line of the top-level block (Scenario/ScenarioGroup/
-// Background/Cleanup/etc.) containing `from`, so a new declaration can be
-// inserted right after that block ends instead of splicing into its middle.
-static QTextBlock endOfEnclosingBlock(const QTextBlock& from)
-{
-    static QRegularExpression reTopLevel(
-        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    QTextBlock last = from;
-    QTextBlock b = from.next();
-    while (b.isValid()) {
-        if (reTopLevel.match(b.text()).hasMatch())
-            break;
-        if (!b.text().trimmed().isEmpty())
-            last = b;
-        b = b.next();
-    }
-    return last;
-}
-
 // ---------------------------------------------------------------------------
 // Proactive prompt: the user just finished typing an ad-hoc table under a
 // step that either has no ": AttrSetName" at all, or names one that isn't
@@ -886,35 +983,46 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
     while (firstRow.previous().isValid() && firstRow.previous().text().trimmed().startsWith('|'))
         firstRow = firstRow.previous();
 
-    // The line directly above the table should be the owning step
-    QTextBlock stepBlk = firstRow.previous();
-    if (!stepBlk.isValid()) return;
-    const QString stepLine = stepBlk.text();
+    // The line directly above the table should be the owning step or
+    // "Examples: Name" line (inside a BusinessRule/Calculation/DataType).
+    QTextBlock ownerBlk = firstRow.previous();
+    if (!ownerBlk.isValid()) return;
+    const QString ownerLine = ownerBlk.text();
 
     static QRegularExpression reBareStep(
         R"(^\s*(Given|When|Then|And|WhenThen)\b)",
         QRegularExpression::CaseInsensitiveOption);
-    if (!reBareStep.match(stepLine).hasMatch()) return;
+    static QRegularExpression reExamplesOwner(
+        R"(^\s*Examples:\s*(\w+)\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+
+    const bool isStepOwner = reBareStep.match(ownerLine).hasMatch();
+    auto exOwnerMatch = reExamplesOwner.match(ownerLine);
+    const bool isExamplesOwner = exOwnerMatch.hasMatch();
+    if (!isStepOwner && !isExamplesOwner) return;
 
     if (!m_index) return;
     const SpecTableSymbols& syms = m_index->projectSymbols();
 
-    // If the step already names a real, known AttrSet/DataType it's fully
-    // linked — nothing to do. A step naming something NOT yet defined is
-    // treated the same as a bare step, just using that name directly instead
-    // of prompting for one.
-    static QRegularExpression reColonName(
-        R"(:\s*(\w+)(?:\s+(?:Vertical|CompareOnly))?\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
+    // If the owner already names a real, known AttrSet/DataType it's fully
+    // linked — nothing to do. A name that's NOT yet defined is treated the
+    // same as a bare step, just using that name directly instead of
+    // prompting for one.
     QString existingName;
-    {
-        auto cm = reColonName.match(stepLine);
-        if (cm.hasMatch()) {
-            existingName = cm.captured(1);
-            if (syms.hasAttributeSet(existingName) || syms.dataTypes.contains(existingName))
-                return; // already linked to a real, known AttrSet/DataType
-        }
+    if (isExamplesOwner) {
+        existingName = exOwnerMatch.captured(1);
+        const QString nameLower = existingName.toLower();
+        if (nameLower == "validvalues" || nameLower == "enumerationvalues") return;
+    } else {
+        static QRegularExpression reColonName(
+            R"(:\s*(\w+)(?:\s+(?:Vertical|CompareOnly))?\s*$)",
+            QRegularExpression::CaseInsensitiveOption);
+        auto cm = reColonName.match(ownerLine);
+        if (cm.hasMatch()) existingName = cm.captured(1);
     }
+    if (!existingName.isEmpty()
+        && (syms.hasAttributeSet(existingName) || syms.dataTypes.contains(existingName)))
+        return; // already linked to a real, known AttrSet/DataType
 
     QString hdrLine = firstRow.text().trimmed();
     if (hdrLine.startsWith('|')) hdrLine = hdrLine.mid(1);
@@ -923,6 +1031,24 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
     for (auto& h : headers) h = h.trimmed();
     headers.removeAll({});
     if (headers.isEmpty()) return;
+
+    offerCreateAttributeSetFromTable(ownerBlk, existingName, headers, isStepOwner);
+}
+
+// ---------------------------------------------------------------------------
+// Shared by the step and "Examples: Name" variants above (and by the
+// context-menu action on an existing Examples table): given a name that
+// isn't a known AttrSet/DataType and a set of column headers from an
+// already-typed table, offer to create a new Attributes declaration from
+// those headers, or link the table to an existing AttributeSet instead.
+// ---------------------------------------------------------------------------
+
+void SpecTableEditor::offerCreateAttributeSetFromTable(
+    QTextBlock ownerLineBlock, const QString& existingName,
+    const QStringList& headers, bool ownerIsStepLine)
+{
+    if (!m_index) return;
+    const SpecTableSymbols& syms = m_index->projectSymbols();
 
     QStringList known;
     for (auto it = syms.attributes.begin(); it != syms.attributes.end(); ++it)
@@ -934,7 +1060,7 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
     const QString msg = existingName.isEmpty()
         ? tr("This table isn't linked to an Attribute/Entity/DataType.\n\n"
              "What would you like to do?")
-        : tr("AttributeSet '%1' referenced by this step is not defined.\n\n"
+        : tr("AttributeSet '%1' referenced here is not defined.\n\n"
              "What would you like to do?").arg(existingName);
     const QString createLabel = existingName.isEmpty()
         ? tr("Create AttributeSet...") : tr("Create '%1'").arg(existingName);
@@ -958,7 +1084,8 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         name = name.trimmed();
 
         // New declarations are top-level, so they land after the enclosing
-        // Scenario/Background/Cleanup block ends, not indented inside it.
+        // Scenario/Background/Cleanup/BusinessRule/Calculation block ends,
+        // not indented inside it.
         QStringList lines;
         lines << QString();
         lines << ("Attributes " + name);
@@ -966,37 +1093,85 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         for (const QString& h : headers)
             lines << ("| " + h + " | String |");
 
-        QTextBlock afterBlock = endOfEnclosingBlock(stepBlk);
+        QTextBlock afterBlock = endOfEnclosingBlock(ownerLineBlock);
         QTextCursor insertPos(afterBlock);
         insertPos.movePosition(QTextCursor::EndOfBlock);
         insertPos.insertText("\n" + lines.join("\n"));
 
-        if (existingName.isEmpty()) {
-            QTextCursor stepCur(stepBlk);
-            stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-            stepCur.insertText(stepBlk.text() + " : " + name);
+        if (existingName.isEmpty() && ownerIsStepLine) {
+            QTextCursor ownerCur(ownerLineBlock);
+            ownerCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            ownerCur.insertText(ownerLineBlock.text() + " : " + name);
         }
-        // else: the step already says " : <name>" — nothing to rewrite there.
+        // else: the owner line already names <name> (or is an Examples:
+        // line, which always does) — nothing to rewrite there.
     } else if (pickBtn && clicked == static_cast<QAbstractButton*>(pickBtn)) {
         bool ok = false;
         const QString picked = QInputDialog::getItem(textEdit(), tr("Use Existing AttributeSet"),
             tr("Link this table to:"), known, 0, false, &ok);
         if (!ok || picked.isEmpty()) return;
 
-        QTextCursor stepCur(stepBlk);
-        stepCur.movePosition(QTextCursor::StartOfBlock);
-        stepCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-        QString newStepLine = stepBlk.text();
-        if (existingName.isEmpty())
-            newStepLine += " : " + picked;
-        else
-            newStepLine.replace(
+        QTextCursor ownerCur(ownerLineBlock);
+        ownerCur.movePosition(QTextCursor::StartOfBlock);
+        ownerCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+        QString newOwnerLine = ownerLineBlock.text();
+        if (!ownerIsStepLine) {
+            newOwnerLine.replace(
+                QRegularExpression(R"(^(\s*Examples:\s*).*$)",
+                                   QRegularExpression::CaseInsensitiveOption),
+                R"(\1)" + picked);
+        } else if (existingName.isEmpty()) {
+            newOwnerLine += " : " + picked;
+        } else {
+            newOwnerLine.replace(
                 QRegularExpression(R"(:\s*)" + QRegularExpression::escape(existingName)
                                    + R"((\s+(?:Vertical|CompareOnly))?\s*$)",
                                    QRegularExpression::CaseInsensitiveOption),
                 ": " + picked);
-        stepCur.insertText(newStepLine);
+        }
+        ownerCur.insertText(newOwnerLine);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Context-menu action: cursor is on an "Examples: Name" line (inside a
+// BusinessRule/Calculation/DataType) where Name isn't a known AttrSet, and a
+// table already exists below it — create the AttributeSet from that table's
+// real headers. Unlike checkAdHocTableAttributeSet(), this doesn't depend on
+// catching an Enter keypress at the right moment; it works on an already-
+// open file, on demand.
+// ---------------------------------------------------------------------------
+
+void SpecTableEditor::createAttributeSetFromExamplesTable()
+{
+    QTextBlock ownerBlk = textEdit()->textCursor().block();
+
+    static QRegularExpression reExamplesOwner(
+        R"(^\s*Examples:\s*(\w+)\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+    auto m = reExamplesOwner.match(ownerBlk.text());
+    if (!m.hasMatch()) return;
+
+    const QString name = m.captured(1);
+    const QString nameLower = name.toLower();
+    if (nameLower == "validvalues" || nameLower == "enumerationvalues") return;
+
+    if (!m_index) return;
+    const SpecTableSymbols& syms = m_index->projectSymbols();
+    if (syms.hasAttributeSet(name) || syms.dataTypes.contains(name)) return;
+
+    QTextBlock firstRow = ownerBlk.next();
+    if (!firstRow.isValid() || !firstRow.text().trimmed().startsWith('|')) return;
+
+    QString hdrLine = firstRow.text().trimmed();
+    if (hdrLine.startsWith('|')) hdrLine = hdrLine.mid(1);
+    if (hdrLine.endsWith('|'))   hdrLine.chop(1);
+    QStringList headers = hdrLine.split('|');
+    for (auto& h : headers) h = h.trimmed();
+    headers.removeAll({});
+    if (headers.isEmpty()) return;
+
+    offerCreateAttributeSetFromTable(ownerBlk, name, headers, /*ownerIsStepLine=*/false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1583,6 +1758,31 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
                 dlg->show();
             });
             menu->addSeparator();
+        }
+    }
+
+    // Create AttributeSet from Examples table (shown when cursor is on
+    // "Examples: Name" and Name isn't a known AttrSet/DataType)
+    {
+        static QRegularExpression reExamplesOwner(
+            R"(^\s*Examples:\s*(\w+)\s*$)",
+            QRegularExpression::CaseInsensitiveOption);
+        const QTextBlock curBlock = textEdit()->textCursor().block();
+        auto em = reExamplesOwner.match(curBlock.text());
+        if (em.hasMatch() && m_index) {
+            const QString exName = em.captured(1);
+            const QString exNameLower = exName.toLower();
+            const SpecTableSymbols& syms = m_index->projectSymbols();
+            const bool isBuiltin = (exNameLower == "validvalues" || exNameLower == "enumerationvalues");
+            const bool hasTable = curBlock.next().isValid()
+                                  && curBlock.next().text().trimmed().startsWith('|');
+            if (!isBuiltin && hasTable
+                && !syms.hasAttributeSet(exName) && !syms.dataTypes.contains(exName)) {
+                auto* createAct = menu->addAction(tr("Create AttributeSet '%1' from this table...").arg(exName));
+                connect(createAct, &QAction::triggered,
+                        this, &SpecTableEditor::createAttributeSetFromExamplesTable);
+                menu->addSeparator();
+            }
         }
     }
 
