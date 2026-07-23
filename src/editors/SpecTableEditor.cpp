@@ -841,6 +841,26 @@ void SpecTableEditor::autoInsertTableHeader()
     }
 }
 
+// Finds the last non-empty line of the top-level block (Scenario/ScenarioGroup/
+// Background/Cleanup/etc.) containing `from`, so a new declaration can be
+// inserted right after that block ends instead of splicing into its middle.
+static QTextBlock endOfEnclosingBlock(const QTextBlock& from)
+{
+    static QRegularExpression reTopLevel(
+        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+    QTextBlock last = from;
+    QTextBlock b = from.next();
+    while (b.isValid()) {
+        if (reTopLevel.match(b.text()).hasMatch())
+            break;
+        if (!b.text().trimmed().isEmpty())
+            last = b;
+        b = b.next();
+    }
+    return last;
+}
+
 // ---------------------------------------------------------------------------
 // Proactive prompt: the user just finished typing an ad-hoc table under a
 // step that either has no ": AttrSetName" at all, or names one that isn't
@@ -937,19 +957,19 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
         }
         name = name.trimmed();
 
-        QString indent;
-        for (const QChar ch : firstRow.text()) { if (!ch.isSpace()) break; indent += ch; }
-
+        // New declarations are top-level, so they land after the enclosing
+        // Scenario/Background/Cleanup block ends, not indented inside it.
         QStringList lines;
-        lines << (indent + "Attributes " + name);
-        lines << (indent + "| Attribute | DataType |");
-        for (const QString& h : headers)
-            lines << (indent + "| " + h + " | String |");
         lines << QString();
+        lines << ("Attributes " + name);
+        lines << "| Attribute | DataType |";
+        for (const QString& h : headers)
+            lines << ("| " + h + " | String |");
 
-        QTextCursor insertPos(firstRow);
-        insertPos.movePosition(QTextCursor::StartOfBlock);
-        insertPos.insertText(lines.join("\n") + "\n");
+        QTextBlock afterBlock = endOfEnclosingBlock(stepBlk);
+        QTextCursor insertPos(afterBlock);
+        insertPos.movePosition(QTextCursor::EndOfBlock);
+        insertPos.insertText("\n" + lines.join("\n"));
 
         if (existingName.isEmpty()) {
             QTextCursor stepCur(stepBlk);
