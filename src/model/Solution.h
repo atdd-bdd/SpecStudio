@@ -11,10 +11,9 @@ class Solution : public QObject
     Q_OBJECT
 
 public:
-    // Separate: every Project owns its own git repo (the default, and the
-    // only mode that existed before this). Combined: every Project in the
-    // solution shares one repo rooted at the solution folder.
-    enum class RepoScope { Separate, Combined };
+    // SharedFiles: no git calls at all, ever. GitHub: SpecStudio manages a single
+    // repo (rooted at the solution folder) end-to-end, including remote creation.
+    enum class SharingMode { SharedFiles, GitHub };
 
     explicit Solution(const QString& name, const QString& rootPath, QObject* parent = nullptr);
     ~Solution() override;
@@ -28,15 +27,22 @@ public:
     void    removeProject(Project* project);
     Project* projectForFile(const QString& absoluteFilePath) const;
 
-    RepoScope  repoScope() const { return m_repoScope; }
-    void       setRepoScope(RepoScope scope) { m_repoScope = scope; }
-    // Only meaningful when repoScope() == Combined; every project shares this instance.
+    // Every project in the solution shares this one repo, rooted at the solution folder.
     GitClient* git() const { return m_git; }
+
+    SharingMode sharingMode() const { return m_sharingMode; }
+    void        setSharingMode(SharingMode mode) { m_sharingMode = mode; }
+
+    // Only meaningful when sharingMode() == GitHub. Defaults to public github.com;
+    // set to a corporate host for GitHub Enterprise Server.
+    QString gitHubHost() const { return m_gitHubHost; }
+    void    setGitHubHost(const QString& host) { m_gitHubHost = host; }
 
 private:
     QString        m_name;
     QString        m_rootPath;
     QList<Project*> m_projects;
-    RepoScope      m_repoScope = RepoScope::Separate;
     GitClient*     m_git       = nullptr;
+    SharingMode    m_sharingMode = SharingMode::SharedFiles;
+    QString        m_gitHubHost  = QStringLiteral("github.com");
 };

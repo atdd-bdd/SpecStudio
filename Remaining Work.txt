@@ -54,6 +54,15 @@ Altered so that it is separated into Issues and Future Features
 
 ### Copy named comments in the .spectable into comments in the generated code.
 
+### New "Uses" named comment (SpecTable v3.3.a — see `spectable syntax v3.3a.md` at repo
+  root): an optional, non-executable documentation line — `Uses <Comment>` — that can follow
+  Entity, Collection, Define, and Given/When/Then/Vertical steps/tables, describing underlying
+  primitives, related business rules, or dependencies (e.g. a DataType's "Uses" names its
+  primitive type; a BusinessRule's "Uses" names the rules/entities it depends on). Not yet
+  implemented anywhere — SpectableParser.cpp has no grammar support for it at all, so it needs
+  parsing + a place to store it per block before it can feed into the "Copy named comments"
+  item just above.
+
 ### Internal Markdown editor.   
 
 ### Cleanup -  

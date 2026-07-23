@@ -4,6 +4,7 @@
 
 class QLineEdit;
 class QPushButton;
+class QRadioButton;
 
 class NewSolutionDialog : public QDialog
 {
@@ -14,10 +15,13 @@ public:
 
     QString solutionName() const;
     QString rootFolder()   const;
+    bool    useGitHub()    const;
 
 private:
-    QLineEdit*   m_nameEdit     = nullptr;
-    QLineEdit*   m_folderEdit   = nullptr;
-    QPushButton* m_browseBtn    = nullptr;
-    bool         m_folderEdited = false;
+    QLineEdit*    m_nameEdit     = nullptr;
+    QLineEdit*    m_folderEdit   = nullptr;
+    QPushButton*  m_browseBtn    = nullptr;
+    bool          m_folderEdited = false;
+    QRadioButton* m_sharedFilesRadio = nullptr;
+    QRadioButton* m_gitHubRadio      = nullptr;
 };

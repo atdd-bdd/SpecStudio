@@ -2,10 +2,12 @@
 #include "../../git/GitClient.h"
 
 #include <QDialogButtonBox>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -19,12 +21,20 @@ ConflictResolutionDialog::ConflictResolutionDialog(const QString& projectName,
     , m_projectRoot(projectRoot)
     , m_conflicted(conflictedFiles)
 {
-    setWindowTitle(tr("Merge Conflicts — %1").arg(projectName));
-    setMinimumSize(520, 360);
+    // Auto-pull now always uses `git pull --rebase`, so a conflict is a rebase
+    // in progress in practice — but check rather than assume, so this still
+    // reads correctly for any leftover plain-merge conflict.
+    const bool rebasing = m_git->isRebaseInProgress();
 
-    auto* header = new QLabel(
-        tr("%1 conflicted file(s). Resolve each file then click Finish Merge.")
-            .arg(conflictedFiles.size()), this);
+    setWindowTitle(rebasing ? tr("Conflicts While Getting Latest Changes — %1").arg(projectName)
+                             : tr("Merge Conflicts — %1").arg(projectName));
+    setMinimumSize(520, 480);
+
+    auto* header = new QLabel(rebasing
+        ? tr("%1 conflicted file(s). Resolve each file then click Continue Rebase.")
+              .arg(conflictedFiles.size())
+        : tr("%1 conflicted file(s). Resolve each file then click Finish Merge.")
+              .arg(conflictedFiles.size()), this);
     header->setWordWrap(true);
 
     m_fileList = new QListWidget(this);
@@ -32,13 +42,21 @@ ConflictResolutionDialog::ConflictResolutionDialog(const QString& projectName,
     for (const QString& f : conflictedFiles)
         m_fileList->addItem(f);
 
+    m_diffView = new QPlainTextEdit(this);
+    m_diffView->setReadOnly(true);
+    m_diffView->setLineWrapMode(QPlainTextEdit::NoWrap);
+    QFont mono("Consolas");
+    mono.setStyleHint(QFont::Monospace);
+    m_diffView->setFont(mono);
+    m_diffView->setPlaceholderText(tr("Select a conflicted file to see what's different."));
+
     auto* openBtn       = new QPushButton(tr("Open in Editor"),      this);
     auto* mineBtn       = new QPushButton(tr("Use Mine"),             this);
     auto* theirsBtn     = new QPushButton(tr("Use Theirs"),           this);
     auto* mineAllBtn    = new QPushButton(tr("Use Mine for All"),     this);
     auto* theirsAllBtn  = new QPushButton(tr("Use Theirs for All"),   this);
-    auto* abortBtn      = new QPushButton(tr("Abort Merge"),          this);
-    m_finishBtn         = new QPushButton(tr("Finish Merge"),         this);
+    auto* abortBtn      = new QPushButton(rebasing ? tr("Abort Rebase") : tr("Abort Merge"), this);
+    m_finishBtn         = new QPushButton(rebasing ? tr("Continue Rebase") : tr("Finish Merge"), this);
     m_finishBtn->setDefault(true);
 
     m_statusLabel = new QLabel(this);
@@ -63,6 +81,8 @@ ConflictResolutionDialog::ConflictResolutionDialog(const QString& projectName,
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(header);
     layout->addWidget(m_fileList, 1);
+    layout->addWidget(new QLabel(tr("Differences:"), this));
+    layout->addWidget(m_diffView, 2);
     layout->addLayout(selRow);
     layout->addLayout(allRow);
     layout->addWidget(m_statusLabel);
@@ -75,6 +95,8 @@ ConflictResolutionDialog::ConflictResolutionDialog(const QString& projectName,
     connect(theirsAllBtn, &QPushButton::clicked, this, &ConflictResolutionDialog::onUseTheirsAll);
     connect(abortBtn,     &QPushButton::clicked, this, &ConflictResolutionDialog::onAbortMerge);
     connect(m_finishBtn,  &QPushButton::clicked, this, &ConflictResolutionDialog::onFinishMerge);
+    connect(m_fileList,   &QListWidget::itemSelectionChanged,
+            this, &ConflictResolutionDialog::onFileSelectionChanged);
 }
 
 void ConflictResolutionDialog::refreshList()
@@ -84,9 +106,22 @@ void ConflictResolutionDialog::refreshList()
     for (const QString& f : m_conflicted)
         m_fileList->addItem(f);
     if (m_conflicted.isEmpty()) {
-        m_statusLabel->setText(tr("All conflicts resolved — click Finish Merge."));
+        m_statusLabel->setText(m_git->isRebaseInProgress()
+            ? tr("All conflicts resolved — click Continue Rebase.")
+            : tr("All conflicts resolved — click Finish Merge."));
         m_statusLabel->setStyleSheet("color: green;");
     }
+    onFileSelectionChanged();
+}
+
+void ConflictResolutionDialog::onFileSelectionChanged()
+{
+    const QStringList sel = selectedRelativePaths();
+    if (sel.size() != 1) {
+        m_diffView->clear();
+        return;
+    }
+    m_diffView->setPlainText(m_git->conflictDiff(sel.first()));
 }
 
 QStringList ConflictResolutionDialog::selectedRelativePaths() const

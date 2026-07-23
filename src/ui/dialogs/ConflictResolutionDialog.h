@@ -6,6 +6,7 @@
 class GitClient;
 class QLabel;
 class QListWidget;
+class QPlainTextEdit;
 class QPushButton;
 
 class ConflictResolutionDialog : public QDialog
@@ -30,15 +31,17 @@ private slots:
     void onUseTheirsAll();
     void onAbortMerge();
     void onFinishMerge();
+    void onFileSelectionChanged();
 
 private:
     void refreshList();
     QStringList selectedRelativePaths() const;
 
-    GitClient*   m_git;
-    QString      m_projectRoot;
-    QStringList  m_conflicted;
-    QListWidget* m_fileList;
-    QLabel*      m_statusLabel;
-    QPushButton* m_finishBtn;
+    GitClient*      m_git;
+    QString         m_projectRoot;
+    QStringList     m_conflicted;
+    QListWidget*    m_fileList;
+    QPlainTextEdit* m_diffView;
+    QLabel*         m_statusLabel;
+    QPushButton*    m_finishBtn;
 };

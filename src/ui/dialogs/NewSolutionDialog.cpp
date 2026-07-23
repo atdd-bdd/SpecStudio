@@ -1,5 +1,6 @@
 #include "NewSolutionDialog.h"
 
+#include <QButtonGroup>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
@@ -8,6 +9,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QVBoxLayout>
@@ -47,10 +49,20 @@ NewSolutionDialog::NewSolutionDialog(QWidget* parent)
     form->addRow(tr("Solution name:"), m_nameEdit);
     form->addRow(tr("Root folder:"),   folderRow);
 
+    m_sharedFilesRadio = new QRadioButton(tr("Shared file system"), this);
+    m_gitHubRadio      = new QRadioButton(tr("Source control (GitHub)"), this);
+    m_sharedFilesRadio->setChecked(true);
+    auto* sharingGroup = new QButtonGroup(this);
+    sharingGroup->addButton(m_sharedFilesRadio);
+    sharingGroup->addButton(m_gitHubRadio);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
 
     auto* layout = new QVBoxLayout(this);
     layout->addLayout(form);
+    layout->addWidget(new QLabel(tr("How should this solution be shared?"), this));
+    layout->addWidget(m_sharedFilesRadio);
+    layout->addWidget(m_gitHubRadio);
     layout->addWidget(buttons);
 
     connect(m_browseBtn, &QPushButton::clicked, this, [this] {
@@ -77,3 +89,4 @@ NewSolutionDialog::NewSolutionDialog(QWidget* parent)
 
 QString NewSolutionDialog::solutionName() const { return m_nameEdit->text().trimmed(); }
 QString NewSolutionDialog::rootFolder()   const { return m_folderEdit->text().trimmed(); }
+bool    NewSolutionDialog::useGitHub()    const { return m_gitHubRadio->isChecked(); }

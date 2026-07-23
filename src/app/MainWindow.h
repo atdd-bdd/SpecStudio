@@ -9,6 +9,7 @@ class BaseEditor;
 class EntityTreePanel;
 class FindReplaceDialog;
 class Project;
+class QAction;
 class QMenu;
 class QSplitter;
 class SolutionExplorer;
@@ -53,6 +54,7 @@ private:
     void populateRecentMenu();
     void populateConfigMenu();
     void populateAnalyzeMenu();
+    void populateGitMenu();
 
     void stubAction(const QString& name);
 
@@ -60,6 +62,12 @@ private:
     QMenu*             m_recentMenu         = nullptr;
     QMenu*             m_configMenu         = nullptr;
     QMenu*             m_analyzeProjectMenu = nullptr;
+    QMenu*             m_gitMenu            = nullptr;
+    // Carries a global Ctrl+D shortcut regardless of which Git-menu variant is
+    // showing (Shared-Files solutions hide it from the menu, but the shortcut
+    // must keep working) — created once, only conditionally re-inserted into
+    // the menu by populateGitMenu().
+    QAction*           m_actDiffCurrentFile = nullptr;
     FindReplaceDialog* m_findReplaceDlg  = nullptr;
     SolutionExplorer*  m_solutionExplorer = nullptr;
     QSplitter*         m_splitter        = nullptr;

@@ -41,6 +41,12 @@ set(SOURCES
     ui/dialogs/NewSolutionDialog.cpp
     ui/dialogs/NewProjectDialog.h
     ui/dialogs/NewProjectDialog.cpp
+    ui/dialogs/GitHubRemoteSetupDialog.h
+    ui/dialogs/GitHubRemoteSetupDialog.cpp
+    ui/dialogs/SharingModeDialog.h
+    ui/dialogs/SharingModeDialog.cpp
+    ui/dialogs/CloneSolutionDialog.h
+    ui/dialogs/CloneSolutionDialog.cpp
 
     editors/LineNumberEdit.h
     editors/LineNumberEdit.cpp
@@ -49,6 +55,10 @@ set(SOURCES
 
     git/GitClient.h
     git/GitClient.cpp
+    git/GitInstaller.h
+    git/GitInstaller.cpp
+    git/GitHubClient.h
+    git/GitHubClient.cpp
 
     editors/EditorFactory.h
     editors/EditorFactory.cpp
@@ -130,4 +140,5 @@ target_link_libraries(SpecStudio PRIVATE
     Qt6::Widgets
     Qt6::Gui
     Qt6::PrintSupport
+    Qt6::Network
 )

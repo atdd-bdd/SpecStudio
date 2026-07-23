@@ -140,6 +140,7 @@ void MainWindow::setupMenuBar()
     auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
     auto* actNewFile      = fileMenu->addAction(tr("New File..."),     QKeySequence::New);
     auto* actOpenSolution = fileMenu->addAction(tr("Open Solution/Project..."));
+    auto* actCloneSolution = fileMenu->addAction(tr("Clone an Existing Solution..."));
     auto* actOpenFile     = fileMenu->addAction(tr("Open File..."), QKeySequence(Qt::CTRL | Qt::Key_O));
     fileMenu->addSeparator();
     m_recentMenu = fileMenu->addMenu(tr("Recent Solutions"));
@@ -159,6 +160,7 @@ void MainWindow::setupMenuBar()
     connect(actNewProject,   &QAction::triggered, m_controller, &AppController::onNewProject);
     connect(actNewFile,      &QAction::triggered, m_controller, [this]{ m_controller->onNewFile(); });
     connect(actOpenSolution, &QAction::triggered, m_controller, &AppController::onOpenSolution);
+    connect(actCloneSolution, &QAction::triggered, m_controller, &AppController::onCloneSolution);
     connect(actOpenFile,     &QAction::triggered, m_controller, &AppController::onOpenFileDialog);
     connect(actSave,         &QAction::triggered, m_controller, &AppController::onSave);
     connect(actSaveAs,       &QAction::triggered, m_controller, &AppController::onSaveAs);
@@ -255,21 +257,19 @@ void MainWindow::setupMenuBar()
     connect(actCloseSplit,    &QAction::triggered, this, &MainWindow::closeSplit);
 
     // ---- Git ----
-    auto* gitMenu = menuBar()->addMenu(tr("&Git"));
+    // Rebuilt on every aboutToShow (same lazy idiom as m_configMenu/
+    // m_analyzeProjectMenu above) so it reflects the current solution's
+    // sharing mode: Shared-Files solutions get a single "Share with Git..."
+    // item, GitHub-mode solutions (or no solution open) get the full set.
+    m_gitMenu = menuBar()->addMenu(tr("&Git"));
+    connect(m_gitMenu, &QMenu::aboutToShow, this, &MainWindow::populateGitMenu);
 
-    auto* actCommitPush = gitMenu->addAction(tr("Commit and Push..."));
-    auto* actFetch      = gitMenu->addAction(tr("Fetch"));
-    auto* actPull       = gitMenu->addAction(tr("Pull"));
-    gitMenu->addSeparator();
-    auto* actDiff = gitMenu->addAction(tr("Diff Current File"), QKeySequence(Qt::CTRL | Qt::Key_D));
-    gitMenu->addSeparator();
-    auto* actRepoSettings = gitMenu->addAction(tr("Repository Settings..."));
-
-    connect(actCommitPush,   &QAction::triggered, m_controller, &AppController::onCommitAndPush);
-    connect(actFetch,        &QAction::triggered, m_controller, &AppController::onFetch);
-    connect(actPull,         &QAction::triggered, m_controller, &AppController::onPull);
-    connect(actDiff,         &QAction::triggered, m_controller, &AppController::onDiffCurrentFile);
-    connect(actRepoSettings, &QAction::triggered, m_controller, &AppController::onRepositorySettings);
+    // Carries the Ctrl+D shortcut app-wide regardless of which Git-menu
+    // variant is currently showing.
+    m_actDiffCurrentFile = new QAction(tr("Diff Current File"), this);
+    m_actDiffCurrentFile->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    addAction(m_actDiffCurrentFile);
+    connect(m_actDiffCurrentFile, &QAction::triggered, m_controller, &AppController::onDiffCurrentFile);
 
     // ---- Build ----
     auto* buildMenu = menuBar()->addMenu(tr("&Build"));
@@ -388,6 +388,33 @@ void MainWindow::populateConfigMenu()
         auto* none = m_configMenu->addAction(tr("(no .specconfig files found)"));
         none->setEnabled(false);
     }
+}
+
+void MainWindow::populateGitMenu()
+{
+    m_gitMenu->clear();
+
+    Solution* sol = m_controller->currentSolution();
+
+    if (sol && sol->sharingMode() == Solution::SharingMode::SharedFiles) {
+        auto* actShare = m_gitMenu->addAction(tr("Share with Git..."));
+        connect(actShare, &QAction::triggered, m_controller, &AppController::onShareWithGit);
+        return;
+    }
+
+    // No solution open, or solution is in GitHub mode: full menu.
+    auto* actCommitPush = m_gitMenu->addAction(tr("Commit and Push..."));
+    auto* actFetch      = m_gitMenu->addAction(tr("Fetch"));
+    auto* actGetLatest  = m_gitMenu->addAction(tr("Get Others' Changes"));
+    m_gitMenu->addSeparator();
+    m_gitMenu->addAction(m_actDiffCurrentFile);
+    m_gitMenu->addSeparator();
+    auto* actRepoSettings = m_gitMenu->addAction(tr("Repository Settings..."));
+
+    connect(actCommitPush,   &QAction::triggered, m_controller, &AppController::onCommitAndPush);
+    connect(actFetch,        &QAction::triggered, m_controller, &AppController::onFetch);
+    connect(actGetLatest,    &QAction::triggered, m_controller, &AppController::onPull);
+    connect(actRepoSettings, &QAction::triggered, m_controller, &AppController::onRepositorySettings);
 }
 
 void MainWindow::populateAnalyzeMenu()

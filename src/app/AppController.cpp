@@ -17,7 +17,12 @@
 #include "../ui/dialogs/ShareChangesDialog.h"
 #include "../ui/dialogs/SettingsDialog.h"
 #include "../ui/dialogs/RepositorySettingsDialog.h"
+#include "../ui/dialogs/GitHubRemoteSetupDialog.h"
+#include "../ui/dialogs/SharingModeDialog.h"
+#include "../ui/dialogs/CloneSolutionDialog.h"
 #include "AppSettings.h"
+#include "../git/GitInstaller.h"
+#include "../git/GitHubClient.h"
 #include "../analyzer/ProjectIndex.h"
 #include "../analyzer/FeatureXAnalyzer.h"
 #include "../analyzer/SpecTableIndex.h"
@@ -140,12 +145,31 @@ void AppController::loadSolution(const QString& sspecPath)
     }
     setSolution(sol);
 
-    if (!sol->projects().isEmpty()) {
-        const auto reply = QMessageBox::question(m_mainWindow, tr("Get Others' Changes?"),
-            tr("Do you want to get everyone else's changes now?"),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-        if (reply == QMessageBox::Yes)
-            onPull();
+    // Shared-Files solutions make no git calls at all. GitHub-mode solutions
+    // get everyone else's changes silently — no confirmation dialog on the
+    // normal path, only a warning if it couldn't be done (e.g. offline).
+    if (sol->sharingMode() == Solution::SharingMode::GitHub && !sol->projects().isEmpty()) {
+        GitClient* git = gitFor(sol->projects().first());
+        connect(git, &GitClient::outputReady,
+                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                Qt::UniqueConnection);
+
+        const QString branch = m_settings->solutionGitBranch(sol->rootPath());
+        const bool ok = git->pullRebase("origin", branch);
+
+        if (!ok) {
+            const QStringList conflicts = git->conflictedFiles();
+            if (!conflicts.isEmpty()) {
+                showConflictDialog(sol->projects().first(), git, sol->rootPath(), conflicts);
+            } else {
+                QMessageBox::warning(m_mainWindow, tr("Could Not Get Latest"),
+                    tr("Could not get everyone else's changes (you may be offline).\n"
+                       "Your local copy may not be up to date."));
+            }
+        } else {
+            for (auto* proj : sol->projects()) proj->scanFiles();
+            m_treeModel->refresh();
+        }
     }
 }
 
@@ -167,9 +191,7 @@ void AppController::onNewSolution()
 
     auto* solution = new Solution(name, folder);
 
-    QString error;
-    if (!SolutionSerializer::save(solution, error)) {
-        QMessageBox::critical(m_mainWindow, tr("Save Failed"), error);
+    if (!configureNewSolutionSharing(solution, dlg.useGitHub())) {
         delete solution;
         return;
     }
@@ -195,6 +217,12 @@ void AppController::onNewProject()
             return;
         }
         auto* newSol = new Solution(projName, projDir);
+        SharingModeDialog modeDlg(newSol->name(), m_mainWindow);
+        const bool useGitHub = (modeDlg.exec() == QDialog::Accepted) && modeDlg.useGitHub();
+        if (!configureNewSolutionSharing(newSol, useGitHub)) {
+            delete newSol;
+            return;
+        }
         setSolution(newSol);
         // projDir == m_solution->rootPath(), relativePath will be "."
 
@@ -208,6 +236,12 @@ void AppController::onNewProject()
             return;
         }
         auto* newSol = new Solution(dlg.newSolutionName(), solFolder);
+        SharingModeDialog modeDlg(newSol->name(), m_mainWindow);
+        const bool useGitHub = (modeDlg.exec() == QDialog::Accepted) && modeDlg.useGitHub();
+        if (!configureNewSolutionSharing(newSol, useGitHub)) {
+            delete newSol;
+            return;
+        }
         setSolution(newSol);
 
         projDir = m_solution->rootPath() + QDir::separator() + projName;
@@ -228,12 +262,11 @@ void AppController::onNewProject()
         }
     }
 
-    // Run git init — in the project directory (Separate scope, the default),
-    // or once at the solution root (Combined scope — every project shares it).
-    {
-        const bool combined = m_solution->repoScope() == Solution::RepoScope::Combined;
-        const QString initDir = combined ? m_solution->rootPath() : projDir;
-        const bool alreadyInitialized = combined && QDir(initDir + "/.git").exists();
+    // Run git init once at the solution root — every project in the solution
+    // shares that one repo. Shared-Files solutions make no git calls at all.
+    if (m_solution->sharingMode() == Solution::SharingMode::GitHub) {
+        const QString initDir = m_solution->rootPath();
+        const bool alreadyInitialized = QDir(initDir + "/.git").exists();
 
         if (!alreadyInitialized) {
             QProcess proc;
@@ -328,6 +361,67 @@ void AppController::onOpenSolution()
     loadSolution(path);
 }
 
+void AppController::onCloneSolution()
+{
+    if (!GitInstaller::ensureGitInstalled(m_mainWindow, tr("clone a solution"))) {
+        QMessageBox::critical(m_mainWindow, tr("Cannot Clone"),
+            tr("Cannot clone due to git not being installed."));
+        return;
+    }
+
+    CloneSolutionDialog dlg(m_mainWindow);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString url        = dlg.remoteUrl();
+    const QString parentDir  = dlg.localDirectory();
+
+    QDir dir(parentDir);
+    if (!dir.exists() && !dir.mkpath(".")) {
+        QMessageBox::critical(m_mainWindow, tr("Error"),
+            tr("Cannot create folder: %1").arg(parentDir));
+        return;
+    }
+
+    QProcess proc;
+    proc.setWorkingDirectory(parentDir);
+    GitClient::applyCredentialEnv(proc, dlg.username(), dlg.personalAccessToken());
+    proc.start("git", {"clone", url});
+    // Clones can take a while for large repos — no fixed timeout.
+    const bool ok = proc.waitForFinished(-1) && proc.exitCode() == 0;
+    if (!ok) {
+        QMessageBox::critical(m_mainWindow, tr("Clone Failed"),
+            tr("git clone failed:\n%1").arg(QString::fromUtf8(proc.readAllStandardError())));
+        return;
+    }
+
+    const QString repoDirName = QFileInfo(url).completeBaseName();
+    const QString clonedRoot  = parentDir + "/" + repoDirName;
+
+    QDir cloned(clonedRoot);
+    const QStringList sspecs = cloned.entryList({"*.sspec"}, QDir::Files);
+    if (sspecs.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, tr("No Solution File"),
+            tr("The cloned repository does not contain an .sspec file."));
+        return;
+    }
+
+    QString sspecName = sspecs.first();
+    if (sspecs.size() > 1) {
+        bool chosen = false;
+        sspecName = QInputDialog::getItem(m_mainWindow, tr("Choose Solution"),
+            tr("The cloned repository contains more than one solution file:"),
+            sspecs, 0, false, &chosen);
+        if (!chosen) return;
+    }
+
+    if (!dlg.username().isEmpty() || !dlg.personalAccessToken().isEmpty()) {
+        m_settings->setSolutionGitUser(clonedRoot, dlg.username());
+        m_settings->setSolutionGitPassword(clonedRoot, dlg.personalAccessToken());
+    }
+
+    loadSolution(clonedRoot + "/" + sspecName);
+}
+
 void AppController::onSave()
 {
     auto* tabs = m_mainWindow->editorTabs();
@@ -351,7 +445,7 @@ void AppController::onSave()
                 ste->refreshDynamicCompletions();
         }
 
-        if (m_solution) {
+        if (m_solution && m_solution->sharingMode() == Solution::SharingMode::GitHub) {
             Project* proj = m_solution->projectForFile(ed->filePath());
             if (proj) {
                 connect(gitFor(proj), &GitClient::outputReady,
@@ -391,30 +485,51 @@ void AppController::onSaveAs()
 void AppController::onSaveAll()
 {
     m_mainWindow->editorTabs()->saveAllFiles();
-    // Auto-commit each project that has a dirty file. When the solution's
-    // repos are Combined, every project resolves to the same shared
-    // GitClient — commit once, not once per project.
+    // Every project in the solution shares one repo — commit once, not once per
+    // project. Shared-Files solutions make no git calls at all.
     if (m_solution) {
-        if (m_solution->repoScope() == Solution::RepoScope::Combined) {
-            if (!m_solution->projects().isEmpty()) {
-                connect(m_solution->git(), &GitClient::outputReady,
-                        m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                        Qt::UniqueConnection);
-                m_solution->git()->commitAll(tr("Auto-save all"));
-            }
-        } else {
-            for (auto* proj : m_solution->projects()) {
-                connect(gitFor(proj), &GitClient::outputReady,
-                        m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                        Qt::UniqueConnection);
-                gitFor(proj)->commitAll(tr("Auto-save all"));
-            }
+        if (!m_solution->projects().isEmpty() &&
+            m_solution->sharingMode() == Solution::SharingMode::GitHub) {
+            connect(m_solution->git(), &GitClient::outputReady,
+                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+                    Qt::UniqueConnection);
+            m_solution->git()->commitAll(tr("Auto-save all"));
+            promptAndMaybePush();
         }
         // Re-analyze after saving so diagnostics reflect the saved state
         QTimer::singleShot(0, this, [this] {
             if (m_solution && !m_solution->projects().isEmpty())
                 doAnalyze(m_solution->projects());
         });
+    }
+}
+
+void AppController::promptAndMaybePush()
+{
+    QMap<Project*, GitClient*> gitClients;
+    for (auto* proj : m_solution->projects())
+        gitClients.insert(proj, gitFor(proj));
+
+    ShareChangesDialog dlg(m_solution->projects(), gitClients, m_mainWindow);
+    // The local commit already happened via onSaveAll()'s own commitAll() call
+    // just above, so hasAnyChanges() here reflects only what's ahead of the
+    // remote — if there's truly nothing new, skip the dialog silently.
+    if (!dlg.hasAnyChanges()) return;
+
+    dlg.exec();
+    if (dlg.shareResult() != ShareChangesDialog::ShareResult::SharePushed) return;
+
+    QString reason = dlg.description();
+    if (reason.isEmpty()) reason = tr("Update");
+
+    GitClient* git = m_solution->git();
+    QString branch = m_settings->solutionGitBranch(m_solution->rootPath());
+    if (branch.isEmpty()) branch = "main";
+
+    if (!git->commitAndPush(reason, "origin", branch)) {
+        QMessageBox::warning(m_mainWindow, tr("Trouble Sharing Changes"),
+            tr("Your changes were saved locally, but could not be pushed.\n"
+               "Try \"Get Others' Changes\" first, then share again."));
     }
 }
 
@@ -460,6 +575,14 @@ void AppController::onRepositorySettings()
         QMessageBox::warning(m_mainWindow, tr("Save Warning"), error);
 }
 
+void AppController::onShareWithGit()
+{
+    if (!m_solution) return;
+    // The user choosing this menu item *is* the choice — no radio prompt
+    // needed, just reuse the same GitHub-setup flow used at solution creation.
+    configureNewSolutionSharing(m_solution, /*useGitHub=*/true);
+}
+
 bool AppController::shareChanges()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
@@ -478,7 +601,8 @@ bool AppController::shareChanges()
             tr("There are no changes to share right now."));
         return false;
     }
-    if (dlg.exec() != QDialog::Accepted) return false;
+    dlg.exec();
+    if (dlg.shareResult() == ShareChangesDialog::ShareResult::Cancelled) return false;
 
     QString reason = dlg.description();
     if (reason.isEmpty()) reason = tr("Update");  // git requires a non-empty commit message
@@ -486,7 +610,7 @@ bool AppController::shareChanges()
     m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Share Changes ---"));
 
     QStringList failedProjects;
-    if (m_solution->repoScope() == Solution::RepoScope::Combined) {
+    {
         // Every project resolves to the same shared GitClient -- act once.
         GitClient* git = m_solution->git();
         connect(git, &GitClient::outputReady,
@@ -500,28 +624,10 @@ bool AppController::shareChanges()
         QString branch = m_settings->solutionGitBranch(m_solution->rootPath());
         if (branch.isEmpty()) branch = "main";
 
-        const bool ok = dlg.pushImmediately()
+        const bool ok = dlg.shareResult() == ShareChangesDialog::ShareResult::SharePushed
             ? git->commitAndPush(reason, remote, branch)
             : git->commitAll(reason);
         if (!ok) failedProjects << m_solution->name();
-    } else {
-        for (auto* proj : m_solution->projects()) {
-            connect(gitFor(proj), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            connect(gitFor(proj), &GitClient::errorOccurred,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-
-            QString remote = "origin";
-            QString branch = m_settings->gitBranch(proj->rootPath());
-            if (branch.isEmpty()) branch = "main";
-
-            const bool ok = dlg.pushImmediately()
-                ? gitFor(proj)->commitAndPush(reason, remote, branch)
-                : gitFor(proj)->commitAll(reason);
-            if (!ok) failedProjects << proj->name();
-        }
     }
 
     if (!failedProjects.isEmpty()) {
@@ -548,11 +654,10 @@ void AppController::onCommitAndPush()
 void AppController::promptShareOnExit()
 {
     if (!m_solution || m_solution->projects().isEmpty()) return;
+    // Shared-Files solutions have nothing to push, and must make no git calls at all.
+    if (m_solution->sharingMode() != Solution::SharingMode::GitHub) return;
 
-    bool anyChanges = false;
-    for (auto* proj : m_solution->projects())
-        if (gitFor(proj)->hasUncommittedChanges()) { anyChanges = true; break; }
-    if (!anyChanges) return;
+    if (!gitFor(m_solution->projects().first())->hasUncommittedChanges()) return;
 
     const auto reply = QMessageBox::question(m_mainWindow, tr("Share Changes?"),
         tr("You have changes that haven't been shared yet.\n"
@@ -564,17 +669,17 @@ void AppController::promptShareOnExit()
 
 void AppController::onFetch()
 {
-    if (!m_solution || m_solution->projects().isEmpty()) return;
+    if (!m_solution || m_solution->projects().isEmpty() ||
+        m_solution->sharingMode() != Solution::SharingMode::GitHub) return;
 
     m_mainWindow->outputPanel()->showBuildTab();
     m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Fetch ---"));
 
-    for (auto* proj : m_solution->projects()) {
-        connect(gitFor(proj), &GitClient::outputReady,
-                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                Qt::UniqueConnection);
-        gitFor(proj)->fetch();
-    }
+    GitClient* git = gitFor(m_solution->projects().first());
+    connect(git, &GitClient::outputReady,
+            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+            Qt::UniqueConnection);
+    git->fetch();
 }
 
 void AppController::onDiffCurrentFile()
@@ -617,43 +722,39 @@ void AppController::onDiffCurrentFile()
 
 void AppController::onPull()
 {
-    if (!m_solution || m_solution->projects().isEmpty()) {
+    if (!m_solution || m_solution->projects().isEmpty() ||
+        m_solution->sharingMode() != Solution::SharingMode::GitHub) {
         QMessageBox::information(m_mainWindow, tr("No Project"),
-            tr("Open a project before pulling."));
+            tr("Open a GitHub-shared solution before getting changes."));
         return;
     }
 
+    // Every project in the solution shares one repo — act once.
+    Project* proj = m_solution->projects().first();
+    GitClient* git = gitFor(proj);
+    connect(git, &GitClient::outputReady,
+            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+            Qt::UniqueConnection);
+    connect(git, &GitClient::errorOccurred,
+            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+            Qt::UniqueConnection);
+
     m_mainWindow->outputPanel()->showBuildTab();
-    m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Pull ---"));
+    m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Get Others' Changes ---"));
 
-    for (auto* proj : m_solution->projects()) {
-        connect(gitFor(proj), &GitClient::outputReady,
-                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                Qt::UniqueConnection);
-        connect(gitFor(proj), &GitClient::errorOccurred,
-                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                Qt::UniqueConnection);
+    const QString branch = m_settings->solutionGitBranch(m_solution->rootPath());
+    const bool ok = git->pullRebase("origin", branch);
 
-        const QString branch = m_settings->gitBranch(proj->rootPath());
-        bool ok = gitFor(proj)->pull("origin", branch);
-
-        if (!ok) {
-            const QStringList conflicts = gitFor(proj)->conflictedFiles();
-            if (!conflicts.isEmpty()) {
-                auto* dlg = new ConflictResolutionDialog(
-                    proj->name(), gitFor(proj), proj->rootPath(), conflicts, m_mainWindow);
-                connect(dlg, &ConflictResolutionDialog::openFileRequested,
-                        this, &AppController::onOpenFile);
-                dlg->exec();
-                dlg->deleteLater();
-                // Reload any modified files
-                proj->scanFiles();
-                m_treeModel->refresh();
-            } else {
-                m_mainWindow->outputPanel()->appendBuildOutput(
-                    tr("[%1] Pull failed — check output.").arg(proj->name()));
-            }
+    if (!ok) {
+        const QStringList conflicts = git->conflictedFiles();
+        if (!conflicts.isEmpty()) {
+            showConflictDialog(proj, git, m_solution->rootPath(), conflicts);
+        } else {
+            m_mainWindow->outputPanel()->appendBuildOutput(tr("Pull failed — check output."));
         }
+    } else {
+        for (auto* p : m_solution->projects()) p->scanFiles();
+        m_treeModel->refresh();
     }
 }
 
@@ -798,11 +899,109 @@ Project* AppController::activeProject() const
     return nullptr;
 }
 
+bool AppController::configureNewSolutionSharing(Solution* solution, bool useGitHub)
+{
+    solution->setSharingMode(useGitHub ? Solution::SharingMode::GitHub
+                                        : Solution::SharingMode::SharedFiles);
+
+    QString error;
+    if (!SolutionSerializer::save(solution, error)) {
+        QMessageBox::critical(m_mainWindow, tr("Save Failed"), error);
+        return false;
+    }
+
+    if (!useGitHub)
+        return true; // Shared Files: no git calls at all.
+
+    if (!GitInstaller::ensureGitInstalled(m_mainWindow, tr("set up GitHub sharing"))) {
+        solution->setSharingMode(Solution::SharingMode::SharedFiles);
+        SolutionSerializer::save(solution, error);
+        QMessageBox::information(m_mainWindow, tr("Using Shared Files"),
+            tr("Git isn't available, so this solution will use shared-file-system sharing instead."));
+        return true;
+    }
+
+    const QString rootPath = solution->rootPath();
+    if (!QDir(rootPath + "/.git").exists()) {
+        QProcess proc;
+        proc.setWorkingDirectory(rootPath);
+        proc.start("git", {"init"});
+        const bool ok = proc.waitForFinished(10000) && proc.exitCode() == 0;
+        if (!ok) {
+            QMessageBox::warning(m_mainWindow, tr("Git Init Failed"),
+                tr("Could not run 'git init' in '%1'. Using shared-file-system sharing instead.")
+                    .arg(rootPath));
+            solution->setSharingMode(Solution::SharingMode::SharedFiles);
+            SolutionSerializer::save(solution, error);
+            return true;
+        }
+    }
+
+    GitHubRemoteSetupDialog remoteDlg(solution->name(), m_settings->lastGitHubHost(), m_mainWindow);
+    if (remoteDlg.exec() != QDialog::Accepted) {
+        solution->setSharingMode(Solution::SharingMode::SharedFiles);
+        SolutionSerializer::save(solution, error);
+        return true;
+    }
+
+    solution->setGitHubHost(remoteDlg.host());
+    m_settings->setLastGitHubHost(remoteDlg.host());
+
+    GitHubClient gh(remoteDlg.host(), remoteDlg.personalAccessToken());
+    const GitHubClient::CreateRepoResult result = gh.createPrivateRepo(remoteDlg.repoName());
+    if (!result.ok) {
+        QMessageBox::critical(m_mainWindow, tr("GitHub Error"),
+            tr("Could not create the GitHub repository: %1\n\n"
+               "Using shared-file-system sharing instead.").arg(result.errorMessage));
+        solution->setSharingMode(Solution::SharingMode::SharedFiles);
+        SolutionSerializer::save(solution, error);
+        return true;
+    }
+
+    m_settings->setSolutionGitUser(rootPath, remoteDlg.username());
+    m_settings->setSolutionGitPassword(rootPath, remoteDlg.personalAccessToken());
+    m_settings->setSolutionGitRemoteUrl(rootPath, result.cloneUrl);
+
+    // Persist the final GitHub-mode .sspec now, before the initial commit, so
+    // the very first commit already reflects the chosen sharing mode.
+    SolutionSerializer::save(solution, error);
+
+    GitClient* git = solution->git();
+    git->setCredentials(remoteDlg.username(), remoteDlg.personalAccessToken());
+    git->addRemote("origin", result.cloneUrl);
+
+    const QString branch = m_settings->solutionGitBranch(rootPath);
+    if (!git->commitAndPush(tr("Initial commit"), "origin", branch)) {
+        m_mainWindow->outputPanel()->appendBuildOutput(
+            tr("Warning: could not push the initial commit to %1.").arg(result.cloneUrl));
+    }
+
+    return true;
+}
+
+void AppController::showConflictDialog(Project* proj, GitClient* git, const QString& rootPath,
+                                        const QStringList& conflicts)
+{
+    auto* dlg = new ConflictResolutionDialog(proj->name(), git, rootPath, conflicts, m_mainWindow);
+    connect(dlg, &ConflictResolutionDialog::openFileRequested, this, &AppController::onOpenFile);
+    dlg->exec();
+    dlg->deleteLater();
+    // Reload any modified files
+    proj->scanFiles();
+    m_treeModel->refresh();
+}
+
 GitClient* AppController::gitFor(Project* proj) const
 {
     if (!proj) return nullptr;
-    if (m_solution && m_solution->repoScope() == Solution::RepoScope::Combined)
+    if (m_solution) {
+        if (m_solution->sharingMode() == Solution::SharingMode::GitHub) {
+            const QString root = m_solution->rootPath();
+            m_solution->git()->setCredentials(m_settings->solutionGitUser(root),
+                                               m_settings->solutionGitPassword(root));
+        }
         return m_solution->git();
+    }
     return proj->git();
 }
 

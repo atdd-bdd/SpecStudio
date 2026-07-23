@@ -8,23 +8,22 @@ class Project;
 class GitClient;
 class QTreeWidget;
 class QPlainTextEdit;
-class QCheckBox;
+class QWidget;
 class QLabel;
 class QDialogButtonBox;
 
 // Friendly "Share Changes" (commit + push) dialog. Shows what changed across
-// every project in the solution, lets the user describe the change, and
-// offers an Advanced section with the target branch and a "push immediately"
-// toggle. `gitClients` maps each project to the GitClient its git actions
-// actually resolve to — normally one repo per project, but when the
-// solution's repos are Combined, every project maps to the same shared
-// instance, and this dialog shows that repo's status/branch once, not once
-// per project.
+// every project in the solution and lets the user describe the change. Every
+// project shares one repo, so `gitClients` maps each project to that same
+// GitClient instance — this dialog dedupes so the repo's status/branch is
+// shown once, not once per project.
 class ShareChangesDialog : public QDialog
 {
     Q_OBJECT
 
 public:
+    enum class ShareResult { SharePushed, DontShareNow, Cancelled };
+
     ShareChangesDialog(const QList<Project*>& projects,
                        const QMap<Project*, GitClient*>& gitClients,
                        QWidget* parent = nullptr);
@@ -33,16 +32,13 @@ public:
     // showing the dialog entirely when this is false.
     bool hasAnyChanges() const { return m_hasAnyChanges; }
 
-    QString description() const;
-    bool    pushImmediately() const;
+    QString      description() const;
+    ShareResult  shareResult() const;
 
 private:
-    void toggleAdvanced();
-
     QTreeWidget*      m_fileTree        = nullptr;
     QLabel*           m_summaryLabel    = nullptr;
     QPlainTextEdit*   m_descriptionEdit = nullptr;
-    QCheckBox*        m_pushImmediately = nullptr;
     QWidget*          m_advancedPanel   = nullptr;
     QDialogButtonBox* m_buttons         = nullptr;
     bool              m_hasAnyChanges   = false;

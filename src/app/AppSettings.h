@@ -28,8 +28,8 @@ public:
     QString gitPassword(const QString& projectRoot) const;
     void    setGitPassword(const QString& projectRoot, const QString& password);
 
-    // Git settings (per-solution, keyed by solution root path — used when the
-    // solution's RepoScope is Combined, i.e. all its projects share one repo)
+    // Git settings (per-solution, keyed by solution root path — every project
+    // in a solution shares this one repo)
     QString solutionGitRemoteUrl(const QString& solutionRoot) const;
     void    setSolutionGitRemoteUrl(const QString& solutionRoot, const QString& url);
 
@@ -41,6 +41,11 @@ public:
 
     QString solutionGitPassword(const QString& solutionRoot) const;
     void    setSolutionGitPassword(const QString& solutionRoot, const QString& password);
+
+    // Global (not per-solution) default GitHub host, just to prefill new dialogs
+    // with whatever host was last used. Defaults to "github.com".
+    QString lastGitHubHost() const;
+    void    setLastGitHubHost(const QString& host);
 
     // FeatureX options (per-project)
     bool       implicitFolderImport(const QString& projectRoot) const;

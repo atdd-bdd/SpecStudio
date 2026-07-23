@@ -78,7 +78,7 @@ void AppSettings::setGitPassword(const QString& projectRoot, const QString& pass
     m_settings.setValue(projectKey(projectRoot) + "/gitPassword", password);
 }
 
-// ---- Git settings (per-solution, used when RepoScope is Combined) ----
+// ---- Git settings (per-solution — every project in a solution shares one repo) ----
 
 QString AppSettings::solutionGitRemoteUrl(const QString& solutionRoot) const
 {
@@ -118,6 +118,16 @@ QString AppSettings::solutionGitPassword(const QString& solutionRoot) const
 void AppSettings::setSolutionGitPassword(const QString& solutionRoot, const QString& password)
 {
     m_settings.setValue(solutionKey(solutionRoot) + "/gitPassword", password);
+}
+
+QString AppSettings::lastGitHubHost() const
+{
+    return m_settings.value(QStringLiteral("GitHub/lastHost"), QStringLiteral("github.com")).toString();
+}
+
+void AppSettings::setLastGitHubHost(const QString& host)
+{
+    m_settings.setValue(QStringLiteral("GitHub/lastHost"), host);
 }
 
 // ---- FeatureX options ----

@@ -2,7 +2,6 @@
 #include "../../model/Project.h"
 #include "../../git/GitClient.h"
 
-#include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFont>
 #include <QFormLayout>
@@ -98,9 +97,6 @@ ShareChangesDialog::ShareChangesDialog(const QList<Project*>& projects,
             advForm->addRow(tr("%1 branch:").arg(proj->name()), new QLabel(git->currentBranch(), m_advancedPanel));
         }
     }
-    m_pushImmediately = new QCheckBox(tr("Push immediately after sharing"), m_advancedPanel);
-    m_pushImmediately->setChecked(true);
-    advForm->addRow(m_pushImmediately);
     m_advancedPanel->setVisible(false);
 
     connect(advancedToggle, &QPushButton::clicked, this, [this, advancedToggle] {
@@ -110,13 +106,16 @@ ShareChangesDialog::ShareChangesDialog(const QList<Project*>& projects,
     });
 
     m_buttons = new QDialogButtonBox(this);
-    auto* shareBtn  = m_buttons->addButton(tr("Share Changes"), QDialogButtonBox::AcceptRole);
+    auto* shareBtn     = m_buttons->addButton(tr("Share with Others"), QDialogButtonBox::AcceptRole);
+    auto* dontShareBtn = m_buttons->addButton(tr("Don't Share Now"), QDialogButtonBox::ActionRole);
     m_buttons->addButton(QDialogButtonBox::Cancel);
     shareBtn->setDefault(true);
-    shareBtn->setToolTip(tr("Saves your changes and makes them available to others. (Commit + Push)"));
+    shareBtn->setToolTip(tr("Pushes your already-saved changes so everyone else can see them. (Push)"));
+    dontShareBtn->setToolTip(tr("Keeps your changes saved locally, but doesn't push them yet."));
 
     connect(m_buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(dontShareBtn, &QPushButton::clicked, this, [this] { done(2); });
 
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(m_summaryLabel);
@@ -133,7 +132,11 @@ QString ShareChangesDialog::description() const
     return m_descriptionEdit->toPlainText().trimmed();
 }
 
-bool ShareChangesDialog::pushImmediately() const
+ShareChangesDialog::ShareResult ShareChangesDialog::shareResult() const
 {
-    return m_pushImmediately->isChecked();
+    switch (result()) {
+        case QDialog::Accepted: return ShareResult::SharePushed;
+        case 2:                 return ShareResult::DontShareNow;
+        default:                return ShareResult::Cancelled;
+    }
 }

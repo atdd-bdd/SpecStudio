@@ -1,16 +1,51 @@
 #include "GitClient.h"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QProcess>
+#include <QProcessEnvironment>
 
 GitClient::GitClient(const QString& repoPath, QObject* parent)
     : QObject(parent)
     , m_repoPath(repoPath)
 {}
 
+void GitClient::setCredentials(const QString& username, const QString& password)
+{
+    m_username = username;
+    m_password = password;
+}
+
+void GitClient::applyCredentialEnv(QProcess& proc, const QString& username, const QString& password)
+{
+    if (username.isEmpty() && password.isEmpty())
+        return;
+
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+
+    // Point git at our own askpass helper (a sibling executable of
+    // SpecStudio.exe) so it never needs an interactive terminal.
+    const QString askpassPath = QCoreApplication::applicationDirPath() + "/SpecStudioAskPass.exe";
+    env.insert("GIT_ASKPASS", askpassPath);
+    env.insert("SPECSTUDIO_GIT_USERNAME", username);
+    env.insert("SPECSTUDIO_GIT_PASSWORD", password);
+
+    // Disable any machine-wide credential helper (e.g. Git Credential Manager,
+    // which Git for Windows installs by default) for just this invocation, so
+    // it can't intercept the prompt before our askpass helper runs and pop up
+    // its own UI or use its own cached credentials.
+    env.insert("GIT_CONFIG_COUNT", "1");
+    env.insert("GIT_CONFIG_KEY_0", "credential.helper");
+    env.insert("GIT_CONFIG_VALUE_0", "");
+
+    proc.setProcessEnvironment(env);
+}
+
 QString GitClient::runGit(const QStringList& args, bool* ok)
 {
     QProcess proc;
     proc.setWorkingDirectory(m_repoPath);
+    applyCredentialEnv(proc, m_username, m_password);
     proc.start("git", args);
 
     if (!proc.waitForFinished(30000)) {
@@ -28,6 +63,33 @@ QString GitClient::runGit(const QStringList& args, bool* ok)
     bool success = (proc.exitCode() == 0);
     if (ok) *ok = success;
     return out;
+}
+
+bool GitClient::addRemote(const QString& name, const QString& url)
+{
+    bool ok = false;
+    runGit({"remote", "add", name, url}, &ok);
+    return ok;
+}
+
+bool GitClient::setRemoteUrl(const QString& name, const QString& url)
+{
+    bool ok = false;
+    runGit({"remote", "set-url", name, url}, &ok);
+    return ok;
+}
+
+bool GitClient::hasRemote(const QString& name)
+{
+    const QString out = runGit({"remote"});
+    return out.split('\n', Qt::SkipEmptyParts).contains(name);
+}
+
+QString GitClient::remoteUrl(const QString& name)
+{
+    bool ok = false;
+    const QString out = runGit({"config", "--get", QStringLiteral("remote.%1.url").arg(name)}, &ok);
+    return ok ? out.trimmed() : QString();
 }
 
 bool GitClient::hasUncommittedChanges()
@@ -82,6 +144,21 @@ bool GitClient::pull(const QString& remote, const QString& branch)
     return ok;
 }
 
+bool GitClient::pullRebase(const QString& remote, const QString& branch)
+{
+    bool ok = false;
+    QStringList args = {"pull", "--rebase", remote};
+    if (!branch.isEmpty()) args << branch;
+    runGit(args, &ok);
+    return ok;
+}
+
+bool GitClient::isRebaseInProgress() const
+{
+    return QDir(m_repoPath + "/.git/rebase-merge").exists() ||
+           QDir(m_repoPath + "/.git/rebase-apply").exists();
+}
+
 QStringList GitClient::conflictedFiles()
 {
     // UU prefix in --porcelain means unmerged (both sides modified)
@@ -97,33 +174,46 @@ QStringList GitClient::conflictedFiles()
     return result;
 }
 
+// Note: git's --ours/--theirs meaning is SWAPPED during a rebase vs. a merge
+// (mid-rebase, --ours is the upstream commit being replayed onto, --theirs is
+// the caller's own commit being reapplied) — but "Use Mine"/"Use Theirs" in
+// the UI must always mean "my local edit"/"the incoming edit" from the user's
+// point of view, regardless of which git operation is actually underway.
 bool GitClient::resolveOurs(const QString& relativeFilePath)
 {
+    const QString flag = isRebaseInProgress() ? "--theirs" : "--ours";
     bool ok = false;
-    runGit({"checkout", "--ours",   "--", relativeFilePath}, &ok); if (!ok) return false;
-    runGit({"add", "--",            relativeFilePath},        &ok);
+    runGit({"checkout", flag, "--", relativeFilePath}, &ok); if (!ok) return false;
+    runGit({"add", "--", relativeFilePath}, &ok);
     return ok;
 }
 
 bool GitClient::resolveTheirs(const QString& relativeFilePath)
 {
+    const QString flag = isRebaseInProgress() ? "--ours" : "--theirs";
     bool ok = false;
-    runGit({"checkout", "--theirs", "--", relativeFilePath}, &ok); if (!ok) return false;
-    runGit({"add", "--",            relativeFilePath},        &ok);
+    runGit({"checkout", flag, "--", relativeFilePath}, &ok); if (!ok) return false;
+    runGit({"add", "--", relativeFilePath}, &ok);
     return ok;
 }
 
 bool GitClient::abortMerge()
 {
     bool ok = false;
-    runGit({"merge", "--abort"}, &ok);
+    if (isRebaseInProgress())
+        runGit({"rebase", "--abort"}, &ok);
+    else
+        runGit({"merge", "--abort"}, &ok);
     return ok;
 }
 
 bool GitClient::finishMerge(const QString& message)
 {
     bool ok = false;
-    runGit({"commit", "--no-edit", "-m", message.isEmpty() ? "Merge" : message}, &ok);
+    if (isRebaseInProgress())
+        runGit({"rebase", "--continue"}, &ok);
+    else
+        runGit({"commit", "--no-edit", "-m", message.isEmpty() ? "Merge" : message}, &ok);
     return ok;
 }
 
@@ -145,4 +235,9 @@ QString GitClient::diff(const QString& relativeFilePath)
     if (!relativeFilePath.isEmpty())
         args.append(relativeFilePath);
     return runGit(args);
+}
+
+QString GitClient::conflictDiff(const QString& relativeFilePath)
+{
+    return runGit({"diff", "--", relativeFilePath});
 }

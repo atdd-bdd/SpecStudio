@@ -7,14 +7,17 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
 
 bool SolutionSerializer::save(Solution* solution, QString& errorOut)
 {
     QJsonObject root;
-    root["version"] = 1;
+    root["version"] = 2;
     root["name"]    = solution->name();
-    root["repoScope"] = (solution->repoScope() == Solution::RepoScope::Combined)
-                       ? "combined" : "separate";
+    root["sharingMode"] = (solution->sharingMode() == Solution::SharingMode::GitHub)
+                        ? "github" : "sharedFiles";
+    if (solution->sharingMode() == Solution::SharingMode::GitHub)
+        root["gitHubHost"] = solution->gitHubHost();
 
     QJsonArray projects;
     for (const auto* proj : solution->projects()) {
@@ -38,6 +41,24 @@ bool SolutionSerializer::save(Solution* solution, QString& errorOut)
     return true;
 }
 
+// Best-effort backward-compat inference for pre-version-2 .sspec files, which
+// have no "sharingMode" key: a solution that already has a git repo with an
+// "origin" remote was, in practice, already being used as a shared GitHub
+// repo (from the earlier per-solution-repo work), so treat it as GitHub mode
+// rather than forcing every existing user to re-run "Share with Git".
+static bool hasOriginRemote(const QString& rootPath)
+{
+    if (!QDir(rootPath + "/.git").exists())
+        return false;
+
+    QProcess proc;
+    proc.setWorkingDirectory(rootPath);
+    proc.start("git", {"config", "--get", "remote.origin.url"});
+    if (!proc.waitForFinished(5000))
+        return false;
+    return proc.exitCode() == 0 && !proc.readAllStandardOutput().trimmed().isEmpty();
+}
+
 Solution* SolutionSerializer::load(const QString& sspecPath, QString& errorOut)
 {
     QFile file(sspecPath);
@@ -58,8 +79,20 @@ Solution* SolutionSerializer::load(const QString& sspecPath, QString& errorOut)
     QString rootPath     = QFileInfo(sspecPath).absolutePath();
 
     auto* solution = new Solution(solutionName, rootPath);
-    solution->setRepoScope(root["repoScope"].toString() == "combined"
-                           ? Solution::RepoScope::Combined : Solution::RepoScope::Separate);
+
+    if (root.contains("sharingMode")) {
+        const QString modeStr = root["sharingMode"].toString();
+        if (modeStr == "github") {
+            solution->setSharingMode(Solution::SharingMode::GitHub);
+            solution->setGitHubHost(root.value("gitHubHost").toString(QStringLiteral("github.com")));
+        } else {
+            solution->setSharingMode(Solution::SharingMode::SharedFiles);
+        }
+    } else {
+        // Pre-version-2 file: infer from repo state instead of defaulting blindly.
+        solution->setSharingMode(hasOriginRemote(rootPath) ? Solution::SharingMode::GitHub
+                                                            : Solution::SharingMode::SharedFiles);
+    }
 
     for (const QJsonValue& val : root["projects"].toArray()) {
         QJsonObject p = val.toObject();

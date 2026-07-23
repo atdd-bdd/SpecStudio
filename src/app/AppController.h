@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QStringList>
 
 class MainWindow;
 class Solution;
@@ -29,12 +30,14 @@ public slots:
     void onNewProject();
     void onNewFile(const QString& projectRootHint = {});
     void onOpenSolution();
+    void onCloneSolution();
     void onSave();
     void onSaveAs();
     void onSaveAll();
     void onPrint();
     void onSettings();
     void onRepositorySettings();
+    void onShareWithGit();
     void onCommitAndPush();
     void onFetch();
     void onPull();
@@ -74,6 +77,10 @@ private:
     void loadSolution(const QString& sspecPath);
     void setSolution(Solution* solution);
     bool shareChanges();  // returns true if changes were shared successfully
+    // Called after onSaveAll()'s own commitAll(), only in GitHub mode. Shows
+    // ShareChangesDialog to ask whether to push now; a no-op (beyond the
+    // commit onSaveAll already made) unless the user chooses to push.
+    void promptAndMaybePush();
     void applyFonts();
     void applyAutoReload();
     void setupBuildConnections();
@@ -87,8 +94,20 @@ private:
     QString resolveActiveConfig(Project* proj);
     Project* activeProject() const;  // project in Explorer selection, or current editor's project
     // Returns the GitClient to use for a project's git actions: the solution's
-    // shared client when its RepoScope is Combined, else the project's own.
+    // one shared client, or the project's own if it isn't part of a solution.
     GitClient* gitFor(Project* proj) const;
+    // Applies the chosen sharing mode to a freshly-constructed Solution (before
+    // it's been saved, or just after). For useGitHub == false: SharedFiles mode,
+    // no git calls at all. For true: ensures git is installed, inits the repo,
+    // prompts for GitHub remote details, creates the repo via the GitHub API,
+    // wires the remote, and pushes an initial commit — falling back to
+    // SharedFiles mode (with an explanatory message) at any failure point.
+    // Always returns true (the solution is left in a valid state either way).
+    bool configureNewSolutionSharing(Solution* solution, bool useGitHub);
+    // Shared by loadSolution() and onPull(): shows ConflictResolutionDialog,
+    // then rescans the project's files and refreshes the tree once it closes.
+    void showConflictDialog(Project* proj, GitClient* git, const QString& rootPath,
+                             const QStringList& conflicts);
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);
     void findStepUsages(const QString& keyword, const QString& stepText);
