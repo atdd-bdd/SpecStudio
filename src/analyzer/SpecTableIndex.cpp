@@ -175,6 +175,55 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
     return {};
 }
 
+QString SpecTableIndex::collectionElementType(const QString& name) const
+{
+    const QString filePath = m_project.collections.value(name).filePath;
+    if (filePath.isEmpty()) return {};
+
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+
+    static QRegularExpression reDecl(R"(^\s*Collection\s+(\w+))",
+                                     QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow(R"(^\s*\|)");
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines << in.readLine();
+
+    for (int i = 0; i < lines.size(); ++i) {
+        auto m = reDecl.match(lines[i]);
+        if (!m.hasMatch() || m.captured(1).compare(name, Qt::CaseInsensitive) != 0)
+            continue;
+
+        QStringList header, data;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            const QString& ln = lines[j];
+            if (!reRow.match(ln).hasMatch()) {
+                if (ln.trimmed().isEmpty()) continue;
+                if (!ln.isEmpty() && ln[0].isSpace()) continue; // indented continuation
+                if (ln.trimmed().startsWith('#')) continue;    // commented-out line
+                break; // new top-level block or unrecognised non-pipe line
+            }
+            const QStringList parts = ln.split('|');
+            QStringList cells;
+            for (int p = 1; p < parts.size() - 1; ++p)
+                cells << parts[p].trimmed();
+            if (cells.isEmpty() || cells[0].startsWith('#')) continue;
+            if (header.isEmpty()) header = cells;
+            else { data = cells; break; } // one data row per Collection
+        }
+        if (header.isEmpty() || data.isEmpty()) return {};
+
+        int dtCol = -1;
+        for (int c = 0; c < header.size(); ++c)
+            if (header[c].compare("DataType", Qt::CaseInsensitive) == 0) { dtCol = c; break; }
+        if (dtCol < 0 || dtCol >= data.size()) return {};
+        return data[dtCol];
+    }
+    return {};
+}
+
 QPair<QString, QVector<QStringList>> SpecTableIndex::defineInfo(const QString& name) const
 {
     const QString filePath = m_project.defines.value(name).filePath;

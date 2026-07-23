@@ -660,6 +660,21 @@ void SpecTableEditor::autoInsertTableHeader()
         }
     }
 
+    // ── Case 1b: Collection line → insert its declaration header ─────────────
+    {
+        static QRegularExpression reCollDecl(
+            R"(^\s*Collection\s+\S+)",
+            QRegularExpression::CaseInsensitiveOption);
+        if (reCollDecl.match(prevLine).hasMatch()) {
+            const QString hdr  = indent + "| DataType | Minimum | Maximum | Notes |";
+            const QString data = indent + "|          |         |         |       |";
+            tc.movePosition(QTextCursor::StartOfBlock);
+            tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            tc.insertText(hdr + "\n" + data);
+            return;
+        }
+    }
+
     // ── Case 2: Examples: ValidValues / EnumerationValues ────────────────────
     {
         static QRegularExpression reExamples(
@@ -787,7 +802,15 @@ void SpecTableEditor::autoInsertTableHeader()
         if (syms.dataTypes.contains(name) && !syms.hasAttributeSet(name)) {
             tableText = indent + "|   |   |   |\n" + indent + "|   |   |   |";
         } else {
-            const QVector<QStringList> attrDef = m_index->attributeRows(name);
+            // A Collection has no fields of its own — its step-table header should
+            // reflect the entity it contains, not the Collection's own
+            // DataType/Minimum/Maximum/Notes declaration columns.
+            QString lookupName = name;
+            if (syms.hasCollection(name)) {
+                const QString elemType = m_index->collectionElementType(name);
+                if (!elemType.isEmpty()) lookupName = elemType;
+            }
+            const QVector<QStringList> attrDef = m_index->attributeRows(lookupName);
             if (attrDef.size() < 2) return;
 
             QStringList attrNames;

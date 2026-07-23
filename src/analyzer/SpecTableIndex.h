@@ -120,6 +120,11 @@ public:
     // Returns the pipe-table rows defined under "Attributes <name>" (first row = headers).
     QVector<QStringList> attributeRows(const QString& name) const;
 
+    // Returns the element type (the "DataType" column value) of a "Collection <name>"
+    // declaration, e.g. Collection ItemCollection containing OrderItem -> "OrderItem".
+    // Empty if name isn't a known Collection or its declaration can't be read.
+    QString collectionElementType(const QString& name) const;
+
     // Returns the content of a Define declaration.
     // scalar: first == value string, second is empty.
     // table:  first is empty, second holds the pipe-table rows.
