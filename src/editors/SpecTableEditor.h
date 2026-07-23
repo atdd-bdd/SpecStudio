@@ -15,6 +15,10 @@ public:
     explicit SpecTableEditor(const QString& filePath, QWidget* parent = nullptr);
 
     void setIndex(SpecTableIndex* index) { m_index = index; }
+    // The owning project's root folder — used to initialize the Browse
+    // Import/Insert File... dialogs, so they open at the project's base
+    // directory instead of wherever this file happens to be nested.
+    void setProjectRoot(const QString& root) { m_projectRoot = root; }
     void refreshDynamicCompletions();
 
     bool save() override;
@@ -53,5 +57,6 @@ private:
     static QVector<QStringList> parseCsvFile(const QString& filePath);
 
     SpecTableIndex* m_index          = nullptr;
+    QString         m_projectRoot;
     QStringList     m_staticKeywords;
 };

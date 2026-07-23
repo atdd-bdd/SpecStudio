@@ -1716,17 +1716,54 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         if (im.hasMatch()) {
             auto* browseAct = menu->addAction(tr("Browse Import File..."));
             connect(browseAct, &QAction::triggered, this, [this] {
-                const QString dir = QFileInfo(filePath()).absolutePath();
+                // Paths in Import are resolved relative to this file's own
+                // directory, so that's what the relative path must be built
+                // against -- but open the dialog at the project's base
+                // directory, which is what the user actually wants to browse from.
+                const QString fileDir  = QFileInfo(filePath()).absolutePath();
+                const QString startDir = m_projectRoot.isEmpty() ? fileDir : m_projectRoot;
                 const QString picked = QFileDialog::getOpenFileName(
-                    this, tr("Select Import File"), dir,
+                    this, tr("Select Import File"), startDir,
                     tr("SpecTable Files (*.spectable);;All Files (*)"));
                 if (picked.isEmpty()) return;
-                // Replace the quoted path with a path relative to this file
-                const QString rel = QDir(dir).relativeFilePath(picked);
+                const QString rel = QDir(fileDir).relativeFilePath(picked);
                 QTextCursor tc = textEdit()->textCursor();
                 tc.movePosition(QTextCursor::StartOfBlock);
                 tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
                 tc.insertText(QStringLiteral("Import \"%1\"").arg(rel));
+            });
+            menu->addSeparator();
+        }
+    }
+
+    // Browse Insert file (shown when cursor is on an Insert "..."/'...'/<...> line)
+    {
+        static QRegularExpression reInsert(
+            R"re(^\s*Insert\s+(?:"([^"]*)"|'([^']*)'|<([^>]*)>))re",
+            QRegularExpression::CaseInsensitiveOption);
+        const QString lineText = textEdit()->textCursor().block().text();
+        auto insM = reInsert.match(lineText);
+        if (insM.hasMatch()) {
+            // Preserve whichever quote style the line already used. A
+            // participating (even empty) capture has a valid start offset;
+            // a non-participating alternative's is -1.
+            QChar openQuote = '"', closeQuote = '"';
+            if (insM.capturedStart(2) != -1)      { openQuote = closeQuote = '\''; }
+            else if (insM.capturedStart(3) != -1) { openQuote = '<'; closeQuote = '>'; }
+
+            auto* browseInsAct = menu->addAction(tr("Browse Insert File..."));
+            connect(browseInsAct, &QAction::triggered, this, [this, openQuote, closeQuote] {
+                const QString fileDir  = QFileInfo(filePath()).absolutePath();
+                const QString startDir = m_projectRoot.isEmpty() ? fileDir : m_projectRoot;
+                const QString picked = QFileDialog::getOpenFileName(
+                    this, tr("Select Insert File"), startDir,
+                    tr("All Files (*);;CSV Files (*.csv *.tsv);;Text Files (*.txt);;SpecTable Files (*.spectable)"));
+                if (picked.isEmpty()) return;
+                const QString rel = QDir(fileDir).relativeFilePath(picked);
+                QTextCursor tc = textEdit()->textCursor();
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+                tc.insertText(QStringLiteral("Insert %1%2%3").arg(openQuote).arg(rel).arg(closeQuote));
             });
             menu->addSeparator();
         }

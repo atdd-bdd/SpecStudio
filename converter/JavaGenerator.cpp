@@ -181,11 +181,14 @@ QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
 
 QString JavaGenerator::toClassName(const QString& name)
 {
-    const QStringList parts = name.split(QRegularExpression(R"([^A-Za-z0-9]+)"), Qt::SkipEmptyParts);
-    QString s;
-    for (const QString& p : parts)
-        s += p[0].toUpper() + p.mid(1);
+    // Underscore-separated (not merged PascalCase) so the generated name stays
+    // visually close to the original Specification/Scenario/DataType name --
+    // just guaranteed to start with a capital letter.
+    QString s = name;
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+    s = s.remove(QRegularExpression("^_+|_+$"));
     if (!s.isEmpty() && s[0].isDigit()) s.prepend("_");
+    if (!s.isEmpty()) s[0] = s[0].toUpper();
     return s;
 }
 

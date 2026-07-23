@@ -1966,6 +1966,10 @@ void AppController::onOpenFile(const QString& absolutePath)
         m_specTableIndex->rebuildProject(specTableFiles);
 
         ste->setIndex(m_specTableIndex);
+        if (m_solution) {
+            Project* owner = m_solution->projectForFile(absolutePath);
+            if (owner) ste->setProjectRoot(owner->rootPath());
+        }
 
         connect(ste, &SpecTableEditor::goToDefinitionRequested,
                 this, &AppController::navigateToLine, Qt::UniqueConnection);
