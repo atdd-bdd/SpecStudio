@@ -659,7 +659,13 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "        JSONObject obj = new JSONObject();\n";
     for (const Field& f : as.fields) {
         const QString fname = toCamelCase(f.name);
-        if (isAttrSetType(f.type, file)) {
+        if (isCollectionType(f.type, file)) {
+            const QString elemT = collectionElementType(f.type, file);
+            if (isAttrSetType(elemT, file))
+                s << "        obj.put(\"" << fname << "\", " << elemT << "Typed.toJSONList(" << fname << "));\n";
+            else
+                s << "        obj.put(\"" << fname << "\", new JSONArray(" << fname << "));\n";
+        } else if (isAttrSetType(f.type, file)) {
             s << "        obj.put(\"" << fname << "\", " << fname << ".toJSON());\n";
         } else {
             const QString t = f.type.toLower();
@@ -687,7 +693,16 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         if (i) s << ",\n";
         const Field& f = as.fields[i];
         const QString fname = toCamelCase(f.name);
-        if (isAttrSetType(f.type, file)) {
+        if (isCollectionType(f.type, file)) {
+            const QString elemT = collectionElementType(f.type, file);
+            if (isAttrSetType(elemT, file))
+                s << "            " << elemT << "Typed.fromJSONList(obj.getJSONArray(\"" << fname << "\"))";
+            else {
+                const QString jt = javaBoxedType(elemT);
+                s << "            obj.getJSONArray(\"" << fname << "\").toList().stream()"
+                     ".map(o -> (" << jt << ") o).collect(java.util.stream.Collectors.toList())";
+            }
+        } else if (isAttrSetType(f.type, file)) {
             s << "            " << f.type << "Typed.fromJSON(obj.getJSONObject(\"" << fname << "\"))";
         } else {
             const QString t = f.type.toLower();
