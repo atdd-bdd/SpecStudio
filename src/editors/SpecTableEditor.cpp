@@ -709,8 +709,8 @@ void SpecTableEditor::autoInsertTableHeader()
 
             if (nameLower == "validvalues" || nameLower == "enumerationvalues") {
                 const QString hdr = (nameLower == "validvalues")
-                    ? indent + "| Value | IsValid |"
-                    : indent + "| Value |";
+                    ? indent + "| Value | IsValid | Notes |"
+                    : indent + "| Value | Notes |";
                 tc.movePosition(QTextCursor::StartOfBlock);
                 tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
                 tc.insertText(hdr);
