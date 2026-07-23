@@ -1,0 +1,13 @@
+$DoAll
+Specification Token Examples
+
+# Configuration should have $Skip to have this show up 
+
+$Skip  
+Scenario Scenario Runs if Skip is the filter Or nothing is set 
+Given This should not appear 
+
+$NotSkip 
+Scenario Skipped Scenario if NOT Skip is the filter  
+Given This should not appear 
+

@@ -1,0 +1,42 @@
+
+All projects should be in a solution, defaulted to the same name as the project. This simplifies things for the user.      
+
+A solution should be shareable one of two ways.   
+
+Shared file system.  
+
+Source code control system (e.g. git/github). 
+
+When a solution is created, there should be radio buttons that specify which way.  For now there will be only two buttons - shared files or github.   
+
+If shared file system, then there should be no calls to git.    
+
+If github, then the application should check that git is installed.  If it is not, a dialog box comes up asking if it should run the git installer.  If the answer is no, the sharing is switched to a shared file system.  
+
+If it is a shared file system, then the Git menu should appear with only one item - Share with Git.   If that is selected, ask for remote repo,  then check for git installed, create the repo on github, and change mode to github.    
+
+There should be a menu item on the File menu that says, "Clone an existing solution"  
+If selected, the app should check for git installed.  If not, then run the git installer.  If unsucessful, then error dialog saying "Cannot clone due to .... "   The dialog should ask for the url to clone, as well as the local directory to clone it to.  A cloned solution is automatically shared by github, of course.     
+
+Now new design decision.   There will be only one repo per solution.   No per project repos.   This will simplify everything. 
+
+When creating a new solution/project, and the checkbox says use github, then the dialog box should come up asking for the remote url. (Checking of course to make sure git is installed).    The app should create a new project for that URL. 
+
+Then the git menu item appears, because project is in github mode.   
+
+Now some of the following already exist, but I'm repeating them to be sure.   
+
+Getting latest -  this should pull with the rebase.   
+
+On opening a solution, the getting latest should automatically be done.  There is no need for a dialog box.  If there is an issue in getting (e.g. internet down), a dialog box should come up with a warning that they may not have the latest.   
+
+On saving all files, (if in github mode), a dialog box comes up asking for a summary of the changes with a "share with others" button.   The change is then pushed to github.  This also happens when exiting the program.     
+
+The git menu should have items to get other's changes, and to share your changes which do the pulls and pushes after saving all the files.   
+
+When pushing, in case of a merge conflict, there should be a dialog box/window which shows the two versions with the conflicts and lets the user approve or reject on a line by line basis the addition/deletion/change of a line.  There could also be buttons that says, "Resolve all conflicts by prioritzing my changes" "Resolve all conflicts by prioritzing other's changes".   Later this may get more sophisticated.   Once all conflicts are removed, then a button that says something like Share This is enabled.  Then the resolved file is pushed.   If there are multiple files that have conflicts, then there should be a selection process.    
+
+
+    
+
+    

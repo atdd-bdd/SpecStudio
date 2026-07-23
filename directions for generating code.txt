@@ -1,0 +1,14 @@
+Rules for creating an implementation that passes the tests.
+
+Created classes should go into the production directory.  
+
+For each Datatype, create a class with the given name.   There will be two SpecStudio generated classes - a String and a Typed one.  The class should have a constructor that takes a string.  It should be passed each example from the DataType statement.  An exception should be thrown if the value is invalid.  The exception should be caught in the glue code and checked to see whether the value should be invalid.   
+
+For each Business Rule/Calculation, create a class with the name of the Business Rule/Calculation.   There should be a method - evaluate() that 
+
+For each Entity, create a class (just like each DataType).  The name should be the name of the Entity.  The defaults are from the Entity statement.   
+ 
+For each DomainTerm, create a class with one member - the Datatype given.   There should be two constructors - one that takes a string and the other that takes an object of Datatype. 
+
+For Scenarios, a class should be created that takes the values in the Given, has a method that represents the When, and allows the values in the Then to be retrieved.  If the AttributeSet is an Entity, then that entity should be used to pass and retrieve values, not individual attributes.   
+ 

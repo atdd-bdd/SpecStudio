@@ -1,0 +1,8 @@
+
+Creating an production implementation:
+
+The production directory is where SpecStudio creates a starting point for each Entity/Datatype.  
+
+The glue code is where the appropriate Entity/Datatypes or new implementation class are created.  Then the glue code should pass the data in its parameters (e.g. Given, When) to the appropriate methods in the production classes.  It should also call the appropriate methods to receive results and compare them to the data the glue code method (e.g. Then) is passed.  
+
+There should be little or no logic in the glue code.  

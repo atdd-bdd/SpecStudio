@@ -1,0 +1,41 @@
+Specification Include 
+
+# All forms of quotations currently imply the same root directory 
+# This will be changed in the future, so just use " " for now
+
+Scenario An include 
+Given a string include
+""" 
+Insert "string.txt"
+"""
+Then should be equal to 
+"""
+This is an include string from the main directory
+"""
+Scenario: An include from base directory 
+Given a string include
+""" 
+Insert 'string.txt'
+"""
+Then should be equal to 
+"""
+This is an include string from the main directory
+"""
+
+
+Scenario: An include of CSV file
+Given a table : CSVContents
+Insert "TestFolder/TableExample.csv"
+Then Should be equal to table : CSVContents 
+| A | B   | C  |
+| a | b,c | d  |
+| 1 | 2   | 3  |
+
+Attributes CSVContents 
+Description contents
+| Name | Type   | Default |
+| A    | String |         |
+| B    | String |         |
+| C    | String |         |
+
+
