@@ -18,10 +18,9 @@ public:
     // The owning project's root folder — used as a fallback for resolving
     // relative Import/Insert paths when no solution root has been set.
     void setProjectRoot(const QString& root) { m_projectRoot = root; }
-    // The solution's base folder — the Browse Import/Insert File... dialogs
-    // (whether opened from the context menu or auto-triggered by typing the
-    // opening quote) start here, since inserted/imported files are normally
-    // kept somewhere within the solution.
+    // The solution's base folder — the Select File... dialogs (from the
+    // Import/Insert context menu) start here, since inserted/imported files
+    // are normally kept somewhere within the solution.
     void setSolutionRoot(const QString& root) { m_solutionRoot = root; }
     void refreshDynamicCompletions();
 
@@ -41,7 +40,6 @@ protected:
 private:
     bool handleTableTabKey();
     bool tryExpandSnippet();
-    bool tryAutoBrowseOnQuote(QKeyEvent* ke);
     bool browseImportFile();
     bool browseInsertFile(QChar openQuote, QChar closeQuote);
     void formatAllTables();

@@ -143,8 +143,6 @@ bool SpecTableEditor::eventFilter(QObject* obj, QEvent* event)
             toggleLineComment();
             return true;
         }
-        if (tryAutoBrowseOnQuote(ke))
-            return true;
     }
     if (obj == textEdit()->viewport() && event->type() == QEvent::ToolTip) {
         auto* he = static_cast<QHelpEvent*>(event);
@@ -367,40 +365,7 @@ bool SpecTableEditor::tryExpandSnippet()
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Auto-browse — typing the opening quote (or '<') right after a bare
-// "Import "/"Insert " keyword pops the file dialog immediately, instead of
-// requiring a right-click → Browse ... File... afterward.
-// ---------------------------------------------------------------------------
-
-bool SpecTableEditor::tryAutoBrowseOnQuote(QKeyEvent* ke)
-{
-    if (ke->modifiers() & ~Qt::ShiftModifier) return false;
-    const QString typed = ke->text();
-    if (typed != "\"" && typed != "'" && typed != "<") return false;
-
-    QTextCursor tc = textEdit()->textCursor();
-    if (tc.hasSelection()) return false;
-    const QString beforeCursor = tc.block().text().left(tc.positionInBlock());
-
-    static QRegularExpression reBareImport(
-        R"(^\s*Import\s+$)", QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reBareInsert(
-        R"(^\s*Insert\s+$)", QRegularExpression::CaseInsensitiveOption);
-
-    if (reBareImport.match(beforeCursor).hasMatch())
-        return browseImportFile();
-
-    if (reBareInsert.match(beforeCursor).hasMatch()) {
-        QChar openQuote = '"', closeQuote = '"';
-        if (typed == "'")      { openQuote = closeQuote = '\''; }
-        else if (typed == "<") { openQuote = '<'; closeQuote = '>'; }
-        return browseInsertFile(openQuote, closeQuote);
-    }
-    return false;
-}
-
-// Resolve the directory the Browse Import/Insert File... dialogs should
+// Resolve the directory the Select File... dialogs should
 // start in: the solution's base folder (most inserted/imported files live
 // somewhere inside the solution), falling back to the project root, then
 // this file's own directory if neither has been set.
@@ -1789,36 +1754,40 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         menu->addSeparator();
     }
 
-    // Browse Import file (shown when cursor is on an Import "..." line)
+    // Select File... for Import (shown whenever the cursor is on any Import line,
+    // whether or not a filename/quotes have been typed yet)
     {
         static QRegularExpression reImport(
-            "^\\s*Import\\s+\"([^\"]*)\"",
-            QRegularExpression::CaseInsensitiveOption);
+            R"(^\s*Import\b)", QRegularExpression::CaseInsensitiveOption);
         const QString lineText = textEdit()->textCursor().block().text();
-        auto im = reImport.match(lineText);
-        if (im.hasMatch()) {
-            auto* browseAct = menu->addAction(tr("Browse Import File..."));
+        if (reImport.match(lineText).hasMatch()) {
+            auto* browseAct = menu->addAction(tr("Select File..."));
             connect(browseAct, &QAction::triggered, this, &SpecTableEditor::browseImportFile);
             menu->addSeparator();
         }
     }
 
-    // Browse Insert file (shown when cursor is on an Insert "..."/'...'/<...> line)
+    // Select File... for Insert (shown whenever the cursor is on any Insert line,
+    // whether or not a filename/quotes have been typed yet)
     {
         static QRegularExpression reInsert(
+            R"(^\s*Insert\b)", QRegularExpression::CaseInsensitiveOption);
+        static QRegularExpression reInsertQuoteStyle(
             R"re(^\s*Insert\s+(?:"([^"]*)"|'([^']*)'|<([^>]*)>))re",
             QRegularExpression::CaseInsensitiveOption);
         const QString lineText = textEdit()->textCursor().block().text();
-        auto insM = reInsert.match(lineText);
-        if (insM.hasMatch()) {
-            // Preserve whichever quote style the line already used. A
-            // participating (even empty) capture has a valid start offset;
-            // a non-participating alternative's is -1.
+        if (reInsert.match(lineText).hasMatch()) {
+            // Preserve whichever quote style the line already used, if any.
+            // A participating (even empty) capture has a valid start offset;
+            // a non-participating alternative's is -1. Default to double quotes.
             QChar openQuote = '"', closeQuote = '"';
-            if (insM.capturedStart(2) != -1)      { openQuote = closeQuote = '\''; }
-            else if (insM.capturedStart(3) != -1) { openQuote = '<'; closeQuote = '>'; }
+            auto insM = reInsertQuoteStyle.match(lineText);
+            if (insM.hasMatch()) {
+                if (insM.capturedStart(2) != -1)      { openQuote = closeQuote = '\''; }
+                else if (insM.capturedStart(3) != -1) { openQuote = '<'; closeQuote = '>'; }
+            }
 
-            auto* browseInsAct = menu->addAction(tr("Browse Insert File..."));
+            auto* browseInsAct = menu->addAction(tr("Select File..."));
             connect(browseInsAct, &QAction::triggered, this, [this, openQuote, closeQuote] {
                 browseInsertFile(openQuote, closeQuote);
             });
