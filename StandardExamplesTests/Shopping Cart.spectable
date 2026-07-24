@@ -99,6 +99,7 @@ Define TwoItemCart
 | WhatCallIt | $20.00 | 3        | $60.00     |
 
 Scenario Add items to Shopping Cart 
+Uses Discount, Shipping_Cost
 Given shopping cart : ShoppingCart
 | Items      | Shipping | Discount | TotalPrice |
 | =EmptyCart | $0       | $0       | $0         |
@@ -155,6 +156,7 @@ Attributes Discounting
 
 DataType Percentage 
 Description  standard percentages 
+Uses Decimal 
 Examples: ValidValues
 | Value | IsValid | Notes |
 | 0     | y       |       |
