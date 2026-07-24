@@ -1,5 +1,14 @@
 Specification Shopping Cart
 
+
+
+Background Catalog 
+Given catalog has: Catalog
+| Name        | Price |
+| Widget      | 10    |
+| WhatCallIt  | 20    |
+| ThingaMaJig | 30    |
+
 Entity CatalogItem 
 | Attribute | Type       | Default | Notes |
 | Name      | SimpleText | NoName  |       |
@@ -9,6 +18,7 @@ Collection Catalog
 | DataType    | Minimum | Maximum  | Notes          |
 | CatalogItem | 0       | 10000000 | Each is unique |
 
+
 Entity  OrderItem 
 | Attribute | Type       | Default | Notes |
 | Name      | SimpleText | No Name |       |
@@ -16,17 +26,28 @@ Entity  OrderItem
 | Price     | Dollar     | 1       |       |
 | ItemTotal | Dollar     | 1       |       |
 
-Background Catalog 
-Given catalog has: Catalg
-| Name        | Price |
-| Widget      | 10    |
-| WhatCallIt  | 20    |
-| ThingaMaJig | 30    |
-
 Collection OrderItemCollection
 Description Collection of Items 
 | DataType  | Minimum | Maximum | Notes                     |
 | OrderItem | 0       | 100     | Should no have duplicates |
+
+Scenario Add items
+Given item collection is : OrderItemCollection
+| Name | Price | Quantity | ItemTotal |
+When item added : OrderItem Vertical 
+| Name     | Widget |
+| Quantity | 2      |
+Then item collection is : OrderItemCollection 
+| Name   | Price  | Quantity | ItemTotal |
+| Widget | $10.00 | 2        | $20.00    |
+When item added : OrderItem Vertical 
+| Name     | WhatCallIt |
+| Quantity | 3          |
+Then item collection is : OrderItemCollection
+| Name       | Price  | Quantity | ItemTotal |
+| Widget     | $10.00 | 2        | $20.00    |
+| WhatCallIt | $20.00 | 3        | $60.00    |
+
  
 Entity Address 
 # will update the individual types later 
@@ -62,48 +83,16 @@ Given shopping cart : ShoppingCart
 | ShippingAddress   | BillingAddress   | Items      |
 | =AShippingAddress | =ABillingAddress | =EmptyCart |
 
-BusinessRule Shipping_Cost 
-Description How much to charge for shipping 
-Examples: Shipping
-| Total Price | Shipping Cost | Notes                |
-| $99.99      | $5.00         | Less than $100       |
-| $100.00     | $0            | Free if $100 or more |
-
-Attributes Shipping
-| Attribute     | DataType |
-| Total Price   | Dollar   |
-| Shipping Cost | Dollar   |
-| Notes         | String   |
 
 
-BusinessRule Discount 
-Description how much discount to give
-Examples: Discounting
-| Total Price | Discount | Notes |
-| $24.99      | 0        |       |
-| $25.00      | 5        |       |
-| $99.99      | 5        |       |
-| $100.00     | 10       |       |
-
-Attributes Discounting
-| Attribute   | DataType   |
-| Total Price | Dollar     |
-| Discount    | Percentage |
-| Notes       | String     |
 
 
-DataType Percentage 
-Description  standard percentages 
-Examples: ValidValues
-| Value | IsValid | Notes |
-| 0     | y       |       |
-| 99    | y       |       |
-| 100   | y       |       |
-| 101   | n       |       |
-| -1    | n       |       |
+
+
 
 Define EmptyCart 
 | Name | Price | Quantity | TotalPrice |
+
 Define TwoItemCart
 | Name       | Price  | Quantity | TotalPrice |
 | Widget     | $10.00 | 2        | $20.00     |
@@ -135,21 +124,45 @@ Attributes Pricing
 | Attribute  | DataType |
 | TotalPrice | Dollar   |
 
-Scenario Add items
-Given item collection is : OrderItemCollection
-| Name | Price | Quantity | ItemTotal |
-When item added : OrderItem Vertical 
-| Name     | Widget |
-| Quantity | 2      |
-Then item collection is : OrderItemCollection 
-| Name   | Price  | Quantity | ItemTotal |
-| Widget | $10.00 | 2        | $20.00    |
-When item added : OrderItem Vertical 
-| Name     | WhatCallIt |
-| Quantity | 3          |
-Then item collection is : OrderItemCollection
-| Name       | Price  | Quantity | ItemTotal |
-| Widget     | $10.00 | 2        | $20.00    |
-| WhatCallIt | $20.00 | 3        | $60.00    |
+
+BusinessRule Shipping_Cost 
+Description How much to charge for shipping 
+Examples: Shipping
+| Total Price | Shipping Cost | Notes                |
+| $99.99      | $5.00         | Less than $100       |
+| $100.00     | $0            | Free if $100 or more |
+
+Attributes Shipping
+| Attribute     | DataType |
+| Total Price   | Dollar   |
+| Shipping Cost | Dollar   |
+| Notes         | String   |
+
+BusinessRule Discount 
+Description how much discount to give
+Examples: Discounting
+| Total Price | Discount | Notes |
+| $24.99      | 0        |       |
+| $25.00      | 5        |       |
+| $99.99      | 5        |       |
+| $100.00     | 10       |       |
+
+Attributes Discounting
+| Attribute   | DataType   |
+| Total Price | Dollar     |
+| Discount    | Percentage |
+| Notes       | String     |
+
+DataType Percentage 
+Description  standard percentages 
+Examples: ValidValues
+| Value | IsValid | Notes |
+| 0     | y       |       |
+| 99    | y       |       |
+| 100   | y       |       |
+| 101   | n       |       |
+| -1    | n       |       |
+
+
 
 
