@@ -596,7 +596,7 @@ void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
         "businessrule", "calculation", "datatype", "domainterm", "scenariogroup",
         "import", "insert",
         "examples",
-        "description", "details", "constraint", "notes",
+        "description", "details", "constraint", "notes", "uses",
         "given", "when", "then", "and", "whenthen"
     };
 
