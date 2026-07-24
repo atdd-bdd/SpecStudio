@@ -15,10 +15,14 @@ public:
     explicit SpecTableEditor(const QString& filePath, QWidget* parent = nullptr);
 
     void setIndex(SpecTableIndex* index) { m_index = index; }
-    // The owning project's root folder — used to initialize the Browse
-    // Import/Insert File... dialogs, so they open at the project's base
-    // directory instead of wherever this file happens to be nested.
+    // The owning project's root folder — used as a fallback for resolving
+    // relative Import/Insert paths when no solution root has been set.
     void setProjectRoot(const QString& root) { m_projectRoot = root; }
+    // The solution's base folder — the Browse Import/Insert File... dialogs
+    // (whether opened from the context menu or auto-triggered by typing the
+    // opening quote) start here, since inserted/imported files are normally
+    // kept somewhere within the solution.
+    void setSolutionRoot(const QString& root) { m_solutionRoot = root; }
     void refreshDynamicCompletions();
 
     bool save() override;
@@ -37,6 +41,9 @@ protected:
 private:
     bool handleTableTabKey();
     bool tryExpandSnippet();
+    bool tryAutoBrowseOnQuote(QKeyEvent* ke);
+    bool browseImportFile();
+    bool browseInsertFile(QChar openQuote, QChar closeQuote);
     void formatAllTables();
     void fixTrailingContinuations();
     void insertTableRow();
@@ -58,5 +65,6 @@ private:
 
     SpecTableIndex* m_index          = nullptr;
     QString         m_projectRoot;
+    QString         m_solutionRoot;
     QStringList     m_staticKeywords;
 };

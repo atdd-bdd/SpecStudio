@@ -231,7 +231,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         return result;
     }
     QTextStream in(&f);
-    const QStringList lines = in.readAll().split('\n');
+    QStringList lines = in.readAll().split('\n');
 
     enum class State {
         Top,
@@ -269,6 +269,12 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     };
 
     bool inCleanupBlock = false; // true while collecting cleanup steps
+
+    // Top-level "Insert" of a .spectable file splices that file's own lines
+    // in place (recursively re-parsed by this same loop), unlike Import,
+    // which only pulls in AttrSets/Defines/named blocks by reference. Guards
+    // against re-splicing the same file twice (e.g. a cycle of mutual Inserts).
+    QSet<QString> insertedSpectableFiles;
 
     auto endStepTable = [&]() {
         curStep = nullptr;
@@ -687,6 +693,60 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         result.dataTypeNames.push_back(dt);
             }
             continue;
+        }
+
+        // ── Insert — top-level: splice a .spectable file's own declarations
+        // in place, so its Entities/BusinessRules/Scenarios/etc. become part
+        // of this file (re-processed by this same loop as if typed inline).
+        // Unlike Import, which only pulls AttrSets/Defines in by reference,
+        // this is a literal textual splice — closer to CSV Insert, but for
+        // structural content instead of a table.
+        if (firstWord.compare("Insert", Qt::CaseInsensitive) == 0) {
+            auto insM = reDocInsert.match(trimmed);
+            if (insM.hasMatch()) {
+                const QString fname = !insM.captured(1).isEmpty() ? insM.captured(1)
+                                    : !insM.captured(2).isEmpty() ? insM.captured(2)
+                                                                   : insM.captured(3);
+                if (QFileInfo(fname).suffix().compare("spectable", Qt::CaseInsensitive) == 0) {
+                    const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+                    if (insertedSpectableFiles.contains(fullPath)) {
+                        // Already spliced once — skip re-insertion (also guards
+                        // against an infinite loop from mutual/self Inserts).
+                        continue;
+                    }
+                    insertedSpectableFiles.insert(fullPath);
+                    QFile ins(fullPath);
+                    if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                        emitMsg(lineNum, "WARNING: Cannot insert file: " + fname, false);
+                        continue;
+                    }
+                    QStringList insertedLines = QTextStream(&ins).readAll().split('\n');
+
+                    // If this file already declares its own Specification
+                    // (anywhere — order relative to this Insert doesn't
+                    // matter), drop the inserted file's Specification line
+                    // so the two don't collide as duplicate specifications.
+                    static QRegularExpression reSpecLine(
+                        R"(^\s*Specification\b)", QRegularExpression::CaseInsensitiveOption);
+                    bool hostHasSpecification = false;
+                    for (const QString& hl : lines)
+                        if (reSpecLine.match(hl).hasMatch()) { hostHasSpecification = true; break; }
+                    if (hostHasSpecification) {
+                        QStringList filtered;
+                        filtered.reserve(insertedLines.size());
+                        for (const QString& il : insertedLines)
+                            if (!reSpecLine.match(il).hasMatch())
+                                filtered << il;
+                        insertedLines = filtered;
+                    }
+
+                    lines.removeAt(idx);
+                    for (int i = insertedLines.size() - 1; i >= 0; --i)
+                        lines.insert(idx, insertedLines[i]);
+                    --idx; // reprocess starting at the first spliced line
+                    continue;
+                }
+            }
         }
 
         // ── Inline skips (Description, Details, etc.) — transparent to state ──

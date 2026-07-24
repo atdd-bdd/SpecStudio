@@ -2168,6 +2168,7 @@ void AppController::onOpenFile(const QString& absolutePath)
         if (m_solution) {
             Project* owner = m_solution->projectForFile(absolutePath);
             if (owner) ste->setProjectRoot(owner->rootPath());
+            ste->setSolutionRoot(m_solution->rootPath());
         }
 
         connect(ste, &SpecTableEditor::goToDefinitionRequested,
