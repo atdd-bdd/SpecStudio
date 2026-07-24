@@ -42,6 +42,7 @@ private:
     bool tryExpandSnippet();
     bool browseImportFile();
     bool browseInsertFile(QChar openQuote, QChar closeQuote);
+    void appendUsesReference(const QString& name);
     void formatAllTables();
     void fixTrailingContinuations();
     void insertTableRow();

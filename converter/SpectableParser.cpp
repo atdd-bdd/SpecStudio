@@ -93,7 +93,7 @@ bool SpectableParser::isContinuation(const QString& line)
 bool SpectableParser::isSkipKeyword(const QString& firstWord)
 {
     static const QStringList words = {
-        "Description", "Details", "Constraint", "Notes",
+        "Description", "Details", "Constraint", "Notes", "Uses",
         "Insert"
     };
     for (const QString& k : words)

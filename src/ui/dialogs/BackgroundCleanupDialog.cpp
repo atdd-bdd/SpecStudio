@@ -161,7 +161,7 @@ BackgroundCleanupDialog::ParsedFile BackgroundCleanupDialog::parseFile(const QSt
 
         // Skip inline descriptors
         static const QStringList skipWords = {
-            "Description","Details","Constraint","Notes","Import","Insert"
+            "Description","Details","Constraint","Notes","Uses","Import","Insert"
         };
         bool isSkip = false;
         for (const QString& k : skipWords)

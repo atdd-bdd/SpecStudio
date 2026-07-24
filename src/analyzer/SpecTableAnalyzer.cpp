@@ -777,7 +777,7 @@ void SpecTableAnalyzer::checkDomainTermColumnTypes(
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reRow(R"(^\s*\|)");
     static QRegularExpression reSkip(
-        R"(^\s*(Description|Details|Notes|Constraint|In-Out)\b)",
+        R"(^\s*(Description|Details|Notes|Constraint|Uses|In-Out)\b)",
         QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);
@@ -861,7 +861,7 @@ void SpecTableAnalyzer::checkAttributeFieldTypes(
         QRegularExpression::CaseInsensitiveOption);
     static QRegularExpression reRow(R"(^\s*\|)");
     static QRegularExpression reSkip(
-        R"(^\s*(Description|Details|Notes|Constraint|In-Out)\b)",
+        R"(^\s*(Description|Details|Notes|Constraint|Uses|In-Out)\b)",
         QRegularExpression::CaseInsensitiveOption);
 
     QTextStream in(&f);

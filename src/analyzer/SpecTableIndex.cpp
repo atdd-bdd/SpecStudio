@@ -147,7 +147,7 @@ QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
             continue;
 
         static QRegularExpression reSkipLine(
-            R"(^\s*(Description|Details|Notes|Constraint|In-Out)\b)",
+            R"(^\s*(Description|Details|Notes|Constraint|Uses|In-Out)\b)",
             QRegularExpression::CaseInsensitiveOption);
         static QRegularExpression reTopLevel(
             R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",

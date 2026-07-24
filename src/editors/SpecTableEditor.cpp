@@ -39,7 +39,7 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
         "Specification ", "Entity ", "Collection ", "DomainTerm ", "DataType ", "Attributes ",
         "BusinessRule ", "Calculation ", "Import ", "Insert ", "Define ",
         "Scenario ", "ScenarioGroup ", "Background ", "Cleanup ",
-        "Description ", "Details ", "Constraint ",
+        "Description ", "Details ", "Constraint ", "Uses ",
         "Examples: EnumerationValues", "Examples: ValidValues", "Examples: ",
         "Vertical",
         "Given ", "When ", "Then ", "And ", "WhenThen ",
@@ -411,6 +411,27 @@ bool SpecTableEditor::browseInsertFile(QChar openQuote, QChar closeQuote)
     tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
     tc.insertText(QStringLiteral("Insert %1%2%3").arg(openQuote).arg(rel).arg(closeQuote));
     return true;
+}
+
+// Append a DataType/BusinessRule/Calculation name to the current Uses line's
+// comment text (comma-separated if it already names something).
+void SpecTableEditor::appendUsesReference(const QString& name)
+{
+    QTextCursor tc = textEdit()->textCursor();
+    tc.movePosition(QTextCursor::StartOfBlock);
+    tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+    const QString lineText = tc.selectedText();
+
+    static QRegularExpression reUses(
+        R"(^(\s*Uses)\b(.*)$)", QRegularExpression::CaseInsensitiveOption);
+    auto m = reUses.match(lineText);
+    if (!m.hasMatch()) return;
+
+    const QString prefix = m.captured(1);
+    const QString rest   = m.captured(2).trimmed();
+    const QString newRest = rest.isEmpty() ? name : rest + QStringLiteral(", ") + name;
+
+    tc.insertText(prefix + " " + newRest);
 }
 
 // ---------------------------------------------------------------------------
@@ -1791,6 +1812,54 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
             connect(browseInsAct, &QAction::triggered, this, [this, openQuote, closeQuote] {
                 browseInsertFile(openQuote, closeQuote);
             });
+            menu->addSeparator();
+        }
+    }
+
+    // Add Reference — shown when cursor is on a Uses line; lets the user pick a
+    // DataType/BusinessRule/Calculation from the project and appends its name
+    // to the comment text.
+    {
+        static QRegularExpression reUses(
+            R"(^\s*Uses\b)", QRegularExpression::CaseInsensitiveOption);
+        const QString lineText = textEdit()->textCursor().block().text();
+        if (m_index && reUses.match(lineText).hasMatch()) {
+            const SpecTableSymbols& syms = m_index->projectSymbols();
+
+            QStringList dataTypeNames = k_builtinDataTypes;
+            for (auto it = syms.dataTypes.constBegin(); it != syms.dataTypes.constEnd(); ++it)
+                if (!dataTypeNames.contains(it.key()))
+                    dataTypeNames << it.key();
+            dataTypeNames.sort(Qt::CaseInsensitive);
+
+            QStringList businessRuleNames = syms.businessRules.keys();
+            businessRuleNames.sort(Qt::CaseInsensitive);
+
+            QStringList calculationNames = syms.calculations.keys();
+            calculationNames.sort(Qt::CaseInsensitive);
+
+            auto* addRefMenu = menu->addMenu(tr("Add Reference"));
+
+            auto addPicker = [&](const QString& label, const QStringList& names) {
+                auto* act = addRefMenu->addAction(label);
+                connect(act, &QAction::triggered, this, [this, label, names] {
+                    if (names.isEmpty()) {
+                        QMessageBox::information(this, label,
+                            tr("No %1 declared in this project yet.").arg(label));
+                        return;
+                    }
+                    bool ok = false;
+                    const QString picked = QInputDialog::getItem(
+                        this, label, tr("Select:"), names, 0, false, &ok);
+                    if (ok && !picked.isEmpty())
+                        appendUsesReference(picked);
+                });
+            };
+
+            addPicker(tr("DataType..."),     dataTypeNames);
+            addPicker(tr("BusinessRule..."), businessRuleNames);
+            addPicker(tr("Calculation..."),  calculationNames);
+
             menu->addSeparator();
         }
     }

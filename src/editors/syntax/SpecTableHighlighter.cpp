@@ -19,11 +19,11 @@ void SpecTableHighlighter::buildRules()
     // --- Examples: <AttributeSet> — highlighted as declaration keyword ---
     addRule(R"(^\s*(Examples:))", declFmt);
 
-    // --- Named comment keywords (Description, Details, Constraint) ---
+    // --- Named comment keywords (Description, Details, Constraint, Uses) ---
     QTextCharFormat namedCommentFmt;
     namedCommentFmt.setForeground(QColor("#6A9955")); // VS green
     namedCommentFmt.setFontItalic(true);
-    addRule(R"(^\s*(Description|Details|Constraint)\b)", namedCommentFmt);
+    addRule(R"(^\s*(Description|Details|Constraint|Uses)\b)", namedCommentFmt);
 
     // --- Step keywords ---
     QTextCharFormat stepFmt;

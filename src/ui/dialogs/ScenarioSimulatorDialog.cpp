@@ -87,7 +87,7 @@ ScenarioSimulatorDialog::ParsedFile ScenarioSimulatorDialog::parseFile(const QSt
     QString         lastKw;
 
     static const QStringList skipWords = {
-        "Description","Details","Constraint","Notes","Import","Insert"
+        "Description","Details","Constraint","Notes","Uses","Import","Insert"
     };
     static const QStringList blockWords = {
         "Specification","Entity","Collection","DomainTerm","DataType","Attributes",

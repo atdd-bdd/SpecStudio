@@ -54,16 +54,7 @@ Altered so that it is separated into Issues and Future Features
 
 ### Copy named comments in the .spectable into comments in the generated code.
 
-### New "Uses" named comment (SpecTable v3.3.a — see `spectable syntax v3.3a.md` at repo
-  root): an optional, non-executable documentation line — `Uses <Comment>` — that can follow
-  Entity, Collection, Define, and Given/When/Then/Vertical steps/tables, describing underlying
-  primitives, related business rules, or dependencies (e.g. a DataType's "Uses" names its
-  primitive type; a BusinessRule's "Uses" names the rules/entities it depends on). Not yet
-  implemented anywhere — SpectableParser.cpp has no grammar support for it at all, so it needs
-  parsing + a place to store it per block before it can feed into the "Copy named comments"
-  item just above.
-
-### Internal Markdown editor.   
+### Internal Markdown editor.
 
 ### Cleanup -  
 
@@ -132,6 +123,15 @@ Define
 
 ## --- Done ---
 
+[x] "Uses" named comment (SpecTable v3.3.a): recognized as an optional, non-executable
+    documentation line — `Uses <Comment>` — anywhere Description/Details/Constraint/Notes are
+    already accepted (Entity, Collection, Define, Attributes, Given/When/Then/Vertical, etc).
+    Parsed and silently skipped like its siblings — not stored/propagated anywhere yet, so it
+    doesn't feed the separate "Copy named comments into generated code" item above. Added to:
+    converter/SpectableParser.cpp (isSkipKeyword), SpecTableAnalyzer.cpp and SpecTableIndex.cpp
+    (skip-line regexes so hover/diagnostics still find the table after a Uses line),
+    SpecTableEditor.cpp (autocomplete), SpecTableHighlighter.cpp (named-comment coloring),
+    BackgroundCleanupDialog.cpp and ScenarioSimulatorDialog.cpp (their own skipWords lists).
 [x] Swift generator: new SwiftGenerator.h/.cpp (converter/), wired into main.cpp (-l Swift) and
     CMakeLists.txt. Modeled on RustGenerator's structure but using Swift idioms — camelCase
     methods/properties, XCTest test methods, no artificial module-qualification needed since
