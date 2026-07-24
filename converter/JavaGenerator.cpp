@@ -137,6 +137,72 @@ static QString collectionElementType(const QString& name, const SpectableFile& f
     return {};
 }
 
+// ---------------------------------------------------------------------------
+// JSON conversion expressions (see common/Json.java)
+//
+// jsonWriteExpr — Java expression turning a field into a value the writer
+//                 understands (String / Boolean / Number / Map / List).
+// jsonReadExpr  — Java expression turning a parsed JSON value back into the
+//                 field's Java type.
+// Both are used for plain fields and, with a different operand, for the
+// elements of a Collection field.
+// ---------------------------------------------------------------------------
+
+static QString jsonWriteExpr(const QString& expr, const QString& specType,
+                              const SpectableFile& file)
+{
+    const QString type = specType.trimmed();
+    const QString t    = type.toLower();
+
+    if (isAttrSetType(type, file))
+        return QString("%1 == null ? null : %1.toJsonValue()").arg(expr);
+    if (t == "character" || t == "char")
+        return QString("String.valueOf(%1)").arg(expr);
+    if (t == "date" || t == "time" || t == "datetime" || t == "duration")
+        return QString("%1 == null ? null : %1.toString()").arg(expr);
+    if (t == "yesno")
+        return QString("%1 == null ? null : %1.value").arg(expr);
+    if (isEnumType(type, file))
+        return QString("%1 == null ? null : %1.name()").arg(expr);
+    if (isUserDataType(type, file))
+        return QString("%1 == null ? null : %1.value").arg(expr);
+    // String, int, double, boolean, BigDecimal — written natively
+    return expr;
+}
+
+static QString jsonReadExpr(const QString& expr, const QString& specType,
+                             const QString& ctx, const SpectableFile& file)
+{
+    const QString type = specType.trimmed();
+    const QString t    = type.toLower();
+    const QString str  = QString("Json.asString(%1, \"%2\")").arg(expr, ctx);
+
+    if (isAttrSetType(type, file))
+        return QString("%1Typed.fromJsonValue(Json.asObject(%2, \"%3\"))").arg(type, expr, ctx);
+    if (t == "integer" || t == "int" || t == "long")
+        return QString("Json.asInt(%1, \"%2\")").arg(expr, ctx);
+    if (t == "float" || t == "scientific" || t == "double")
+        return QString("Json.asDouble(%1, \"%2\")").arg(expr, ctx);
+    if (t == "decimal")
+        return QString("Json.asDecimal(%1, \"%2\")").arg(expr, ctx);
+    if (t == "boolean" || t == "bool")
+        return QString("Json.asBoolean(%1, \"%2\")").arg(expr, ctx);
+    if (t == "yesno")
+        return QString("new YesNo(%1)").arg(str);
+    if (t == "character" || t == "char")
+        return QString("Json.asChar(%1, \"%2\")").arg(expr, ctx);
+    if (t == "date")     return QString("java.time.LocalDate.parse(%1)").arg(str);
+    if (t == "time")     return QString("java.time.LocalTime.parse(%1)").arg(str);
+    if (t == "datetime") return QString("java.time.LocalDateTime.parse(%1)").arg(str);
+    if (t == "duration") return QString("java.time.Duration.parse(%1)").arg(str);
+    if (isEnumType(type, file))
+        return QString("%1.valueOf(%2)").arg(type, str);
+    if (isUserDataType(type, file))
+        return QString("new %1(%2)").arg(type, str);
+    // string, text and anything unrecognised
+    return str;
+}
+
 QString JavaGenerator::parseExpr(const QString& field, const QString& specType,
                                   int line, QStringList& msgs,
                                   const SpectableFile* file,
@@ -552,9 +618,9 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "import java.util.ArrayList;\n";
     s << "import java.util.List;\n";
     if (needsCollections) s << "import java.util.Collections;\n";
+    s << "import java.util.LinkedHashMap;\n";
+    s << "import java.util.Map;\n";
     s << "import java.util.Objects;\n";
-    s << "import org.json.JSONObject;\n";
-    s << "import org.json.JSONArray;\n";
     for (const QString& imp : extraImports) s << imp << "\n";
     s << "\n";
 
@@ -654,99 +720,82 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     s << "        return result;\n";
     s << "    }\n\n";
 
-    // toJSON()
-    s << "    public JSONObject toJSON() {\n";
-    s << "        JSONObject obj = new JSONObject();\n";
+    // -----------------------------------------------------------------
+    // JSON — hand-rolled via common/Json.java, no third-party jar needed
+    // -----------------------------------------------------------------
+
+    // toJsonValue() — this object as a Json-writable value graph
+    s << "    /** Internal plumbing for {@link Json}; use toJSON() for JSON text. */\n";
+    s << "    public Map<String, Object> toJsonValue() {\n";
+    s << "        Map<String, Object> m = new LinkedHashMap<String, Object>();\n";
     for (const Field& f : as.fields) {
         const QString fname = toCamelCase(f.name);
         if (isCollectionType(f.type, file)) {
             const QString elemT = collectionElementType(f.type, file);
-            if (isAttrSetType(elemT, file))
-                s << "        obj.put(\"" << fname << "\", " << elemT << "Typed.toJSONList(" << fname << "));\n";
-            else
-                s << "        obj.put(\"" << fname << "\", new JSONArray(" << fname << "));\n";
-        } else if (isAttrSetType(f.type, file)) {
-            s << "        obj.put(\"" << fname << "\", " << fname << ".toJSON());\n";
+            const QString jt    = isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT);
+            const QString local = "json_" + fname;
+            s << "        List<Object> " << local << " = new ArrayList<Object>();\n";
+            s << "        if (" << fname << " != null)\n";
+            s << "            for (" << jt << " e : " << fname << ") "
+              << local << ".add(" << jsonWriteExpr("e", elemT, file) << ");\n";
+            s << "        m.put(\"" << fname << "\", " << fname << " == null ? null : " << local << ");\n";
         } else {
-            const QString t = f.type.toLower();
-            if (t == "character" || t == "char")
-                s << "        obj.put(\"" << fname << "\", String.valueOf(" << fname << "));\n";
-            else if (t == "date" || t == "time" || t == "datetime" || t == "duration")
-                s << "        obj.put(\"" << fname << "\", " << fname << ".toString());\n";
-            else if (t == "yesno")
-                s << "        obj.put(\"" << fname << "\", " << fname << ".value);\n";
-            else if (isEnumType(f.type, file))
-                s << "        obj.put(\"" << fname << "\", " << fname << ".name());\n";
-            else if (isUserDataType(f.type, file))
-                s << "        obj.put(\"" << fname << "\", " << fname << ".value);\n";
-            else
-                s << "        obj.put(\"" << fname << "\", " << fname << ");\n";
+            s << "        m.put(\"" << fname << "\", " << jsonWriteExpr(fname, f.type, file) << ");\n";
         }
     }
-    s << "        return obj;\n";
+    s << "        return m;\n";
     s << "    }\n\n";
 
-    // fromJSON()
-    s << "    public static " << cn << " fromJSON(JSONObject obj) {\n";
+    // toJSON()
+    s << "    public String toJSON() { return Json.write(toJsonValue()); }\n\n";
+
+    // fromJsonValue()
+    s << "    /** Internal plumbing for {@link Json}; use fromJSON(String) for JSON text. */\n";
+    s << "    public static " << cn << " fromJsonValue(Map<String, Object> m) {\n";
+    s << "        if (m == null) return null;\n";
+    for (const Field& f : as.fields) {
+        if (!isCollectionType(f.type, file)) continue;
+        const QString fname = toCamelCase(f.name);
+        const QString elemT = collectionElementType(f.type, file);
+        const QString jt    = isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT);
+        const QString raw   = "json_" + fname;
+        s << "        List<" << jt << "> " << fname << " = new ArrayList<" << jt << ">();\n";
+        s << "        List<Object> " << raw << " = Json.getArray(m, \"" << fname << "\");\n";
+        s << "        if (" << raw << " != null)\n";
+        s << "            for (Object e : " << raw << ") "
+          << fname << ".add(" << jsonReadExpr("e", elemT, fname, file) << ");\n";
+    }
     s << "        return new " << cn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ",\n";
         const Field& f = as.fields[i];
         const QString fname = toCamelCase(f.name);
-        if (isCollectionType(f.type, file)) {
-            const QString elemT = collectionElementType(f.type, file);
-            if (isAttrSetType(elemT, file))
-                s << "            " << elemT << "Typed.fromJSONList(obj.getJSONArray(\"" << fname << "\"))";
-            else {
-                const QString jt = javaBoxedType(elemT);
-                s << "            obj.getJSONArray(\"" << fname << "\").toList().stream()"
-                     ".map(o -> (" << jt << ") o).collect(java.util.stream.Collectors.toList())";
-            }
-        } else if (isAttrSetType(f.type, file)) {
-            s << "            " << f.type << "Typed.fromJSON(obj.getJSONObject(\"" << fname << "\"))";
-        } else {
-            const QString t = f.type.toLower();
-            if (t == "integer" || t == "int")
-                s << "            obj.getInt(\"" << fname << "\")";
-            else if (t == "float" || t == "scientific")
-                s << "            obj.getDouble(\"" << fname << "\")";
-            else if (t == "decimal")
-                s << "            obj.getBigDecimal(\"" << fname << "\")";
-            else if (t == "boolean" || t == "bool")
-                s << "            obj.getBoolean(\"" << fname << "\")";
-            else if (t == "yesno")
-                s << "            new YesNo(obj.getString(\"" << fname << "\"))";
-            else if (t == "character" || t == "char")
-                s << "            (char) obj.getString(\"" << fname << "\").charAt(0)";
-            else if (t == "date")
-                s << "            java.time.LocalDate.parse(obj.getString(\"" << fname << "\"))";
-            else if (t == "time")
-                s << "            java.time.LocalTime.parse(obj.getString(\"" << fname << "\"))";
-            else if (t == "datetime")
-                s << "            java.time.LocalDateTime.parse(obj.getString(\"" << fname << "\"))";
-            else if (t == "duration")
-                s << "            java.time.Duration.parse(obj.getString(\"" << fname << "\"))";
-            else if (isEnumType(f.type, file))
-                s << "            " << f.type << ".valueOf(obj.getString(\"" << fname << "\"))";
-            else if (isUserDataType(f.type, file))
-                s << "            new " << f.type << "(obj.getString(\"" << fname << "\"))";
-            else
-                s << "            obj.getString(\"" << fname << "\")";
-        }
+        if (isCollectionType(f.type, file))
+            s << "            " << fname;
+        else
+            s << "            " << jsonReadExpr(QString("Json.require(m, \"%1\")").arg(fname),
+                                                 f.type, fname, file);
     }
     s << ");\n    }\n\n";
 
+    // fromJSON()
+    s << "    public static " << cn << " fromJSON(String json) {\n";
+    s << "        return fromJsonValue(Json.parseObject(json));\n";
+    s << "    }\n\n";
+
     // toJSONList()
-    s << "    public static JSONArray toJSONList(List<" << cn << "> list) {\n";
-    s << "        JSONArray arr = new JSONArray();\n";
-    s << "        for (" << cn << " item : list) arr.put(item.toJSON());\n";
-    s << "        return arr;\n";
+    s << "    public static String toJSONList(List<" << cn << "> list) {\n";
+    s << "        List<Object> arr = new ArrayList<Object>();\n";
+    s << "        if (list != null)\n";
+    s << "            for (" << cn << " item : list) arr.add(item == null ? null : item.toJsonValue());\n";
+    s << "        return Json.write(arr);\n";
     s << "    }\n\n";
 
     // fromJSONList()
-    s << "    public static List<" << cn << "> fromJSONList(JSONArray arr) {\n";
-    s << "        List<" << cn << "> result = new ArrayList<>();\n";
-    s << "        for (int i = 0; i < arr.length(); i++) result.add(fromJSON(arr.getJSONObject(i)));\n";
+    s << "    public static List<" << cn << "> fromJSONList(String json) {\n";
+    s << "        List<" << cn << "> result = new ArrayList<" << cn << ">();\n";
+    s << "        for (Object e : Json.parseArray(json))\n";
+    s << "            result.add(fromJsonValue(Json.asObject(e, \"" << cn << "\")));\n";
     s << "        return result;\n";
     s << "    }\n}\n";
 
@@ -1520,6 +1569,361 @@ static QString genYesNoClass(const QString& pkg, const QStringList& extraImports
 }
 
 // ---------------------------------------------------------------------------
+// common/Json.java — dependency-free JSON reader/writer.
+// Deliberately hand-rolled so generated projects need no org.json (or any
+// other) jar on the classpath.  Numbers are kept as BigDecimal so that
+// decimal/long fields round-trip without precision loss.
+// ---------------------------------------------------------------------------
+
+static QString genJsonClass(const QString& pkg, const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n\n";
+    s << "import java.math.BigDecimal;\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.LinkedHashMap;\n";
+    s << "import java.util.List;\n";
+    s << "import java.util.Map;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+    s << R"JAVA(/** Minimal dependency-free JSON reader/writer used by the generated Typed classes. */
+public final class Json {
+
+    private Json() {}
+
+    // -----------------------------------------------------------------
+    // Writing
+    // -----------------------------------------------------------------
+
+    /** Serialize a value graph (null, String, Boolean, Number, Map, Iterable) to JSON text. */
+    public static String write(Object value) {
+        StringBuilder sb = new StringBuilder();
+        writeValue(sb, value);
+        return sb.toString();
+    }
+
+    private static void writeValue(StringBuilder sb, Object v) {
+        if (v == null)               { sb.append("null"); return; }
+        if (v instanceof String)     { writeString(sb, (String) v); return; }
+        if (v instanceof Character)  { writeString(sb, String.valueOf(v)); return; }
+        if (v instanceof Boolean)    { sb.append(((Boolean) v).booleanValue() ? "true" : "false"); return; }
+        if (v instanceof BigDecimal) { sb.append(((BigDecimal) v).toPlainString()); return; }
+        if (v instanceof Double || v instanceof Float) {
+            double d = ((Number) v).doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d))
+                throw new IllegalArgumentException("Cannot write non-finite number to JSON: " + d);
+            sb.append(Double.toString(d));
+            return;
+        }
+        if (v instanceof Number) { sb.append(v.toString()); return; }
+        if (v instanceof Map) {
+            sb.append('{');
+            boolean first = true;
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                if (!first) sb.append(',');
+                first = false;
+                writeString(sb, String.valueOf(e.getKey()));
+                sb.append(':');
+                writeValue(sb, e.getValue());
+            }
+            sb.append('}');
+            return;
+        }
+        if (v instanceof Iterable) {
+            sb.append('[');
+            boolean first = true;
+            for (Object o : (Iterable<?>) v) {
+                if (!first) sb.append(',');
+                first = false;
+                writeValue(sb, o);
+            }
+            sb.append(']');
+            return;
+        }
+        writeString(sb, v.toString());
+    }
+
+    private static void writeString(StringBuilder sb, String s) {
+        sb.append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"':  sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\b': sb.append("\\b");  break;
+                case '\f': sb.append("\\f");  break;
+                case '\n': sb.append("\\n");  break;
+                case '\r': sb.append("\\r");  break;
+                case '\t': sb.append("\\t");  break;
+                default:
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else          sb.append(c);
+            }
+        }
+        sb.append('"');
+    }
+
+    // -----------------------------------------------------------------
+    // Reading
+    // -----------------------------------------------------------------
+
+    /** Parse JSON text into Map / List / String / BigDecimal / Boolean / null. */
+    public static Object parse(String text) {
+        if (text == null) throw new IllegalArgumentException("JSON text is null");
+        Parser p = new Parser(text);
+        Object v = p.readValue();
+        p.skipWhitespace();
+        if (!p.atEnd()) throw new IllegalArgumentException("Trailing content at offset " + p.pos());
+        return v;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> parseObject(String text) {
+        Object v = parse(text);
+        if (!(v instanceof Map)) throw new IllegalArgumentException("Expected a JSON object");
+        return (Map<String, Object>) v;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<Object> parseArray(String text) {
+        Object v = parse(text);
+        if (!(v instanceof List)) throw new IllegalArgumentException("Expected a JSON array");
+        return (List<Object>) v;
+    }
+
+    private static final class Parser {
+        private final String src;
+        private int i = 0;
+
+        Parser(String src) { this.src = src; }
+
+        int pos()        { return i; }
+        boolean atEnd()  { return i >= src.length(); }
+
+        void skipWhitespace() {
+            while (i < src.length()) {
+                char c = src.charAt(i);
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') i++;
+                else break;
+            }
+        }
+
+        Object readValue() {
+            skipWhitespace();
+            if (atEnd()) throw err("Unexpected end of JSON input");
+            char c = src.charAt(i);
+            switch (c) {
+                case '{': return readObject();
+                case '[': return readArray();
+                case '"': return readString();
+                case 't': expect("true");  return Boolean.TRUE;
+                case 'f': expect("false"); return Boolean.FALSE;
+                case 'n': expect("null");  return null;
+                default:  return readNumber();
+            }
+        }
+
+        Map<String, Object> readObject() {
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            i++; // consume '{'
+            skipWhitespace();
+            if (!atEnd() && src.charAt(i) == '}') { i++; return m; }
+            while (true) {
+                skipWhitespace();
+                if (atEnd() || src.charAt(i) != '"') throw err("Expected a string key");
+                String key = readString();
+                skipWhitespace();
+                if (atEnd() || src.charAt(i) != ':') throw err("Expected ':' after key '" + key + "'");
+                i++;
+                m.put(key, readValue());
+                skipWhitespace();
+                if (atEnd()) throw err("Unterminated object");
+                char d = src.charAt(i);
+                if (d == ',') { i++; continue; }
+                if (d == '}') { i++; return m; }
+                throw err("Expected ',' or '}'");
+            }
+        }
+
+        List<Object> readArray() {
+            List<Object> list = new ArrayList<Object>();
+            i++; // consume '['
+            skipWhitespace();
+            if (!atEnd() && src.charAt(i) == ']') { i++; return list; }
+            while (true) {
+                list.add(readValue());
+                skipWhitespace();
+                if (atEnd()) throw err("Unterminated array");
+                char d = src.charAt(i);
+                if (d == ',') { i++; continue; }
+                if (d == ']') { i++; return list; }
+                throw err("Expected ',' or ']'");
+            }
+        }
+
+        String readString() {
+            i++; // consume opening quote
+            StringBuilder sb = new StringBuilder();
+            while (true) {
+                if (atEnd()) throw err("Unterminated string");
+                char c = src.charAt(i++);
+                if (c == '"')  return sb.toString();
+                if (c != '\\') { sb.append(c); continue; }
+                if (atEnd()) throw err("Unterminated escape");
+                char e = src.charAt(i++);
+                switch (e) {
+                    case '"':  sb.append('"');  break;
+                    case '\\': sb.append('\\'); break;
+                    case '/':  sb.append('/');  break;
+                    case 'b':  sb.append('\b'); break;
+                    case 'f':  sb.append('\f'); break;
+                    case 'n':  sb.append('\n'); break;
+                    case 'r':  sb.append('\r'); break;
+                    case 't':  sb.append('\t'); break;
+                    case 'u':
+                        if (i + 4 > src.length()) throw err("Truncated \\u escape");
+                        sb.append((char) Integer.parseInt(src.substring(i, i + 4), 16));
+                        i += 4;
+                        break;
+                    default: throw err("Invalid escape '\\" + e + "'");
+                }
+            }
+        }
+
+        BigDecimal readNumber() {
+            int start = i;
+            if (!atEnd() && src.charAt(i) == '-') i++;
+            while (!atEnd()) {
+                char c = src.charAt(i);
+                if ((c >= '0' && c <= '9') || c == '.' || c == 'e' || c == 'E'
+                 || c == '+' || c == '-') i++;
+                else break;
+            }
+            if (start == i) throw err("Expected a value");
+            String text = src.substring(start, i);
+            try {
+                return new BigDecimal(text);
+            } catch (NumberFormatException ex) {
+                throw err("Invalid number '" + text + "'");
+            }
+        }
+
+        void expect(String word) {
+            if (!src.startsWith(word, i)) throw err("Expected '" + word + "'");
+            i += word.length();
+        }
+
+        IllegalArgumentException err(String msg) {
+            return new IllegalArgumentException(msg + " at offset " + i);
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Field accessors — a missing key or a wrong type raises
+    // IllegalArgumentException.  An explicit JSON null is passed through
+    // as null (for reference types) rather than treated as an error.
+    // -----------------------------------------------------------------
+
+    public static Object require(Map<String, Object> obj, String key) {
+        if (obj == null)              throw new IllegalArgumentException("Missing JSON object for field '" + key + "'");
+        if (!obj.containsKey(key))    throw new IllegalArgumentException("Missing JSON field '" + key + "'");
+        return obj.get(key);
+    }
+
+    public static String              getString (Map<String, Object> o, String k) { return asString (require(o, k), k); }
+    public static int                 getInt    (Map<String, Object> o, String k) { return asInt    (require(o, k), k); }
+    public static long                getLong   (Map<String, Object> o, String k) { return asLong   (require(o, k), k); }
+    public static double              getDouble (Map<String, Object> o, String k) { return asDouble (require(o, k), k); }
+    public static BigDecimal          getDecimal(Map<String, Object> o, String k) { return asDecimal(require(o, k), k); }
+    public static boolean             getBoolean(Map<String, Object> o, String k) { return asBoolean(require(o, k), k); }
+    public static char                getChar   (Map<String, Object> o, String k) { return asChar   (require(o, k), k); }
+    public static Map<String, Object> getObject (Map<String, Object> o, String k) { return asObject (require(o, k), k); }
+    public static List<Object>        getArray  (Map<String, Object> o, String k) { return asArray  (require(o, k), k); }
+
+    public static String asString(Object v, String ctx) {
+        if (v == null)               return null;
+        if (v instanceof String)     return (String) v;
+        if (v instanceof BigDecimal) return ((BigDecimal) v).toPlainString();
+        if (v instanceof Boolean)    return v.toString();
+        throw typeError(ctx, "a string", v);
+    }
+
+    public static BigDecimal asDecimal(Object v, String ctx) {
+        if (v instanceof BigDecimal) return (BigDecimal) v;
+        if (v instanceof Number)     return new BigDecimal(v.toString());
+        if (v instanceof String) {
+            try { return new BigDecimal(((String) v).trim()); }
+            catch (NumberFormatException ex) { throw typeError(ctx, "a number", v); }
+        }
+        throw typeError(ctx, "a number", v);
+    }
+
+    public static int asInt(Object v, String ctx) {
+        try { return asDecimal(v, ctx).stripTrailingZeros().intValueExact(); }
+        catch (ArithmeticException ex) { throw typeError(ctx, "an integer", v); }
+    }
+
+    public static long asLong(Object v, String ctx) {
+        try { return asDecimal(v, ctx).stripTrailingZeros().longValueExact(); }
+        catch (ArithmeticException ex) { throw typeError(ctx, "a long", v); }
+    }
+
+    public static double asDouble(Object v, String ctx) {
+        return asDecimal(v, ctx).doubleValue();
+    }
+
+    public static boolean asBoolean(Object v, String ctx) {
+        if (v instanceof Boolean) return ((Boolean) v).booleanValue();
+        if (v instanceof String) {
+            String s = ((String) v).trim();
+            if (s.equalsIgnoreCase("true")  || s.equalsIgnoreCase("t")
+             || s.equalsIgnoreCase("yes")   || s.equalsIgnoreCase("y")  || s.equals("1")) return true;
+            if (s.equalsIgnoreCase("false") || s.equalsIgnoreCase("f")
+             || s.equalsIgnoreCase("no")    || s.equalsIgnoreCase("n")  || s.equals("0")) return false;
+        }
+        throw typeError(ctx, "a boolean", v);
+    }
+
+    public static char asChar(Object v, String ctx) {
+        String s = asString(v, ctx);
+        return (s == null || s.isEmpty()) ? '\0' : s.charAt(0);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> asObject(Object v, String ctx) {
+        if (v == null)        return null;
+        if (v instanceof Map) return (Map<String, Object>) v;
+        throw typeError(ctx, "an object", v);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<Object> asArray(Object v, String ctx) {
+        if (v == null)         return null;
+        if (v instanceof List) return (List<Object>) v;
+        throw typeError(ctx, "an array", v);
+    }
+
+    private static IllegalArgumentException typeError(String ctx, String expected, Object actual) {
+        return new IllegalArgumentException(
+            "JSON field '" + ctx + "' is not " + expected + " (got " + describe(actual) + ")");
+    }
+
+    private static String describe(Object v) {
+        if (v == null)               return "null";
+        if (v instanceof String)     return "a string";
+        if (v instanceof Boolean)    return "a boolean";
+        if (v instanceof BigDecimal) return "a number";
+        if (v instanceof Map)        return "an object";
+        if (v instanceof List)       return "an array";
+        return v.getClass().getSimpleName();
+    }
+}
+)JAVA";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Production class generation helpers
 // ---------------------------------------------------------------------------
 
@@ -1969,6 +2373,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     }
 
     writeFile(domainDir.filePath("YesNo.java"), genYesNoClass(domainPkg, m_extraImports), msgs);
+    writeFile(domainDir.filePath("Json.java"),  genJsonClass(domainPkg, m_extraImports),  msgs);
 
     // Copy the source .spectable file into the output folder (if enabled)
     if (opts.copySpectable && !file.filePath.isEmpty()) {

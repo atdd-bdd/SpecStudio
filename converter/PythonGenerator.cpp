@@ -356,6 +356,7 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
         if (pythonType(f.type) == "decimal.Decimal") { needsDecimal = true; break; }
 
     if (needsDecimal) s << "import decimal\n";
+    s << "from . import json_util as _json\n";
     s << "from ." << strMod << " import " << strCn << "\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
@@ -391,7 +392,51 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
-    s << "        )\n";
+    s << "        )\n\n";
+
+    // ---- JSON (standard-library json module only) ----
+
+    s << "    def to_json_value(self) -> dict:\n";
+    s << "        return {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        s << "            '" << fid << "': self." << fid << ",\n";
+    }
+    s << "        }\n\n";
+
+    s << "    def to_json(self) -> str:\n";
+    s << "        return _json.dumps(self.to_json_value())\n\n";
+
+    s << "    @classmethod\n";
+    s << "    def from_json_value(cls, m: dict) -> '" << typedCn << "':\n";
+    s << "        return cls(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f    = as.fields[i];
+        const QString fid = toIdentifier(f.name);
+        const QString pt  = pythonType(f.type);
+        const QString fn  = (pt == "int")             ? "as_int"
+                          : (pt == "float")           ? "as_float"
+                          : (pt == "decimal.Decimal") ? "as_decimal"
+                          : (pt == "bool")            ? "as_bool"
+                                                      : "as_str";
+        s << "            _json." << fn << "(_json.require(m, '" << fid << "'), '" << fid << "')";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "        )\n\n";
+
+    s << "    @classmethod\n";
+    s << "    def from_json(cls, text: str) -> '" << typedCn << "':\n";
+    s << "        return cls.from_json_value(_json.loads(text))\n\n";
+
+    s << "    @staticmethod\n";
+    s << "    def to_json_list(items) -> str:\n";
+    s << "        return _json.dumps([item.to_json_value() for item in items])\n\n";
+
+    s << "    @classmethod\n";
+    s << "    def from_json_list(cls, text: str) -> list:\n";
+    s << "        raw = _json.as_list(_json.loads(text), '" << typedCn << "')\n";
+    s << "        return [cls.from_json_value(e) for e in raw]\n";
 
     return out;
 }
@@ -411,6 +456,118 @@ QString PythonGenerator::genCommonInit(const QVector<AttrSet>& attrSets) const
         s << "from ." << mod << "_typed import "  << cn << "Typed\n";
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// common/json_util.py — thin field accessors over the standard-library json
+// module.  No third-party package required.  Numbers are parsed as Decimal so
+// that decimal fields survive the round trip exactly.
+// ---------------------------------------------------------------------------
+
+static QString genJsonUtil()
+{
+    return QString::fromLatin1(R"PY("""Field accessors layered over the standard-library json module.
+
+A missing key or a value of the wrong type raises ValueError.  An explicit
+JSON null is passed through as None rather than treated as an error.
+"""
+
+import decimal
+import json
+
+
+def loads(text):
+    """Parse JSON text, keeping numbers exact (floats become Decimal)."""
+    try:
+        return json.loads(text, parse_float=decimal.Decimal)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Invalid JSON: %s" % exc) from exc
+
+
+def dumps(value):
+    """Serialize a value graph.  Decimal is written as a string so no
+    precision is lost; the readers here and in the other generated languages
+    accept a number or a string for decimal fields."""
+    return json.dumps(value, default=_fallback)
+
+
+def _fallback(obj):
+    if isinstance(obj, decimal.Decimal):
+        return str(obj)
+    raise TypeError("Cannot serialize %r to JSON" % type(obj).__name__)
+
+
+def _describe(value):
+    if value is None:                 return "null"
+    if isinstance(value, bool):       return "a boolean"
+    if isinstance(value, (int, float, decimal.Decimal)): return "a number"
+    if isinstance(value, str):        return "a string"
+    if isinstance(value, list):       return "an array"
+    if isinstance(value, dict):       return "an object"
+    return type(value).__name__
+
+
+def _type_error(ctx, expected, value):
+    return ValueError("JSON field '%s' is not %s (got %s)" % (ctx, expected, _describe(value)))
+
+
+def require(obj, key):
+    if not isinstance(obj, dict):
+        raise ValueError("Expected an object holding field '%s'" % key)
+    if key not in obj:
+        raise ValueError("Missing JSON field '%s'" % key)
+    return obj[key]
+
+
+def as_str(value, ctx):
+    if value is None:                 return None
+    if isinstance(value, str):        return value
+    if isinstance(value, bool):       return "true" if value else "false"
+    if isinstance(value, (int, float, decimal.Decimal)): return str(value)
+    raise _type_error(ctx, "a string", value)
+
+
+def as_decimal(value, ctx):
+    if isinstance(value, bool):
+        raise _type_error(ctx, "a number", value)
+    if isinstance(value, decimal.Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return decimal.Decimal(str(value))
+    if isinstance(value, str):
+        try:
+            return decimal.Decimal(value.strip())
+        except decimal.InvalidOperation:
+            raise _type_error(ctx, "a number", value) from None
+    raise _type_error(ctx, "a number", value)
+
+
+def as_int(value, ctx):
+    d = as_decimal(value, ctx)
+    if d != d.to_integral_value():
+        raise _type_error(ctx, "an integer", value)
+    return int(d)
+
+
+def as_float(value, ctx):
+    return float(as_decimal(value, ctx))
+
+
+def as_bool(value, ctx):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        low = value.strip().lower()
+        if low in ("true", "t", "yes", "y", "1"):  return True
+        if low in ("false", "f", "no", "n", "0"):  return False
+    raise _type_error(ctx, "a boolean", value)
+
+
+def as_list(value, ctx):
+    if value is None:               return None
+    if isinstance(value, list):     return value
+    raise _type_error(ctx, "an array", value)
+)PY");
 }
 
 // ---------------------------------------------------------------------------
@@ -940,7 +1097,8 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         writeFile(commonDir.filePath(mod + "_typed.py"),  genTypedClass(as),  msgs);
         domainSets.push_back(as);
     }
-    writeFile(commonDir.filePath("__init__.py"), genCommonInit(domainSets), msgs);
+    writeFile(commonDir.filePath("json_util.py"), genJsonUtil(),               msgs);
+    writeFile(commonDir.filePath("__init__.py"),  genCommonInit(domainSets), msgs);
 
     // Test file (always overwritten)
     {

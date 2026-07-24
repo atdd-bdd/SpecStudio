@@ -361,6 +361,7 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     QTextStream s(&out);
 
     s << "import { " << scn << " } from \"./" << sFile << "\";\n";
+    s << "import * as _json from \"./json.js\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << cn << " {\n";
@@ -385,7 +386,67 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
-    s << "    );\n  }\n";
+    s << "    );\n  }\n\n";
+
+    // ---- JSON (built-in JSON object; no package dependency) ----
+
+    // toJsonValue() builds a graph of primitives only, so the toJSON() name
+    // below can never cause JSON.stringify to double-encode a nested object.
+    s << "  toJsonValue() {\n";
+    s << "    return {\n";
+    for (const Field& f : as.fields) {
+        const QString fn = toCamelCase(f.name);
+        const QString t  = f.type.trimmed().toLower();
+        const bool isNum  = (t == "integer" || t == "int" || t == "float"
+                          || t == "decimal" || t == "scientific");
+        const bool isBool = (t == "boolean" || t == "yesno" || t == "bool");
+        const bool isStr  = (t == "string" || t == "text" || t == "character" || t == "char"
+                          || t == "date"   || t == "time" || t == "datetime"  || t == "duration");
+        if (isNum || isBool || isStr)
+            s << "      " << fn << ": this." << fn << ",\n";
+        else    // user-defined type — same string convention fromStringObj uses
+            s << "      " << fn << ": this." << fn << " == null ? null : String(this." << fn << "),\n";
+    }
+    s << "    };\n";
+    s << "  }\n\n";
+
+    s << "  toJSON() { return _json.stringify(this.toJsonValue()); }\n\n";
+
+    s << "  static fromJsonValue(m) {\n";
+    s << "    return new " << cn << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f   = as.fields[i];
+        const QString fn = toCamelCase(f.name);
+        const QString t  = f.type.trimmed().toLower();
+        const QString src = QString("_json.require(m, \"%1\")").arg(fn);
+        QString expr;
+        if (t == "integer" || t == "int")
+            expr = QString("_json.asInt(%1, \"%2\")").arg(src, fn);
+        else if (t == "float" || t == "decimal" || t == "scientific")
+            expr = QString("_json.asNumber(%1, \"%2\")").arg(src, fn);
+        else if (t == "boolean" || t == "yesno" || t == "bool")
+            expr = QString("_json.asBool(%1, \"%2\")").arg(src, fn);
+        else if (t == "string" || t == "text" || t == "character" || t == "char"
+              || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
+            expr = QString("_json.asString(%1, \"%2\")").arg(src, fn);
+        else
+            expr = QString("new %1(_json.asString(%2, \"%3\"))").arg(f.type.trimmed(), src, fn);
+        s << "      " << expr;
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "    );\n  }\n\n";
+
+    s << "  static fromJSON(text) { return " << cn << ".fromJsonValue(_json.parse(text)); }\n\n";
+
+    s << "  static toJSONList(items) {\n";
+    s << "    return _json.stringify(items.map((item) => item.toJsonValue()));\n";
+    s << "  }\n\n";
+
+    s << "  static fromJSONList(text) {\n";
+    s << "    const raw = _json.asArray(_json.parse(text), \"" << cn << "\");\n";
+    s << "    return raw.map((e) => " << cn << ".fromJsonValue(e));\n";
+    s << "  }\n";
     s << "}\n";
     return out;
 }
@@ -403,6 +464,94 @@ QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets) co
         s << "export * from \"./" << as.name << "Typed.js\";\n";
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// common/json.js — typed field accessors over the language's built-in JSON.
+// No package dependency: JSON.parse / JSON.stringify are part of ECMAScript.
+// ---------------------------------------------------------------------------
+
+static QString genJsonModule()
+{
+    return QString::fromLatin1(R"JS(// Typed field accessors layered over the built-in JSON object.
+//
+// A missing key or a value of the wrong type throws a TypeError.  An explicit
+// JSON null is passed through as null rather than treated as an error.
+
+export function parse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new TypeError(`Invalid JSON: ${e.message}`);
+  }
+}
+
+export function stringify(value) {
+  return JSON.stringify(value);
+}
+
+function describe(value) {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) return "an array";
+  switch (typeof value) {
+    case "boolean": return "a boolean";
+    case "number":  return "a number";
+    case "string":  return "a string";
+    case "object":  return "an object";
+    default:        return typeof value;
+  }
+}
+
+function typeError(ctx, expected, value) {
+  return new TypeError(`JSON field '${ctx}' is not ${expected} (got ${describe(value)})`);
+}
+
+export function require(obj, key) {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj))
+    throw new TypeError(`Expected an object holding field '${key}'`);
+  if (!Object.prototype.hasOwnProperty.call(obj, key))
+    throw new TypeError(`Missing JSON field '${key}'`);
+  return obj[key];
+}
+
+export function asString(value, ctx) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  throw typeError(ctx, "a string", value);
+}
+
+export function asNumber(value, ctx) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  throw typeError(ctx, "a number", value);
+}
+
+export function asInt(value, ctx) {
+  const n = asNumber(value, ctx);
+  if (!Number.isInteger(n)) throw typeError(ctx, "an integer", value);
+  return n;
+}
+
+export function asBool(value, ctx) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const low = value.trim().toLowerCase();
+    if (["true", "t", "yes", "y", "1"].includes(low)) return true;
+    if (["false", "f", "no", "n", "0"].includes(low)) return false;
+  }
+  throw typeError(ctx, "a boolean", value);
+}
+
+export function asArray(value, ctx) {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) return value;
+  throw typeError(ctx, "an array", value);
+}
+)JS");
 }
 
 // ---------------------------------------------------------------------------
@@ -927,6 +1076,7 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
         writeFile(commonDir.filePath(as.name + "Typed.js"),  genTypedClass(as),  msgs);
         domainSets.push_back(as);
     }
+    writeFile(commonDir.filePath("json.js"),  genJsonModule(),             msgs);
     writeFile(commonDir.filePath("index.js"), genCommonIndex(domainSets), msgs);
 
     // 2. Test file (always overwritten)
