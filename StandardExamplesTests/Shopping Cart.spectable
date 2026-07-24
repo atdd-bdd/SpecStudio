@@ -5,6 +5,10 @@ Entity CatalogItem
 | Name      | SimpleText | NoName  |       |
 | Price     | Dollar     | 1       |       |
 
+Collection Catalog
+| DataType    | Minimum | Maximum  | Notes          |
+| CatalogItem | 0       | 10000000 | Each is unique |
+
 Entity  OrderItem 
 | Attribute | Type       | Default | Notes |
 | Name      | SimpleText | No Name |       |
@@ -13,7 +17,7 @@ Entity  OrderItem
 | ItemTotal | Dollar     | 1       |       |
 
 Background Catalog 
-Given catalog has: CatalogItem
+Given catalog has: Catalg
 | Name        | Price |
 | Widget      | 10    |
 | WhatCallIt  | 20    |
