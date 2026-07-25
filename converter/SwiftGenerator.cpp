@@ -1,5 +1,6 @@
 #include "SwiftGenerator.h"
 #include "TagFilter.h"
+#include "SourceScan.h"
 
 #include <QDir>
 #include <QFile>
@@ -420,16 +421,31 @@ public enum Json {
     // Field accessors
     // -----------------------------------------------------------------
 
+    /// True when the value came from JSON `true`/`false`.
+    ///
+    /// CFGetTypeID/CFBooleanGetTypeID are CoreFoundation and exist only on
+    /// Apple platforms; swift-corelibs-foundation on Windows and Linux hands
+    /// back a Swift Bool instead, so each side gets the check it supports.
+    private static func isBoolean(_ value: Any) -> Bool {
+        #if canImport(Darwin)
+        if let number = value as? NSNumber {
+            return CFGetTypeID(number) == CFBooleanGetTypeID()
+        }
+        return false
+        #else
+        return value is Bool
+        #endif
+    }
+
     private static func describe(_ value: Any?) -> String {
         guard let value = value else { return "null" }
-        if value is NSNull                { return "null" }
-        if value is String                { return "a string" }
-        if value is [Any]                 { return "an array" }
-        if value is [String: Any]         { return "an object" }
-        if let number = value as? NSNumber {
-            return CFGetTypeID(number) == CFBooleanGetTypeID() ? "a boolean" : "a number"
-        }
-        if value is Bool                  { return "a boolean" }
+        if value is NSNull        { return "null" }
+        if value is String        { return "a string" }
+        if value is [Any]         { return "an array" }
+        if value is [String: Any] { return "an object" }
+        if isBoolean(value)       { return "a boolean" }
+        if value is NSNumber      { return "a number" }
+        if value is Bool          { return "a boolean" }
         return "a number"
     }
 
@@ -477,9 +493,9 @@ public enum Json {
     }
 
     public static func asBool(_ value: Any?, _ ctx: String) throws -> Bool {
-        if let number = value as? NSNumber,
-           CFGetTypeID(number) == CFBooleanGetTypeID() {
-            return number.boolValue
+        if let value = value, isBoolean(value) {
+            if let number = value as? NSNumber { return number.boolValue }
+            if let flag = value as? Bool       { return flag }
         }
         if let flag = value as? Bool { return flag }
         if let text = value as? String {
@@ -854,10 +870,13 @@ bool SwiftGenerator::appendMissingStubs(const QString& gluePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
     QString content = QTextStream(&f).readAll();
     f.close();
+    // A commented-out method has been removed as far as the compiler is
+    // concerned, so search a copy with comments blanked out.
+    const QString scan = sourcescan::stripCStyleComments(content);
 
     QString stubs;
     for (const GlueSig& sig : sigs) {
-        if (!content.contains(QStringLiteral("func %1(").arg(sig.method)))
+        if (!scan.contains(QStringLiteral("func %1(").arg(sig.method)))
             stubs += "\n" + genStubFn(sig);
     }
     if (stubs.isEmpty()) return false;

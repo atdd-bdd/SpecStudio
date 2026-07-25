@@ -1,5 +1,6 @@
 #include "JavaScriptGenerator.h"
 #include "TagFilter.h"
+#include "SourceScan.h"
 
 #include <QDir>
 #include <QFile>
@@ -856,11 +857,14 @@ bool JavaScriptGenerator::appendMissingStubs(const QString& gluePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
     QString content = QTextStream(&f).readAll();
     f.close();
+    // A commented-out method has been removed as far as the compiler is
+    // concerned, so search a copy with comments blanked out.
+    const QString scan = sourcescan::stripCStyleComments(content);
 
     QString stubs;
     for (const GlueSig& sig : sigs) {
         // Check for "methodName(" in the file
-        if (!content.contains(sig.method + "("))
+        if (!scan.contains(sig.method + "("))
             stubs += "\n" + genStubMethod(sig);
     }
     if (stubs.isEmpty()) return false;
