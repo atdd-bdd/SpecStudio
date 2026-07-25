@@ -446,6 +446,9 @@ QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets) const
 {
     QString out;
     QTextStream s(&out);
+    // The re-exports below are a convenience surface; a crate that uses only
+    // some of them would otherwise get an unused_imports warning per line.
+    s << "#![allow(unused_imports)]\n\n";
     s << "pub mod json;\n";
     s << "pub use json::*;\n";
     for (const AttrSet& as : attrSets) {

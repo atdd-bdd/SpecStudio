@@ -344,8 +344,10 @@ func jsonDecode(text string) (interface{}, error) {
 	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
-	// Reject trailing content after the first value.
-	if _, err := dec.Token(); err == nil {
+	// Reject trailing content after the first value. More() peeks at the next
+	// non-whitespace byte, so it catches invalid trailing bytes too; Token()
+	// would return an error for those and be mistaken for a clean end of input.
+	if dec.More() {
 		return nil, fmt.Errorf("invalid JSON: trailing content after top-level value")
 	}
 	return v, nil
@@ -521,10 +523,12 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     QString out;
     QTextStream s(&out);
 
+    // Only the int and float64 branches call strconv; the bool branch compares
+    // strings. Including bool here emitted an unused import, which Go rejects.
     bool needsStrconv = false;
     for (const Field& f : as.fields) {
         const QString gt = goType(f.type);
-        if (gt == "int" || gt == "float64" || gt == "bool") { needsStrconv = true; break; }
+        if (gt == "int" || gt == "float64") { needsStrconv = true; break; }
     }
 
     s << "package " << pkg << "\n\n";
