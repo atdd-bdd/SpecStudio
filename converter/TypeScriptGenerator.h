@@ -27,7 +27,14 @@ private:
     // Type helpers
     static QString tsDefaultValue(const QString& specType);
     static QString tsType(const QString& specType);          // spec type → TypeScript type
-    static QString parseExpr(const QString& field, const QString& specType);
+    static bool    isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString tsCommonType(const Field& f, const SpectableFile& file);
+    static QString nestedLiteral(const QString& cellValue, const QString& fieldType,
+                                 const SpectableFile& file);
+    static QString stringLiteral(const AttrSet& as, const QStringList& row,
+                                 const SpectableFile& file);
+    static QString parseExpr(const QString& field, const QString& specType,
+                             const SpectableFile* file = nullptr);
 
     // Identifier helpers
     static QString toCamelCase(const QString& name);         // "Transfer Amount" → "transferAmount"
@@ -54,9 +61,12 @@ private:
         const NamedBlock& nb, const AttrSet* as);
 
     // File generators
-    QString genStringClass(const AttrSet& as) const;
-    QString genTypedClass(const AttrSet& as) const;
-    QString genCommonIndex(const QVector<AttrSet>& attrSets) const;
+    QString genEqualsMethod(const AttrSet& as, const QString& cn,
+                            const SpectableFile& file, bool dncAware) const;
+    QString genStringClass(const AttrSet& as, const SpectableFile& file) const;
+    QString genTypedClass(const AttrSet& as, const SpectableFile& file) const;
+    QString genCommonIndex(const QVector<AttrSet>& attrSets,
+                           const QString& existing) const;
     QString genTestFile(const SpectableFile& file, const QString& specName,
                         const QString& glueClass, const QString& commonRelPath,
                         QStringList& errors) const;

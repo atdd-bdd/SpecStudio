@@ -56,6 +56,89 @@ QString RustGenerator::rustType(const QString& specType)
     return specType.trimmed();
 }
 
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String struct literal.
+QString RustGenerator::rustNestedLiteral(const QString& cellValue, const QString& fieldType,
+                                          const SpectableFile& file)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+
+        QStringList row(subAs.fields.size());
+        for (int i = 0; i < subAs.fields.size(); ++i)
+            row[i] = subAs.fields[i].defaultValue;
+
+        if (cellValue.startsWith('=')) {
+            const QString defineName = cellValue.mid(1).trimmed();
+            for (const Define& d : file.defines) {
+                if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                break;
+            }
+        }
+        return rustStringLiteral(subAs, row, file);
+    }
+    return "\"" + rustEscape(cellValue) + "\".to_string()";
+}
+
+// A struct literal for one row, used when the block has a nested-object field.
+QString RustGenerator::rustStringLiteral(const AttrSet& as, const QStringList& row,
+                                         const SpectableFile& file)
+{
+    QString expr = toTypeName(as.name) + "String { ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) expr += ", ";
+        const QString cell = (i < row.size()) ? row[i] : QString();
+        expr += toIdentifier(as.fields[i].name) + ": ";
+        if (isAttrSetType(as.fields[i].type, file))
+            expr += rustNestedLiteral(cell, as.fields[i].type, file);
+        else
+            expr += "\"" + rustEscape(cell) + "\".to_string()";
+    }
+    return expr + " }";
+}
+
+bool RustGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The type a field takes inside the common module. A nested Attributes block
+// becomes that block's own Typed struct. A user DataType lives in the
+// production crate, which common must not depend on, so its value is carried
+// as text — the glue converts it when it needs the production object.
+QString RustGenerator::rustCommonType(const Field& f, const SpectableFile& file)
+{
+    if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
+    static const QSet<QString> builtin = {
+        "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
+        "bool", "string", "text", "character", "char", "date", "time",
+        "datetime", "duration"
+    };
+    if (!builtin.contains(f.type.trimmed().toLower())) return "String";
+    return rustType(f.type);
+}
+
 QString RustGenerator::parseExpr(const QString& field, const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
@@ -85,7 +168,19 @@ QString RustGenerator::toIdentifier(const QString& name)
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
     s.remove(QRegularExpression("^_+|_+$"));
     if (!s.isEmpty() && s[0].isDigit()) s.prepend('_');
-    return s.toLower();
+    s = s.toLower();
+
+    // A spec field can be named "Type" or "Match", which lowercase to Rust
+    // keywords and will not parse as an identifier.
+    static const QSet<QString> keywords = {
+        "as", "async", "await", "box", "break", "const", "continue", "crate",
+        "dyn", "else", "enum", "extern", "false", "fn", "for", "if", "impl",
+        "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
+        "return", "self", "static", "struct", "super", "trait", "true", "try",
+        "type", "union", "unsafe", "use", "where", "while", "yield"
+    };
+    if (keywords.contains(s)) s += "_";
+    return s;
 }
 
 QString RustGenerator::toTypeName(const QString& name)
@@ -167,6 +262,16 @@ QVector<QStringList> RustGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
         if (!def) {
@@ -186,7 +291,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
         if (def->vertical || step.vertical) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -202,7 +307,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -225,7 +330,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -241,7 +346,7 @@ QVector<QStringList> RustGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -285,27 +390,50 @@ QVector<QStringList> RustGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::genStringStruct(const AttrSet& as) const
+QString RustGenerator::genStringStruct(const AttrSet& as, const SpectableFile& file) const
 {
     const QString typeName = toTypeName(as.name) + "String";
     QString out;
     QTextStream s(&out);
 
     s << "#![allow(dead_code, unused_imports, unused_variables)]\n\n";
+    // A field whose type names another Attributes block holds that block's
+    // String struct, so its module has to be brought in.
+    QSet<QString> seenUses;
+    for (const Field& f : as.fields) {
+        if (!isAttrSetType(f.type, file)) continue;
+        // Two fields can share a nested type; import it once.
+        if (seenUses.contains(f.type.trimmed().toLower())) continue;
+        seenUses.insert(f.type.trimmed().toLower());
+        s << "use super::" << toIdentifier(f.type) << "_string::"
+          << toTypeName(f.type) << "String;\n";
+    }
     for (const QString& u : m_extraUses) s << u << "\n";
     if (!m_extraUses.isEmpty()) s << "\n";
+
+    auto fieldType = [&](const Field& f) {
+        return isAttrSetType(f.type, file) ? toTypeName(f.type) + "String"
+                                          : QString("String");
+    };
 
     s << "#[derive(Debug, Clone, Default)]\n";
     s << "pub struct " << typeName << " {\n";
     for (const Field& f : as.fields)
-        s << "    pub " << toIdentifier(f.name) << ": String,\n";
+        s << "    pub " << toIdentifier(f.name) << ": " << fieldType(f) << ",\n";
     s << "}\n\n";
 
     s << "impl " << typeName << " {\n";
     s << "    pub fn from_vec(v: &[&str]) -> Self {\n";
     s << "        Self {\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        s << "            " << toIdentifier(as.fields[i].name)
+        const Field& f = as.fields[i];
+        // A nested block cannot come from a flat slice; those rows are built
+        // with a struct literal instead.
+        if (isAttrSetType(f.type, file)) {
+            s << "            " << toIdentifier(f.name) << ": Default::default(),\n";
+            continue;
+        }
+        s << "            " << toIdentifier(f.name)
           << ": v.get(" << i << ").copied().unwrap_or(\"\").to_string(),\n";
     }
     s << "        }\n    }\n}\n\n";
@@ -316,7 +444,7 @@ QString RustGenerator::genStringStruct(const AttrSet& as) const
 
     QStringList placeholders, args;
     for (const Field& field : as.fields) {
-        placeholders << (field.name + "={}");
+        placeholders << (field.name + (isAttrSetType(field.type, file) ? "={:?}" : "={}"));
         args << "self." + toIdentifier(field.name);
     }
     s << "            \"" << placeholders.join(", ") << "\",\n";
@@ -325,7 +453,29 @@ QString RustGenerator::genStringStruct(const AttrSet& as) const
         if (i < args.size() - 1) s << ",";
         s << "\n";
     }
-    s << "        )\n    }\n}\n";
+    s << "        )\n    }\n}\n\n";
+
+    // A field holding the Do-Not-Care marker on either side matches whatever
+    // the other side holds — that is what lets a CompareOnly step name only the
+    // columns it cares about. dnc_equal lives in common/mod.rs.
+    s << "impl PartialEq for " << typeName << " {\n";
+    s << "    fn eq(&self, other: &Self) -> bool {\n";
+    if (as.fields.isEmpty()) {
+        s << "        true\n";
+    } else {
+        s << "        ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << "\n            && ";
+            const QString fid = toIdentifier(as.fields[i].name);
+            // A nested block delegates to its own PartialEq.
+            if (isAttrSetType(as.fields[i].type, file))
+                s << "self." << fid << " == other." << fid;
+            else
+                s << "crate::common::dnc_equal(&self." << fid << ", &other." << fid << ")";
+        }
+        s << "\n";
+    }
+    s << "    }\n}\n";
 
     return out;
 }
@@ -334,7 +484,7 @@ QString RustGenerator::genStringStruct(const AttrSet& as) const
 // Typed struct
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::genTypedStruct(const AttrSet& as) const
+QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& file) const
 {
     const QString strTypeName = toTypeName(as.name) + "String";
     const QString typedName   = toTypeName(as.name) + "Typed";
@@ -345,13 +495,21 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
     s << "#![allow(dead_code, unused_imports, unused_variables)]\n\n";
     s << "use super::json;\n";
     s << "use super::" << strMod << "::" << strTypeName << ";\n";
+    QSet<QString> seenTypedUses;
+    for (const Field& f : as.fields) {
+        if (!isAttrSetType(f.type, file)) continue;
+        if (seenTypedUses.contains(f.type.trimmed().toLower())) continue;
+        seenTypedUses.insert(f.type.trimmed().toLower());
+        s << "use super::" << toIdentifier(f.type) << "_typed::"
+          << toTypeName(f.type) << "Typed;\n";
+    }
     for (const QString& u : m_extraUses) s << u << "\n";
     s << "\n";
 
-    s << "#[derive(Debug, Clone, Default)]\n";
+    s << "#[derive(Debug, Clone, Default, PartialEq)]\n";
     s << "pub struct " << typedName << " {\n";
     for (const Field& f : as.fields) {
-        const QString rt = rustType(f.type);
+        const QString rt = rustCommonType(f, file);
         s << "    pub " << toIdentifier(f.name) << ": " << rt << ",\n";
     }
     s << "}\n\n";
@@ -361,7 +519,13 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
     s << "        Self {\n";
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
-        const QString expr = parseExpr(fid, f.type);
+        const QString rt   = rustCommonType(f, file);
+        // A nested Attributes block builds its own Typed struct; a user DataType
+        // is carried as text, so only the built-ins go through parseExpr.
+        const QString expr = isAttrSetType(f.type, file)
+            ? QString("%1::from_str_struct(&s.%2)").arg(rt, fid)
+            : (rt == "String" ? QString("s.%1.clone()").arg(fid)
+                              : parseExpr(fid, f.type));
         s << "            " << fid << ": " << expr << ",\n";
     }
     s << "        }\n    }\n\n";
@@ -372,7 +536,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
     s << "        json::Value::Object(vec![\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        const QString rt  = rustType(f.type);
+        const QString rt  = rustCommonType(f, file);
         QString expr;
         if (rt == "i32")
             expr = QString("json::Value::number_from_i64(self.%1 as i64)").arg(fid);
@@ -382,8 +546,8 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
             expr = QString("json::Value::Bool(self.%1)").arg(fid);
         else if (rt == "String")
             expr = QString("json::Value::Str(self.%1.clone())").arg(fid);
-        else    // user-defined type — Display, matching the String convention
-            expr = QString("json::Value::Str(self.%1.to_string())").arg(fid);
+        else    // nested Attributes block — written as a nested object
+            expr = QString("self.%1.to_json_value()").arg(fid);
         s << "            (\"" << fid << "\".to_string(), " << expr << "),\n";
     }
     s << "        ])\n";
@@ -397,7 +561,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
     s << "        Ok(Self {\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        const QString rt  = rustType(f.type);
+        const QString rt  = rustCommonType(f, file);
         const QString src = QString("json::require(v, \"%1\")?").arg(fid);
         QString expr;
         if (rt == "i32")
@@ -408,8 +572,8 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
             expr = QString("json::as_bool(%1, \"%2\")?").arg(src, fid);
         else if (rt == "String")
             expr = QString("json::as_string(%1, \"%2\")?").arg(src, fid);
-        else    // user-defined type — From<String>, matching parseExpr
-            expr = QString("%1::from(json::as_string(%2, \"%3\")?)").arg(rt, src, fid);
+        else    // nested Attributes block — read as its own Typed struct
+            expr = QString("%1::from_json_value(%2)?").arg(rt, src);
         s << "            " << fid << ": " << expr << ",\n";
     }
     s << "        })\n";
@@ -443,22 +607,51 @@ QString RustGenerator::genTypedStruct(const AttrSet& as) const
 // Common mod.rs
 // ---------------------------------------------------------------------------
 
-QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets) const
+// Every .spectable in a project generates into the same common module, and this
+// index is rewritten on each one. Emitting only the current file's AttrSets meant
+// the last file processed erased every struct contributed by the others, so
+// `use crate::common::*` resolved almost nothing. The existing index is therefore
+// merged with the new entries instead of replaced.
+QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
+                                     const QString& existing) const
 {
+    QStringList mods;
+    for (const QString& line : existing.split('\n')) {
+        const QString t = line.trimmed();
+        if (t.startsWith("pub mod ") || t.startsWith("pub use ")) {
+            if (t == "pub mod json;" || t == "pub use json::*;") continue;
+            if (!mods.contains(t)) mods << t;
+        }
+    }
+    for (const AttrSet& as : attrSets) {
+        const QString mod = toIdentifier(as.name);
+        for (const QString& l : { QString("pub mod %1_string;").arg(mod),
+                                  QString("pub mod %1_typed;").arg(mod),
+                                  QString("pub use %1_string::*;").arg(mod),
+                                  QString("pub use %1_typed::*;").arg(mod) })
+            if (!mods.contains(l)) mods << l;
+    }
+    mods.sort();
+
     QString out;
     QTextStream s(&out);
     // The re-exports below are a convenience surface; a crate that uses only
     // some of them would otherwise get an unused_imports warning per line.
-    s << "#![allow(unused_imports)]\n\n";
+    s << "#![allow(unused_imports, dead_code)]\n\n";
     s << "pub mod json;\n";
     s << "pub use json::*;\n";
-    for (const AttrSet& as : attrSets) {
-        const QString mod = toIdentifier(as.name);
-        s << "pub mod " << mod << "_string;\n";
-        s << "pub mod " << mod << "_typed;\n";
-        s << "pub use " << mod << "_string::*;\n";
-        s << "pub use " << mod << "_typed::*;\n";
-    }
+    for (const QString& l : mods) s << l << "\n";
+
+    s << "\n/// The Do-Not-Care marker a CompareOnly step puts in every column\n";
+    s << "/// it does not name.\n";
+    s << "pub const DNC_STRING: &str = \"?DNC?\";\n\n";
+    s << "/// Compares two cells, treating the marker as a wildcard.\n";
+    s << "pub fn dnc_equal(a: &str, b: &str) -> bool {\n";
+    s << "    a == b || a == DNC_STRING || b == DNC_STRING\n}\n\n";
+    s << "/// Reads the Yes/No/True/False text a spec cell may hold, in any casing.\n";
+    s << "pub fn parse_bool_cell(v: &str) -> bool {\n";
+    s << "    matches!(v.trim().to_ascii_lowercase().as_str(),\n";
+    s << "             \"true\" | \"t\" | \"yes\" | \"y\" | \"1\")\n}\n";
     return out;
 }
 
@@ -929,29 +1122,45 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
 
     s << "#![allow(unused_mut, unused_variables, unused_imports)]\n\n";
     s << "use crate::common::*;\n";
-    s << "use crate::" << specSnake << "_glue::" << glueStruct << ";\n";
+    // The glue module is a sibling of this test module, so `super::` resolves
+    // whether the specification sits at the crate root or in a subfolder.
+    s << "use super::" << specSnake << "_glue::" << glueStruct << ";\n";
     for (const QString& u : m_extraUses) s << u << "\n";
     s << "\n";
 
-    // Helper: emit a slice of AttrSetString rows inline
-    auto emitStrSlice = [&](const QString& listType, const QVector<QStringList>& rows) {
-        if (rows.size() == 1) {
-            s << "&[" << listType << "::from_vec(&[";
-            const QStringList& row = rows[0];
+    // Helper: emit a slice of AttrSetString rows inline. A block with a
+    // nested-object field cannot be built from a flat &[&str], so those rows use
+    // a struct literal instead.
+    auto emitStrSlice = [&](const QString& listType, const QVector<QStringList>& rows,
+                            const AttrSet* as) {
+        bool hasNested = false;
+        if (as)
+            for (const Field& f : as->fields)
+                if (isAttrSetType(f.type, file)) { hasNested = true; break; }
+
+        auto emitRow = [&](const QStringList& row) {
+            if (hasNested) {
+                s << rustStringLiteral(*as, row, file);
+                return;
+            }
+            s << listType << "::from_vec(&[";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci) s << ", ";
                 s << "\"" << rustEscape(row[ci]) << "\"";
             }
-            s << "])]";
+            s << "])";
+        };
+
+        if (rows.size() == 1) {
+            s << "&[";
+            emitRow(rows[0]);
+            s << "]";
         } else {
             s << "&[\n";
             for (const QStringList& row : rows) {
-                s << "        " << listType << "::from_vec(&[";
-                for (int ci = 0; ci < row.size(); ++ci) {
-                    if (ci) s << ", ";
-                    s << "\"" << rustEscape(row[ci]) << "\"";
-                }
-                s << "]),\n";
+                s << "        ";
+                emitRow(row);
+                s << ",\n";
             }
             s << "    ]";
         }
@@ -1019,7 +1228,7 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                 errors << localErrs;
                 const QString listType = toTypeName(step.attrSetName) + "String";
                 s << "    glue." << meth << "(";
-                emitStrSlice(listType, rows);
+                emitStrSlice(listType, rows, as);
                 s << ");\n";
             } else {
                 const StepTable& tbl = step.table;
@@ -1095,7 +1304,7 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                 const QVector<QStringList> rows = resolveExamplesRows(nb, as);
                 const QString listType = toTypeName(nb.examples.attrSetName) + "String";
                 s << "    glue." << glueFn << "(";
-                emitStrSlice(listType, rows);
+                emitStrSlice(listType, rows, as);
                 s << ");\n";
             } else {
                 const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
@@ -1145,7 +1354,9 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
         collectSteps(sc.steps);
 
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // A context block belongs to another .spectable and is tested there —
+        // generating a stub for it here produces a method no test ever calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "examples_" + kindToSnake(nb.kind) + "_" + toIdentifier(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
@@ -1340,6 +1551,9 @@ static QString genRustProductionEntity(const AttrSet& as, const SpectableFile& f
     QString out;
     QTextStream s(&out);
 
+    // An entity's fields are typed by the DataTypes and entities alongside it,
+    // which production/mod.rs re-exports.
+    s << "use super::*;\n\n";
     s << "#[derive(Debug, Clone)]\n";
     s << "pub struct " << name << " {\n";
     for (const Field& f : as.fields) {
@@ -1511,12 +1725,21 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             continue;
         }
         const QString mid = toIdentifier(as.name);
-        writeFile(commonDir.filePath(mid + "_string.rs"), genStringStruct(as), msgs);
-        writeFile(commonDir.filePath(mid + "_typed.rs"),  genTypedStruct(as),  msgs);
+        writeFile(commonDir.filePath(mid + "_string.rs"), genStringStruct(as, augmented), msgs);
+        writeFile(commonDir.filePath(mid + "_typed.rs"),  genTypedStruct(as, augmented),  msgs);
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.rs"), genRustJsonMod(),          msgs);
-    writeFile(commonDir.filePath("mod.rs"),  genCommonMod(domainSets), msgs);
+    {
+        // Read the existing index so structs from the other .spectable files survive.
+        QString existingMod;
+        QFile mf(commonDir.filePath("mod.rs"));
+        if (mf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            existingMod = QTextStream(&mf).readAll();
+            mf.close();
+        }
+        writeFile(commonDir.filePath("mod.rs"), genCommonMod(domainSets, existingMod), msgs);
+    }
 
     // Test file
     {
@@ -1541,10 +1764,78 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         }
     }
 
+    // Crate wiring. Every .spectable is converted on its own, so the module
+    // lists are merged with what previous runs left rather than replaced.
+    {
+        auto mergeModFile = [&](const QString& path, const QStringList& wanted) {
+            QStringList all;
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                const QString existing = QTextStream(&f).readAll();
+                f.close();
+                for (const QString& l : existing.split('\n')) {
+                    const QString t = l.trimmed();
+                    if (!t.isEmpty() && !t.startsWith("#!") && !all.contains(t))
+                        all << t;
+                }
+            }
+            for (const QString& l : wanted) if (!all.contains(l)) all << l;
+            all.sort();
+            // A directory named TestFolder is not snake_case, and the generated
+            // surface is wider than any one test uses.
+            QString content = "#![allow(non_snake_case, unused_imports, dead_code)]\n\n";
+            for (const QString& l : all) content += l + "\n";
+            writeFile(path, content, msgs);
+        };
+
+        const QString glueMod = specSnake + "_glue";
+        const QString testMod = "test_" + specSnake;
+
+        if (specSubDir.isEmpty()) {
+            QStringList root = { "pub mod common;",
+                                 "pub mod " + glueMod + ";",
+                                 "pub mod " + testMod + ";" };
+            if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty())
+                root << "pub mod production;";
+            mergeModFile(QDir(opts.outputDir).filePath("lib.rs"), root);
+        } else {
+            const QString subMod = specSubDir.split('/').last();
+            mergeModFile(dir.filePath("mod.rs"),
+                         { "pub mod " + glueMod + ";", "pub mod " + testMod + ";" });
+            QStringList root = { "pub mod common;", "pub mod " + subMod + ";" };
+            if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty())
+                root << "pub mod production;";
+            mergeModFile(QDir(opts.outputDir).filePath("lib.rs"), root);
+        }
+
+        // Cargo.toml is written once and then left alone, like the other build
+        // files, so a hand-added dependency survives.
+        const QString cargoPath = QDir(opts.outputDir).filePath("Cargo.toml");
+        if (!QFile::exists(cargoPath)) {
+            QString crate = toIdentifier(QFileInfo(opts.outputDir).fileName());
+            if (crate.isEmpty()) crate = "spectable";
+            QString cargo;
+            QTextStream cs(&cargo);
+            cs << "[package]\nname = \"" << crate << "\"\nversion = \"0.1.0\"\n"
+               << "edition = \"2021\"\n\n[lib]\npath = \"lib.rs\"\n";
+            writeFile(cargoPath, cargo, msgs);
+        }
+    }
+
     // Production classes (DataType → struct/enum, Entity → struct, Collection → struct)
     if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
+
+        // Modules are recorded whether or not the file was just written, so a
+        // production class kept from an earlier run stays reachable.
+        QStringList prodMods;
+        auto record = [&](const QString& mid) {
+            const QString a = "pub mod " + mid + ";";
+            const QString b = "pub use " + mid + "::*;";
+            if (!prodMods.contains(a)) prodMods << a;
+            if (!prodMods.contains(b)) prodMods << b;
+        };
 
         // DataType ValidValues → struct with is_valid(); EnumerationValues → enum
         for (const NamedBlock& nb : file.namedBlocks) {
@@ -1554,7 +1845,9 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             const bool isEnum =
                 nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
             if (!isValidValues && !isEnum) continue;
-            const QString prodPath = prodDir.filePath(toIdentifier(nb.name) + ".rs");
+            const QString mid = toIdentifier(nb.name);
+            record(mid);
+            const QString prodPath = prodDir.filePath(mid + ".rs");
             if (QFile::exists(prodPath)) continue;
             writeFile(prodPath, isValidValues ? genRustProductionClass(nb)
                                               : genRustProductionEnum(nb), msgs);
@@ -1563,7 +1856,9 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         // Entity → struct + impl new()
         for (const AttrSet& as : file.attrSets) {
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
-            const QString prodPath = prodDir.filePath(toIdentifier(as.name) + ".rs");
+            const QString mid = toIdentifier(as.name);
+            record(mid);
+            const QString prodPath = prodDir.filePath(mid + ".rs");
             if (QFile::exists(prodPath)) continue;
             writeFile(prodPath, genRustProductionEntity(as, file), msgs);
         }
@@ -1571,9 +1866,31 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         // Collection → struct with add/delete/read/update/size
         for (const Collection& col : file.collections) {
             if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
-            const QString prodPath = prodDir.filePath(toIdentifier(col.name) + ".rs");
+            const QString mid = toIdentifier(col.name);
+            record(mid);
+            const QString prodPath = prodDir.filePath(mid + ".rs");
             if (QFile::exists(prodPath)) continue;
             writeFile(prodPath, genRustProductionCollection(col), msgs);
+        }
+
+        // production/mod.rs, merged the same way as the crate root.
+        {
+            const QString modPath = prodDir.filePath("mod.rs");
+            QStringList all;
+            QFile f(modPath);
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                const QString existing = QTextStream(&f).readAll();
+                f.close();
+                for (const QString& l : existing.split('\n')) {
+                    const QString t = l.trimmed();
+                    if (!t.isEmpty() && !t.startsWith("#!") && !all.contains(t)) all << t;
+                }
+            }
+            for (const QString& l : prodMods) if (!all.contains(l)) all << l;
+            all.sort();
+            QString content = "#![allow(non_snake_case, unused_imports, dead_code)]\n\n";
+            for (const QString& l : all) content += l + "\n";
+            writeFile(modPath, content, msgs);
         }
     }
 

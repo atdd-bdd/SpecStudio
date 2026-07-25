@@ -29,6 +29,12 @@ private:
     QStringList m_extraUses;
     QString     m_tagFilter;
 
+    static bool    isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString rustNestedLiteral(const QString& cellValue, const QString& fieldType,
+                                     const SpectableFile& file);
+    static QString rustStringLiteral(const AttrSet& as, const QStringList& row,
+                                     const SpectableFile& file);
+    static QString rustCommonType(const Field& f, const SpectableFile& file);
     static QString parseExpr(const QString& field, const QString& specType);
     static QString toFnName(const QString& keyword, const QString& stepText);  // snake_case
 
@@ -42,9 +48,10 @@ private:
     static QVector<QStringList> resolveExamplesRows(
         const NamedBlock& nb, const AttrSet* as);
 
-    QString genStringStruct(const AttrSet& as) const;
-    QString genTypedStruct(const AttrSet& as) const;
-    QString genCommonMod(const QVector<AttrSet>& attrSets) const;
+    QString genStringStruct(const AttrSet& as, const SpectableFile& file) const;
+    QString genTypedStruct(const AttrSet& as, const SpectableFile& file) const;
+    QString genCommonMod(const QVector<AttrSet>& attrSets,
+                         const QString& existing) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueStruct, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueStruct) const;

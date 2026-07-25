@@ -43,6 +43,64 @@ static QString pyEscape(const QString& s)
     return r;
 }
 
+// True when a field's declared type names another Attributes/Entity block, so
+// the field holds a nested object rather than a scalar.
+bool PythonGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String constructor call.
+QString PythonGenerator::resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
+                                              const SpectableFile& file)
+{
+    if (cellValue.startsWith('=')) {
+        const QString defineName = cellValue.mid(1).trimmed();
+        for (const Define& d : file.defines) {
+            if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                continue;
+            for (const AttrSet& subAs : file.attrSets) {
+                if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+
+                QStringList row(subAs.fields.size());
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    row[i] = subAs.fields[i].defaultValue;
+
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                QString expr = toTypeName(fieldType) + "String(";
+                for (int i = 0; i < row.size(); ++i) {
+                    if (i) expr += ", ";
+                    expr += "'" + pyEscape(row[i]) + "'";
+                }
+                expr += ")";
+                return expr;
+            }
+        }
+    }
+    return "'" + pyEscape(cellValue) + "'";
+}
+
 // ---------------------------------------------------------------------------
 // Type mapping
 // ---------------------------------------------------------------------------
@@ -173,6 +231,16 @@ QVector<QStringList> PythonGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
         if (!def) {
@@ -192,7 +260,7 @@ QVector<QStringList> PythonGenerator::resolveStepRows(
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
         if (def->vertical || step.vertical) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -208,7 +276,7 @@ QVector<QStringList> PythonGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -229,7 +297,7 @@ QVector<QStringList> PythonGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -245,7 +313,7 @@ QVector<QStringList> PythonGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -292,21 +360,34 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
 // String class generator  →  {name}_string.py
 // ---------------------------------------------------------------------------
 
-QString PythonGenerator::genStringClass(const AttrSet& as) const
+QString PythonGenerator::genStringClass(const AttrSet& as,
+                                         const SpectableFile& file) const
 {
     const QString cn  = toTypeName(as.name) + "String";
     QString out;
     QTextStream s(&out);
 
+    // A field whose type is another Attributes block holds that block's String
+    // object, so its module has to be imported.
+    for (const Field& f : as.fields)
+        if (isAttrSetType(f.type, file))
+            s << "from ." << toModuleName(f.type) << "_string import "
+              << toTypeName(f.type) << "String\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     if (!m_extraImports.isEmpty()) s << "\n";
 
+    s << "DNC_STRING = '?DNC?'\n\n\n";
     s << "class " << cn << ":\n";
 
     // __init__
     s << "    def __init__(self";
-    for (const Field& f : as.fields)
-        s << ", " << toIdentifier(f.name) << ": str = ''";
+    for (const Field& f : as.fields) {
+        if (isAttrSetType(f.type, file))
+            s << ", " << toIdentifier(f.name) << ": '" << toTypeName(f.type)
+              << "String' = None";
+        else
+            s << ", " << toIdentifier(f.name) << ": str = ''";
+    }
     s << "):\n";
     for (const Field& f : as.fields)
         s << "        self." << toIdentifier(f.name) << " = " << toIdentifier(f.name) << "\n";
@@ -335,7 +416,50 @@ QString PythonGenerator::genStringClass(const AttrSet& as) const
         s << "f'" << fname << "={self." << fid << "}'";
         if (i < as.fields.size() - 1) s << " + ', '";
     }
-    s << ")\n";
+    s << ")\n\n";
+
+    s << genEqualityMethods(as, cn, /*dncAware=*/true);
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Value equality — emitted into both the String and the Typed class so a
+// generated row compares by its fields, the way the Java classes do.
+// ---------------------------------------------------------------------------
+
+QString PythonGenerator::genEqualityMethods(const AttrSet& as, const QString& cn,
+                                             bool dncAware) const
+{
+    QString out;
+    QTextStream s(&out);
+
+    s << "    def _key(self):\n";
+    s << "        return (";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << "self." << toIdentifier(as.fields[i].name);
+    }
+    if (as.fields.size() == 1) s << ",";
+    s << ")\n\n";
+
+    s << "    def __eq__(self, other):\n";
+    s << "        if not isinstance(other, " << cn << "):\n";
+    s << "            return NotImplemented\n";
+    if (dncAware) {
+        // A field holding the Do-Not-Care marker on either side matches
+        // whatever the other side holds.
+        s << "        return all(a == b or a == DNC_STRING or b == DNC_STRING\n";
+        s << "                   for a, b in zip(self._key(), other._key()))\n\n";
+    } else {
+        s << "        return self._key() == other._key()\n\n";
+    }
+
+    s << "    def __hash__(self):\n";
+    s << "        return hash(self._key())\n\n";
+
+    s << "    def __repr__(self):\n";
+    s << "        return f'" << cn << "({self})'\n";
 
     return out;
 }
@@ -344,7 +468,8 @@ QString PythonGenerator::genStringClass(const AttrSet& as) const
 // Typed class generator  →  {name}_typed.py
 // ---------------------------------------------------------------------------
 
-QString PythonGenerator::genTypedClass(const AttrSet& as) const
+QString PythonGenerator::genTypedClass(const AttrSet& as,
+                                        const SpectableFile& file) const
 {
     const QString strCn  = toTypeName(as.name) + "String";
     const QString typedCn = toTypeName(as.name) + "Typed";
@@ -359,6 +484,10 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     if (needsDecimal) s << "import decimal\n";
     s << "from . import json_util as _json\n";
     s << "from ." << strMod << " import " << strCn << "\n";
+    for (const Field& f : as.fields)
+        if (isAttrSetType(f.type, file))
+            s << "from ." << toModuleName(f.type) << "_typed import "
+              << toTypeName(f.type) << "Typed\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
 
@@ -368,6 +497,10 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     s << "    def __init__(self";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
+        if (isAttrSetType(f.type, file)) {
+            s << ", " << fid << ": '" << toTypeName(f.type) << "Typed' = None";
+            continue;
+        }
         const QString pt  = pythonType(f.type);
         const QString def = (pt == "int") ? "0" : (pt == "float") ? "0.0"
                           : (pt == "decimal.Decimal") ? "decimal.Decimal('0')"
@@ -388,7 +521,9 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f   = as.fields[i];
         const QString fid = toIdentifier(f.name);
-        const QString expr = parseExpr(fid, f.type);
+        const QString expr = isAttrSetType(f.type, file)
+            ? QString("%1Typed.from_string_obj(s.%2)").arg(toTypeName(f.type), fid)
+            : parseExpr(fid, f.type);
         s << "            " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
@@ -401,7 +536,11 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     s << "        return {\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        s << "            '" << fid << "': self." << fid << ",\n";
+        if (isAttrSetType(f.type, file))
+            s << "            '" << fid << "': self." << fid
+              << ".to_json_value() if self." << fid << " else None,\n";
+        else
+            s << "            '" << fid << "': self." << fid << ",\n";
     }
     s << "        }\n\n";
 
@@ -414,13 +553,18 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f    = as.fields[i];
         const QString fid = toIdentifier(f.name);
-        const QString pt  = pythonType(f.type);
-        const QString fn  = (pt == "int")             ? "as_int"
-                          : (pt == "float")           ? "as_float"
-                          : (pt == "decimal.Decimal") ? "as_decimal"
-                          : (pt == "bool")            ? "as_bool"
-                                                      : "as_str";
-        s << "            _json." << fn << "(_json.require(m, '" << fid << "'), '" << fid << "')";
+        if (isAttrSetType(f.type, file)) {
+            s << "            " << toTypeName(f.type)
+              << "Typed.from_json_value(_json.require(m, '" << fid << "'))";
+        } else {
+            const QString pt  = pythonType(f.type);
+            const QString fn  = (pt == "int")             ? "as_int"
+                              : (pt == "float")           ? "as_float"
+                              : (pt == "decimal.Decimal") ? "as_decimal"
+                              : (pt == "bool")            ? "as_bool"
+                                                          : "as_str";
+            s << "            _json." << fn << "(_json.require(m, '" << fid << "'), '" << fid << "')";
+        }
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -437,7 +581,21 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
     s << "    @classmethod\n";
     s << "    def from_json_list(cls, text: str) -> list:\n";
     s << "        raw = _json.as_list(_json.loads(text), '" << typedCn << "')\n";
-    s << "        return [cls.from_json_value(e) for e in raw]\n";
+    s << "        return [cls.from_json_value(e) for e in raw]\n\n";
+
+    // __str__
+    s << "    def __str__(self):\n";
+    s << "        return (";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << " +\n                ";
+        const QString fname = as.fields[i].name;
+        const QString fid   = toIdentifier(fname);
+        s << "f'" << fname << "={self." << fid << "}'";
+        if (i < as.fields.size() - 1) s << " + ', '";
+    }
+    s << ")\n\n";
+
+    s << genEqualityMethods(as, typedCn, /*dncAware=*/false);
 
     return out;
 }
@@ -660,7 +818,12 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
                     s << "        " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "'" << pyEscape(row[ci]) << "'";
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file))
+                            s << resolveAttrCellExpr(row[ci], fType, file);
+                        else
+                            s << "'" << pyEscape(row[ci]) << "'";
                     }
                     s << "),\n";
                 }
@@ -754,7 +917,12 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
                     s << "        " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "'" << pyEscape(row[ci]) << "'";
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file))
+                            s << resolveAttrCellExpr(row[ci], fType, file);
+                        else
+                            s << "'" << pyEscape(row[ci]) << "'";
                     }
                     s << "),\n";
                 }
@@ -926,6 +1094,45 @@ bool PythonGenerator::appendMissingStubs(const QString& gluePath,
 // Production class generators
 // ---------------------------------------------------------------------------
 
+// A spec Default is free text — "Checking", "0", "(none)". Rendering it into a
+// Python parameter list verbatim produced a file that would not even import,
+// so it is turned into a literal of the field's Python type here.
+QString PythonGenerator::pyDefaultLiteral(const Field& f, const QString& pt)
+{
+    const QString raw = f.defaultValue.trimmed();
+
+    const QString neutral = (pt == "int") ? "0" : (pt == "float") ? "0.0"
+                          : (pt == "decimal.Decimal") ? "decimal.Decimal('0')"
+                          : (pt == "bool") ? "False" : "''";
+
+    // "(none)" is the spec's way of saying there is no default.
+    if (raw.isEmpty()) return neutral;
+    if (raw.compare("(none)", Qt::CaseInsensitive) == 0) return "None";
+
+    bool ok = false;
+    if (pt == "int") {
+        raw.toLongLong(&ok);
+        return ok ? raw : neutral;
+    }
+    if (pt == "float") {
+        raw.toDouble(&ok);
+        return ok ? raw : neutral;
+    }
+    if (pt == "decimal.Decimal") {
+        raw.toDouble(&ok);
+        return ok ? ("decimal.Decimal('" + raw + "')") : neutral;
+    }
+    if (pt == "bool") {
+        const QString l = raw.toLower();
+        return (l == "true" || l == "t" || l == "yes" || l == "y" || l == "1")
+             ? "True" : "False";
+    }
+
+    QString esc = raw;
+    esc.replace('\\', "\\\\").replace('\'', "\\'");
+    return "'" + esc + "'";
+}
+
 QString PythonGenerator::genProductionEntity(const AttrSet& as)
 {
     QString out;
@@ -942,12 +1149,7 @@ QString PythonGenerator::genProductionEntity(const AttrSet& as)
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString pt  = pythonType(f.type);
-        const QString def = f.defaultValue.isEmpty()
-            ? ((pt == "int") ? "0" : (pt == "float") ? "0.0"
-               : (pt == "decimal.Decimal") ? "decimal.Decimal('0')"
-               : (pt == "bool") ? "False" : "''")
-            : f.defaultValue;
-        s << ", " << fid << ": " << pt << " = " << def;
+        s << ", " << fid << ": " << pt << " = " << pyDefaultLiteral(f, pt);
     }
     s << "):\n";
     for (const Field& f : as.fields) {
@@ -1111,8 +1313,8 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
             continue;
         }
         const QString mod = toModuleName(as.name);
-        writeFile(commonDir.filePath(mod + "_string.py"), genStringClass(as), msgs);
-        writeFile(commonDir.filePath(mod + "_typed.py"),  genTypedClass(as),  msgs);
+        writeFile(commonDir.filePath(mod + "_string.py"), genStringClass(as, file), msgs);
+        writeFile(commonDir.filePath(mod + "_typed.py"),  genTypedClass(as, file),  msgs);
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json_util.py"), genJsonUtil(),               msgs);

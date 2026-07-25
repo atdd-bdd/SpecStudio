@@ -56,6 +56,89 @@ QString SwiftGenerator::swiftType(const QString& specType)
     return specType.trimmed();
 }
 
+bool SwiftGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The type a field takes inside the common folder. A nested Attributes block
+// becomes that block's own Typed struct. A user DataType lives in the production
+// folder, which common must not depend on, so its value is carried as text.
+QString SwiftGenerator::swiftCommonType(const Field& f, const SpectableFile& file)
+{
+    if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
+
+    static const QSet<QString> builtin = {
+        "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
+        "bool", "string", "text", "character", "char", "date", "time",
+        "datetime", "duration"
+    };
+    if (!builtin.contains(f.type.trimmed().toLower())) return "String";
+    return swiftType(f.type);
+}
+
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String initializer call.
+QString SwiftGenerator::nestedLiteral(const QString& cellValue, const QString& fieldType,
+                                      const SpectableFile& file)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+
+        QStringList row(subAs.fields.size());
+        for (int i = 0; i < subAs.fields.size(); ++i)
+            row[i] = subAs.fields[i].defaultValue;
+
+        if (cellValue.startsWith('=')) {
+            const QString defineName = cellValue.mid(1).trimmed();
+            for (const Define& d : file.defines) {
+                if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                break;
+            }
+        }
+        return stringLiteral(subAs, row, file);
+    }
+    return "\"" + swiftEscape(cellValue) + "\"";
+}
+
+// An initializer call for one row, used when the block has a nested-object field.
+QString SwiftGenerator::stringLiteral(const AttrSet& as, const QStringList& row,
+                                      const SpectableFile& file)
+{
+    QString expr = toTypeName(as.name) + "String(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) expr += ", ";
+        const QString cell = (i < row.size()) ? row[i] : QString();
+        expr += toIdentifier(as.fields[i].name) + ": ";
+        if (isAttrSetType(as.fields[i].type, file))
+            expr += nestedLiteral(cell, as.fields[i].type, file);
+        else
+            expr += "\"" + swiftEscape(cell) + "\"";
+    }
+    return expr + ")";
+}
+
 QString SwiftGenerator::parseExpr(const QString& field, const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
@@ -66,12 +149,10 @@ QString SwiftGenerator::parseExpr(const QString& field, const QString& specType)
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString(
             "[\"true\", \"t\", \"yes\", \"y\", \"1\"].contains(s.%1.lowercased())").arg(field);
-    // String-backed built-ins (date/time/datetime/duration/string/text/char)
-    if (t == "string" || t == "text" || t == "character" || t == "char"
-     || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
-        return QString("s.%1").arg(field);
-    // User-defined type — assumes a String-based init(_:), same intent as Rust's Type::from(...)
-    return QString("%1(s.%2)").arg(specType.trimmed()).arg(field);
+    // A user DataType lives in the production folder, which common must not
+    // depend on, so its value is carried as text — the glue converts it when it
+    // needs the production object. Date/time are text too.
+    return QString("s.%1").arg(field);
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +250,16 @@ QVector<QStringList> SwiftGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
         if (!def) {
@@ -188,7 +279,7 @@ QVector<QStringList> SwiftGenerator::resolveStepRows(
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
         if (def->vertical || step.vertical) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -204,7 +295,7 @@ QVector<QStringList> SwiftGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -227,7 +318,7 @@ QVector<QStringList> SwiftGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -243,7 +334,7 @@ QVector<QStringList> SwiftGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -287,7 +378,7 @@ QVector<QStringList> SwiftGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
-QString SwiftGenerator::genStringStruct(const AttrSet& as) const
+QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& file) const
 {
     const QString typeName = toTypeName(as.name) + "String";
     QString out;
@@ -296,16 +387,22 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as) const
     for (const QString& imp : m_extraImports) s << imp << "\n";
     if (!m_extraImports.isEmpty()) s << "\n";
 
+    auto fieldType = [&](const Field& f) {
+        return isAttrSetType(f.type, file) ? toTypeName(f.type) + "String"
+                                          : QString("String");
+    };
+
     s << "public struct " << typeName << ": CustomStringConvertible, Equatable {\n";
     for (const Field& f : as.fields)
-        s << "    public let " << toIdentifier(f.name) << ": String\n";
+        s << "    public let " << toIdentifier(f.name) << ": " << fieldType(f) << "\n";
     s << "\n";
 
     s << "    public init(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        const QString fid = toIdentifier(as.fields[i].name);
-        s << fid << ": String";
+        const Field& f = as.fields[i];
+        const QString fid = toIdentifier(f.name);
+        s << fid << ": " << fieldType(f);
     }
     s << ") {\n";
     for (const Field& f : as.fields) {
@@ -316,7 +413,15 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as) const
 
     s << "    public init(fromArray v: [String]) {\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        const QString fid = toIdentifier(as.fields[i].name);
+        const Field& f = as.fields[i];
+        const QString fid = toIdentifier(f.name);
+        // A nested block cannot come from a flat array; those rows are built
+        // with the field initializer instead.
+        if (isAttrSetType(f.type, file)) {
+            s << "        self." << fid << " = " << toTypeName(f.type)
+              << "String(fromArray: [])\n";
+            continue;
+        }
         s << "        self." << fid << " = v.count > " << i << " ? v[" << i << "] : \"\"\n";
     }
     s << "    }\n\n";
@@ -327,6 +432,30 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as) const
     for (const Field& f : as.fields)
         parts << (f.name + "=\\(" + toIdentifier(f.name) + ")");
     s << parts.join(", ") << "\"\n";
+    s << "    }\n\n";
+
+    // A field holding the Do-Not-Care marker on either side matches whatever the
+    // other side holds — that is what lets a CompareOnly step name only the
+    // columns it cares about. A nested block delegates to its own ==.
+    s << "    public static let dncString = \"?DNC?\"\n\n";
+    s << "    public static func == (a: " << typeName << ", b: " << typeName
+      << ") -> Bool {\n";
+    if (as.fields.isEmpty()) {
+        s << "        return true\n";
+    } else {
+        s << "        return ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            const Field& f = as.fields[i];
+            const QString fid = toIdentifier(f.name);
+            if (i) s << "\n            && ";
+            if (isAttrSetType(f.type, file))
+                s << "a." << fid << " == b." << fid;
+            else
+                s << "(a." << fid << " == dncString || b." << fid
+                  << " == dncString || a." << fid << " == b." << fid << ")";
+        }
+        s << "\n";
+    }
     s << "    }\n";
     s << "}\n";
 
@@ -519,7 +648,7 @@ public enum Json {
     return out;
 }
 
-QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
+QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& file) const
 {
     const QString strTypeName = toTypeName(as.name) + "String";
     const QString typedName   = toTypeName(as.name) + "Typed";
@@ -529,9 +658,11 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
     for (const QString& imp : m_extraImports) s << imp << "\n";
     if (!m_extraImports.isEmpty()) s << "\n";
 
-    s << "public struct " << typedName << " {\n";
+    // Equatable so a Then step can compare the converted rows; every field type
+    // it can hold is itself Equatable.
+    s << "public struct " << typedName << ": Equatable, CustomStringConvertible {\n";
     for (const Field& f : as.fields) {
-        const QString st = swiftType(f.type);
+        const QString st = swiftCommonType(f, file);
         s << "    public let " << toIdentifier(f.name) << ": " << st << "\n";
     }
     s << "\n";
@@ -540,7 +671,7 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        s << toIdentifier(f.name) << ": " << swiftType(f.type);
+        s << toIdentifier(f.name) << ": " << swiftCommonType(f, file);
     }
     s << ") {\n";
     for (const Field& f : as.fields) {
@@ -552,7 +683,10 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
     s << "    public init(from s: " << strTypeName << ") {\n";
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
-        const QString expr = parseExpr(fid, f.type);
+        // A nested Attributes block builds its own Typed struct.
+        const QString expr = isAttrSetType(f.type, file)
+            ? QString("%1Typed(from: s.%2)").arg(toTypeName(f.type), fid)
+            : parseExpr(fid, f.type);
         s << "        self." << fid << " = " << expr << "\n";
     }
     s << "    }\n\n";
@@ -563,11 +697,11 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
     s << "        return [\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        const QString st  = swiftType(f.type);
+        const QString st  = swiftCommonType(f, file);
         if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
             s << "            \"" << fid << "\": " << fid << ",\n";
-        else    // user-defined type — same text convention init(from:) assumes
-            s << "            \"" << fid << "\": String(describing: " << fid << "),\n";
+        else    // nested Attributes block — written as a nested object
+            s << "            \"" << fid << "\": " << fid << ".toJSONValue(),\n";
     }
     s << "        ]\n";
     s << "    }\n\n";
@@ -579,7 +713,7 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
     s << "    public init(fromJSONValue m: [String: Any]) throws {\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        const QString st  = swiftType(f.type);
+        const QString st  = swiftCommonType(f, file);
         const QString fn  = (st == "Int")    ? "asInt"
                           : (st == "Double") ? "asDouble"
                           : (st == "Bool")   ? "asBool"
@@ -588,7 +722,10 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
         if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
             s << "        self." << fid << " = " << src << "\n";
         else
-            s << "        self." << fid << " = " << f.type.trimmed() << "(" << src << ")\n";
+            // Nested Attributes block — read as its own Typed struct.
+            s << "        self." << fid << " = try " << swiftCommonType(f, file)
+              << "(fromJSONValue: Json.asObject(Json.require(m, \"" << fid
+              << "\"), \"" << fid << "\"))\n";
     }
     s << "    }\n\n";
 
@@ -604,6 +741,14 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
     s << "        return try Json.parseArray(text).map {\n";
     s << "            try " << typedName << "(fromJSONValue: Json.asObject($0, \"" << typedName << "\"))\n";
     s << "        }\n";
+    s << "    }\n\n";
+
+    s << "    public var description: String {\n";
+    s << "        return \"";
+    QStringList typedParts;
+    for (const Field& f : as.fields)
+        typedParts << (f.name + "=\\(" + toIdentifier(f.name) + ")");
+    s << typedParts.join(", ") << "\"\n";
     s << "    }\n";
     s << "}\n";
 
@@ -624,10 +769,22 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
 
-    // Helper: emit an array literal of AttrSetString rows inline
-    auto emitStrArray = [&](const QString& listType, const QVector<QStringList>& rows) {
+    // Helper: emit an array literal of AttrSetString rows inline. A block with a
+    // nested-object field cannot be built from a flat [String], so those rows use
+    // the field initializer instead.
+    auto emitStrArray = [&](const QString& listType, const QVector<QStringList>& rows,
+                            const AttrSet* as) {
+        bool hasNested = false;
+        if (as)
+            for (const Field& f : as->fields)
+                if (isAttrSetType(f.type, file)) { hasNested = true; break; }
+
         s << "[\n";
         for (const QStringList& row : rows) {
+            if (hasNested) {
+                s << "            " << stringLiteral(*as, row, file) << ",\n";
+                continue;
+            }
             s << "            " << listType << "(fromArray: [";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci) s << ", ";
@@ -700,7 +857,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                 errors << localErrs;
                 const QString listType = toTypeName(step.attrSetName) + "String";
                 s << "        glue." << meth << "(";
-                emitStrArray(listType, rows);
+                emitStrArray(listType, rows, as);
                 s << ")\n";
             } else {
                 const StepTable& tbl = step.table;
@@ -770,7 +927,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                 const QVector<QStringList> rows = resolveExamplesRows(nb, as);
                 const QString listType = toTypeName(nb.examples.attrSetName) + "String";
                 s << "        glue." << glueFn << "(";
-                emitStrArray(listType, rows);
+                emitStrArray(listType, rows, as);
                 s << ")\n";
             } else {
                 const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
@@ -821,7 +978,9 @@ QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const Spectable
         collectSteps(sc.steps);
 
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // A context block belongs to another .spectable and is tested there —
+        // generating a stub for it here produces a method no test ever calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "examples" + kindToTitle(nb.kind) + toTypeName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
@@ -1160,8 +1319,8 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
             continue;
         }
         const QString tn = toTypeName(as.name);
-        writeFile(commonDir.filePath(tn + "String.swift"), genStringStruct(as), msgs);
-        writeFile(commonDir.filePath(tn + "Typed.swift"),  genTypedStruct(as),  msgs);
+        writeFile(commonDir.filePath(tn + "String.swift"), genStringStruct(as, augmented), msgs);
+        writeFile(commonDir.filePath(tn + "Typed.swift"),  genTypedStruct(as, augmented),  msgs);
     }
 
     // Test file

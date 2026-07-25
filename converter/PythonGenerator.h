@@ -35,6 +35,9 @@ private:
     static QString toModuleName(const QString& name);   // snake_case module
 
     // Lookup helpers
+    static bool        isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString     resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
+                                            const SpectableFile& file);
     static bool        isDataType(const QString& name, const SpectableFile& file);
     static bool        isCollectionType(const QString& name, const SpectableFile& file);
     static QString     collectionElementType(const QString& name, const SpectableFile& file);
@@ -47,12 +50,15 @@ private:
         const SpectableFile& file, QStringList& errors);
 
     // File generators
-    QString genStringClass(const AttrSet& as) const;
-    QString genTypedClass(const AttrSet& as) const;
+    QString genStringClass(const AttrSet& as, const SpectableFile& file) const;
+    QString genTypedClass(const AttrSet& as, const SpectableFile& file) const;
+    QString genEqualityMethods(const AttrSet& as, const QString& cn,
+                               bool dncAware) const;
     QString genCommonInit(const QVector<AttrSet>& attrSets, const QString& existing) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueClass, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;
+    static QString pyDefaultLiteral(const Field& f, const QString& pt);
     static QString genProductionEntity(const AttrSet& as);
     static QString genProductionCollection(const Collection& col);
 

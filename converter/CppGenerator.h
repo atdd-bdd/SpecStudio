@@ -45,9 +45,16 @@ private:
         const NamedBlock& nb, const AttrSet* as);
 
     // File generators
-    QString genStringHeader(const AttrSet& as) const;
-    QString genTypedHeader(const AttrSet& as) const;
-    QString genCommonHeader(const QVector<AttrSet>& attrSets) const;
+    static bool    isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString cppCommonType(const Field& f, const SpectableFile& file);
+    static QString nestedLiteral(const QString& cellValue, const QString& fieldType,
+                                 const SpectableFile& file);
+    static QString stringLiteral(const AttrSet& as, const QStringList& row,
+                                 const SpectableFile& file);
+    QString genStringHeader(const AttrSet& as, const SpectableFile& file) const;
+    QString genTypedHeader(const AttrSet& as, const SpectableFile& file) const;
+    QString genCommonHeader(const QVector<AttrSet>& attrSets,
+                            const QString& existing) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueClass, const QString& commonRelPath,
                         QStringList& errors) const;

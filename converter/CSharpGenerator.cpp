@@ -65,6 +65,67 @@ static bool    isCollectionType(const QString& name, const SpectableFile& file);
 static bool    isAttrSetType(const QString& name, const SpectableFile& file);
 static QString collectionElementType(const QString& name, const SpectableFile& file);
 
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String constructor call.
+static QString resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
+                                    const SpectableFile& file)
+{
+    if (cellValue.startsWith('=')) {
+        const QString defineName = cellValue.mid(1).trimmed();
+        for (const Define& d : file.defines) {
+            if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                continue;
+            for (const AttrSet& subAs : file.attrSets) {
+                if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+
+                QStringList row(subAs.fields.size());
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    row[i] = subAs.fields[i].defaultValue;
+
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                QString expr = "new " + fieldType.trimmed() + "String(";
+                for (int i = 0; i < row.size(); ++i) {
+                    if (i) expr += ", ";
+                    expr += "\"" + row[i] + "\"";
+                }
+                expr += ")";
+                return expr;
+            }
+        }
+    }
+    return "\"" + cellValue + "\"";
+}
+
+// A DataType whose Examples table is EnumerationValues becomes a C# enum, so a
+// cell is parsed with Enum.Parse rather than passed to a constructor.
+static bool isEnumType(const QString& name, const SpectableFile& file)
+{
+    for (const NamedBlock& nb : file.namedBlocks)
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0
+         && nb.name.compare(name, Qt::CaseInsensitive) == 0
+         && nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0)
+            return true;
+    return false;
+}
+
 // Produce the expression used inside To<Name>Typed() to convert one field
 QString CSharpGenerator::parseExpr(const QString& field, const QString& specType,
                                    const SpectableFile* file)
@@ -95,6 +156,8 @@ QString CSharpGenerator::parseExpr(const QString& field, const QString& specType
         // The String class already holds the nested block's own String class.
         return QString("this.%1.To%2Typed()").arg(field, specType.trimmed());
     }
+    if (file && isEnumType(specType.trimmed(), *file))
+        return QString("System.Enum.Parse<%1>(this.%2)").arg(specType.trimmed(), field);
     // User-defined DataType: wrap in constructor
     return QString("new %1(this.%2)").arg(specType.trimmed()).arg(field);
 }
@@ -232,6 +295,16 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     // ── Define reference ──────────────────────────────────────────────────────
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
@@ -262,7 +335,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
             // If def->vertical: row 0 is the "Attribute/Name" header — skip it.
             // Otherwise: row 0 is the first data row — start from 0.
             const int startIdx = def->vertical ? 1 : 0;
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (int ri = startIdx; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
                 if (r.size() < 2) continue;
@@ -279,7 +352,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -304,7 +377,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -321,7 +394,7 @@ QVector<QStringList> CSharpGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -368,6 +441,52 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
 // String class generator
 // ---------------------------------------------------------------------------
 
+// Value equality for the generated row classes. On the String class a field
+// holding the Do-Not-Care marker on either side matches whatever the other side
+// holds — that is what lets a CompareOnly step name only the columns it cares
+// about.
+QString CSharpGenerator::genEqualityMembers(const AttrSet& as, const QString& cn,
+                                            const SpectableFile& file,
+                                            bool dncAware) const
+{
+    QString out;
+    QTextStream s(&out);
+
+    if (dncAware)
+        s << "        const string DNCString = \"?DNC?\";\n\n";
+
+    s << "        public override bool Equals(object? obj)\n        {\n";
+    s << "            if (obj is not " << cn << " other) return false;\n";
+    if (as.fields.isEmpty()) {
+        s << "            return true;\n";
+    } else {
+        s << "            return ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            const Field& f  = as.fields[i];
+            const QString fn = toCamelCase(f.name);
+            if (i) s << "\n                && ";
+            // A nested block delegates to its own Equals; DNC is a text marker
+            // and does not apply at that level.
+            if (dncAware && !isAttrSetType(f.type, file))
+                s << "(DNCString == this." << fn << " || DNCString == other." << fn
+                  << " || object.Equals(this." << fn << ", other." << fn << "))";
+            else
+                s << "object.Equals(this." << fn << ", other." << fn << ")";
+        }
+        s << ";\n";
+    }
+    s << "        }\n\n";
+
+    s << "        public override int GetHashCode()\n        {\n";
+    s << "            var h = new System.HashCode();\n";
+    for (const Field& f : as.fields)
+        s << "            h.Add(this." << toCamelCase(f.name) << ");\n";
+    s << "            return h.ToHashCode();\n";
+    s << "        }\n";
+
+    return out;
+}
+
 QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
@@ -379,9 +498,11 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, co
     if (!m_extraImports.isEmpty()) s << "\n";
     s << "    public class " << cn << "\n    {\n";
 
-    // Fields
+    // Fields — a field whose type names another Attributes block holds that
+    // block's String object, not a bare string.
     for (const Field& f : as.fields)
-        s << "        public string " << toCamelCase(f.name) << ";\n";
+        s << "        public " << stringFieldType(f, file) << " "
+          << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     // Constructor
@@ -415,7 +536,9 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, co
         if (i) s << ", ";
         s << as.fields[i].name << "={" << toCamelCase(as.fields[i].name) << "}";
     }
-    s << "\";\n        }\n";
+    s << "\";\n        }\n\n";
+
+    s << genEqualityMembers(as, cn, file, /*dncAware=*/true);
 
     s << "    }\n}\n";
     return out;
@@ -644,6 +767,13 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
               << ".ToString(\"c\", CultureInfo.InvariantCulture));\n";
         else if (ct == "string")
             s << "            w.WriteString(\"" << fn << "\", this." << fn << ");\n";
+        else if (isAttrSetType(f.type, file)) {
+            // Nested block — write it as a nested object.
+            s << "            w.WritePropertyName(\"" << fn << "\");\n";
+            s << "            this." << fn << ".WriteJson(w);\n";
+        }
+        else if (isEnumType(f.type, file))
+            s << "            w.WriteString(\"" << fn << "\", this." << fn << ".ToString());\n";
         else    // user-defined DataType — same text convention parseExpr assumes
             s << "            w.WriteString(\"" << fn << "\", Json.ToText(this." << fn << "));\n";
     }
@@ -671,6 +801,12 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
         else if (ct == "DateTime") expr = QString("Json.AsDateTime(%1, \"%2\")").arg(src, fn);
         else if (ct == "TimeSpan") expr = QString("Json.AsTimeSpan(%1, \"%2\")").arg(src, fn);
         else if (ct == "string")   expr = QString("Json.AsString(%1, \"%2\")").arg(src, fn);
+        else if (isAttrSetType(f.type, file))
+            // Nested block — read it as its own Typed object, not a production class.
+            expr = QString("%1Typed.FromJsonElement(%2)").arg(f.type.trimmed(), src);
+        else if (isEnumType(f.type, file))
+            expr = QString("System.Enum.Parse<%1>(Json.AsString(%2, \"%3\"))")
+                       .arg(f.type.trimmed(), src, fn);
         else                       expr = QString("new %1(Json.AsString(%2, \"%3\"))")
                                               .arg(f.type.trimmed(), src, fn);
         s << "                " << expr;
@@ -699,7 +835,17 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
     s << "            Json.RequireArray(root, \"" << cn << "\");\n";
     s << "            foreach (var e in root.EnumerateArray()) result.Add(FromJsonElement(e));\n";
     s << "            return result;\n";
-    s << "        }\n";
+    s << "        }\n\n";
+
+    s << "        public override string ToString()\n        {\n";
+    s << "            return $\"";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << as.fields[i].name << "={" << toCamelCase(as.fields[i].name) << "}";
+    }
+    s << "\";\n        }\n\n";
+
+    s << genEqualityMembers(as, cn, file, /*dncAware=*/false);
 
     s << "    }\n}\n";
     return out;
@@ -787,7 +933,12 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     s << "             new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ",";
-                        s << "\"" << row[ci] << "\"";
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file))
+                            s << resolveAttrCellExpr(row[ci], fType, file);
+                        else
+                            s << "\"" << row[ci] << "\"";
                     }
                     s << "),\n";
                 }

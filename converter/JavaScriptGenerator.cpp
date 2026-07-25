@@ -65,8 +65,81 @@ QString JavaScriptGenerator::jsDefaultValue(const QString& specType)
     return "\"\"";
 }
 
-QString JavaScriptGenerator::parseExpr(const QString& field, const QString& specType)
+bool JavaScriptGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
 {
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String constructor call.
+QString JavaScriptGenerator::nestedLiteral(const QString& cellValue, const QString& fieldType,
+                                           const SpectableFile& file)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+
+        QStringList row(subAs.fields.size());
+        for (int i = 0; i < subAs.fields.size(); ++i)
+            row[i] = subAs.fields[i].defaultValue;
+
+        if (cellValue.startsWith('=')) {
+            const QString defineName = cellValue.mid(1).trimmed();
+            for (const Define& d : file.defines) {
+                if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                break;
+            }
+        }
+        return stringLiteral(subAs, row, file);
+    }
+    return "\"" + jsStringEscape(cellValue) + "\"";
+}
+
+// A constructor call for one row, used when the block has a nested-object field.
+QString JavaScriptGenerator::stringLiteral(const AttrSet& as, const QStringList& row,
+                                           const SpectableFile& file)
+{
+    QString expr = "new " + as.name + "String(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) expr += ", ";
+        const QString cell = (i < row.size()) ? row[i] : QString();
+        if (isAttrSetType(as.fields[i].type, file))
+            expr += nestedLiteral(cell, as.fields[i].type, file);
+        else
+            expr += "\"" + jsStringEscape(cell) + "\"";
+    }
+    return expr + ")";
+}
+
+QString JavaScriptGenerator::parseExpr(const QString& field, const QString& specType,
+                                       const SpectableFile* file)
+{
+    if (file && isAttrSetType(specType.trimmed(), *file)) {
+        // Nested Attributes block — build its own Typed object.
+        for (const AttrSet& as : file->attrSets)
+            if (as.name.compare(specType.trimmed(), Qt::CaseInsensitive) == 0)
+                return QString("%1Typed.fromStringObj(s.%2)").arg(as.name, field);
+    }
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
         return QString("s.%1 !== \"\" ? Number(s.%1) : 0").arg(field);
@@ -74,11 +147,10 @@ QString JavaScriptGenerator::parseExpr(const QString& field, const QString& spec
         return QString("s.%1 !== \"\" ? Number(s.%1) : 0.0").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString("[\"true\",\"t\",\"yes\",\"y\",\"1\"].includes(s.%1.toLowerCase())").arg(field);
-    if (t == "string" || t == "text" || t == "character" || t == "char"
-     || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
-        return QString("s.%1").arg(field);
-    // User-defined type
-    return QString("new %1(s.%2)").arg(specType.trimmed()).arg(field);
+    // A user DataType lives in the production folder, which common must not
+    // depend on, so its value is carried as text — the glue converts it when it
+    // needs the production object.
+    return QString("s.%1").arg(field);
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +268,16 @@ QVector<QStringList> JavaScriptGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
         if (!def) {
@@ -215,7 +297,7 @@ QVector<QStringList> JavaScriptGenerator::resolveStepRows(
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
         if (def->vertical || step.vertical) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -231,7 +313,7 @@ QVector<QStringList> JavaScriptGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -252,7 +334,7 @@ QVector<QStringList> JavaScriptGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -268,7 +350,7 @@ QVector<QStringList> JavaScriptGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -308,15 +390,27 @@ QVector<QStringList> JavaScriptGenerator::resolveExamplesRows(
 // String class generator
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
+QString JavaScriptGenerator::genStringClass(const AttrSet& as, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
     QString out;
     QTextStream s(&out);
 
+    // A nested Attributes block is held as that block's own String object.
+    QSet<QString> seenImports;
+    for (const Field& f : as.fields) {
+        if (!isAttrSetType(f.type, file)) continue;
+        if (seenImports.contains(f.type.trimmed().toLower())) continue;
+        seenImports.insert(f.type.trimmed().toLower());
+        for (const AttrSet& sub : file.attrSets)
+            if (sub.name.compare(f.type, Qt::CaseInsensitive) == 0)
+                s << "import { " << sub.name << "String } from \"./"
+                  << sub.name << "String.js\";\n";
+    }
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << cn << " {\n";
+    s << "  static DNC_STRING = \"?DNC?\";\n\n";
     s << "  constructor(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
@@ -344,8 +438,55 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
         const QString fn = toCamelCase(as.fields[i].name);
         s << as.fields[i].name << "=${this." << fn << "}";
     }
-    s << "`;\n  }\n";
+    s << "`;\n  }\n\n";
+
+    s << genEqualsMethod(as, cn, file, /*dncAware=*/true);
     s << "}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Value equality. On the String class a field holding the Do-Not-Care marker on
+// either side matches whatever the other side holds — that is what lets a
+// CompareOnly step name only the columns it cares about.
+// ---------------------------------------------------------------------------
+
+QString JavaScriptGenerator::genEqualsMethod(const AttrSet& as, const QString& cn,
+                                              const SpectableFile& file,
+                                              bool dncAware) const
+{
+    QString out;
+    QTextStream s(&out);
+
+    s << "  equals(other) {\n";
+    s << "    if (!(other instanceof " << cn << ")) return false;\n";
+    if (as.fields.isEmpty()) {
+        s << "    return true;\n";
+    } else {
+        s << "    return ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            const Field& f  = as.fields[i];
+            const QString fn = toCamelCase(f.name);
+            if (i) s << "\n      && ";
+            if (isAttrSetType(f.type, file))
+                s << "this." << fn << ".equals(other." << fn << ")";
+            else if (dncAware)
+                s << "(this." << fn << " === " << cn << ".DNC_STRING"
+                  << " || other." << fn << " === " << cn << ".DNC_STRING"
+                  << " || this." << fn << " === other." << fn << ")";
+            else
+                s << "this." << fn << " === other." << fn;
+        }
+        s << ";\n";
+    }
+    s << "  }\n";
+
+    if (dncAware) {
+        s << "\n  static equalLists(a, b) {\n";
+        s << "    if (a.length !== b.length) return false;\n";
+        s << "    return a.every((row, i) => row.equals(b[i]));\n";
+        s << "  }\n";
+    }
     return out;
 }
 
@@ -353,7 +494,7 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
 // Typed class generator
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
+QString JavaScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFile& file) const
 {
     const QString cn   = as.name + "Typed";
     const QString scn  = as.name + "String";
@@ -363,6 +504,17 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
 
     s << "import { " << scn << " } from \"./" << sFile << "\";\n";
     s << "import * as _json from \"./json.js\";\n";
+    // A nested Attributes block is held as that block's own Typed object.
+    QSet<QString> seenTypedImports;
+    for (const Field& f : as.fields) {
+        if (!isAttrSetType(f.type, file)) continue;
+        if (seenTypedImports.contains(f.type.trimmed().toLower())) continue;
+        seenTypedImports.insert(f.type.trimmed().toLower());
+        for (const AttrSet& sub : file.attrSets)
+            if (sub.name.compare(f.type, Qt::CaseInsensitive) == 0)
+                s << "import { " << sub.name << "Typed } from \"./"
+                  << sub.name << "Typed.js\";\n";
+    }
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << cn << " {\n";
@@ -383,7 +535,7 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f  = as.fields[i];
         const QString fn = toCamelCase(f.name);
-        s << "      " << parseExpr(fn, f.type);
+        s << "      " << parseExpr(fn, f.type, &file);
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -447,7 +599,17 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     s << "  static fromJSONList(text) {\n";
     s << "    const raw = _json.asArray(_json.parse(text), \"" << cn << "\");\n";
     s << "    return raw.map((e) => " << cn << ".fromJsonValue(e));\n";
-    s << "  }\n";
+    s << "  }\n\n";
+
+    s << "  toString() {\n";
+    s << "    return `";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        s << as.fields[i].name << "=${this." << toCamelCase(as.fields[i].name) << "}";
+    }
+    s << "`;\n  }\n\n";
+
+    s << genEqualsMethod(as, cn, file, /*dncAware=*/false);
     s << "}\n";
     return out;
 }
@@ -456,14 +618,30 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
 // Common index.js
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets) const
+// Every .spectable in a project generates into the same common folder, and this
+// index is rewritten on each one. Emitting only the current file's AttrSets meant
+// the last file processed erased every class contributed by the others, so the
+// re-export barrel resolved almost nothing. The existing index is therefore
+// merged with the new entries instead of replaced.
+QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets,
+                                             const QString& existing) const
 {
+    QStringList lines;
+    for (const QString& line : existing.split('\n')) {
+        const QString t = line.trimmed();
+        if (t.startsWith("export * from") && !lines.contains(t)) lines << t;
+    }
+    for (const AttrSet& as : attrSets) {
+        for (const QString& l : { QString("export * from \"./%1String.js\";").arg(as.name),
+                                  QString("export * from \"./%1Typed.js\";").arg(as.name) })
+            if (!lines.contains(l)) lines << l;
+    }
+    lines.sort();
+
     QString out;
     QTextStream s(&out);
-    for (const AttrSet& as : attrSets) {
-        s << "export * from \"./" << as.name << "String.js\";\n";
-        s << "export * from \"./" << as.name << "Typed.js\";\n";
-    }
+    s << "export * from \"./json.js\";\n";
+    for (const QString& l : lines) s << l << "\n";
     return out;
 }
 
@@ -652,6 +830,12 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
                     s << "      new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file)) {
+                            s << nestedLiteral(row[ci], fType, file);
+                            continue;
+                        }
                         s << "\"" << jsStringEscape(row[ci]) << "\"";
                     }
                     s << "),\n";
@@ -741,6 +925,12 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
                     s << "      new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file)) {
+                            s << nestedLiteral(row[ci], fType, file);
+                            continue;
+                        }
                         s << "\"" << jsStringEscape(row[ci]) << "\"";
                     }
                     s << "),\n";
@@ -810,7 +1000,9 @@ QVector<JavaScriptGenerator::GlueSig> JavaScriptGenerator::collectGlueSigs(const
     for (const Scenario& sc : file.scenarios) collectSteps(sc.steps);
 
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // A context block belongs to another .spectable and is tested there —
+        // generating a stub for it here produces a method no test ever calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = toMethodName("Examples_" + nb.kind, nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
@@ -1076,12 +1268,22 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(commonDir.filePath(as.name + "String.js"), genStringClass(as), msgs);
-        writeFile(commonDir.filePath(as.name + "Typed.js"),  genTypedClass(as),  msgs);
+        writeFile(commonDir.filePath(as.name + "String.js"), genStringClass(as, augmented), msgs);
+        writeFile(commonDir.filePath(as.name + "Typed.js"),  genTypedClass(as, augmented),  msgs);
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.js"),  genJsonModule(),             msgs);
-    writeFile(commonDir.filePath("index.js"), genCommonIndex(domainSets), msgs);
+    {
+        // Read the existing barrel so classes from the other .spectable files survive.
+        QString existingIndex;
+        QFile xf(commonDir.filePath("index.js"));
+        if (xf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            existingIndex = QTextStream(&xf).readAll();
+            xf.close();
+        }
+        writeFile(commonDir.filePath("index.js"),
+                  genCommonIndex(domainSets, existingIndex), msgs);
+    }
 
     // 2. Test file (always overwritten)
     {

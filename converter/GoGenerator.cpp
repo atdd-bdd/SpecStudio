@@ -47,6 +47,91 @@ static QString goEscape(const QString& s)
 // Type mapping
 // ---------------------------------------------------------------------------
 
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String struct literal.
+QString GoGenerator::goNestedLiteral(const QString& cellValue, const QString& fieldType,
+                                      const SpectableFile& file, const QString& prefix)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+
+        QStringList row(subAs.fields.size());
+        for (int i = 0; i < subAs.fields.size(); ++i)
+            row[i] = subAs.fields[i].defaultValue;
+
+        if (cellValue.startsWith('=')) {
+            const QString defineName = cellValue.mid(1).trimmed();
+            for (const Define& d : file.defines) {
+                if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                break;
+            }
+        }
+        return goStringLiteral(subAs, row, file, prefix);
+    }
+    return "\"" + goEscape(cellValue) + "\"";
+}
+
+// A struct literal for one row, used when the block has a nested-object field
+// and so cannot be built from a flat []string.
+QString GoGenerator::goStringLiteral(const AttrSet& as, const QStringList& row,
+                                      const SpectableFile& file, const QString& prefix)
+{
+    QString expr = prefix + toExported(as.name) + "String{";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) expr += ", ";
+        const QString cell = (i < row.size()) ? row[i] : QString();
+        expr += toExported(as.fields[i].name) + ": ";
+        if (isAttrSetType(as.fields[i].type, file))
+            expr += goNestedLiteral(cell, as.fields[i].type, file, prefix);
+        else
+            expr += "\"" + goEscape(cell) + "\"";
+    }
+    return expr + "}";
+}
+
+bool GoGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The type a field takes inside the common package. A nested Attributes block
+// becomes that block's own Typed struct. A user DataType lives in the
+// production package, which common must not depend on, so its value is carried
+// as text — the glue converts it when it needs the production object.
+QString GoGenerator::goCommonType(const Field& f, const SpectableFile& file)
+{
+    if (isAttrSetType(f.type, file)) return toExported(f.type) + "Typed";
+
+    static const QSet<QString> builtin = {
+        "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
+        "bool", "string", "text", "character", "char", "date", "time",
+        "datetime", "duration"
+    };
+    if (!builtin.contains(f.type.trimmed().toLower())) return "string";
+    return goType(f.type);
+}
+
 QString GoGenerator::goType(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
@@ -164,6 +249,16 @@ QVector<QStringList> GoGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
         if (!def) {
@@ -181,7 +276,7 @@ QVector<QStringList> GoGenerator::resolveStepRows(
         for (int i = 0; i < attrSet->fields.size(); ++i)
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
         if (def->vertical || step.vertical) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -197,7 +292,7 @@ QVector<QStringList> GoGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -218,7 +313,7 @@ QVector<QStringList> GoGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -234,7 +329,7 @@ QVector<QStringList> GoGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -274,7 +369,8 @@ QVector<QStringList> GoGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
-QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg) const
+QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
+                                     const SpectableFile& file) const
 {
     const QString typeName = toExported(as.name) + "String";
     QString out;
@@ -282,14 +378,24 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg) cons
 
     s << "package " << pkg << "\n\nimport \"fmt\"\n\n";
 
+    // A field whose type names another Attributes block holds that block's
+    // String struct, not a bare string.
+    auto fieldType = [&](const Field& f) {
+        return isAttrSetType(f.type, file) ? toExported(f.type) + "String"
+                                          : QString("string");
+    };
+
     s << "type " << typeName << " struct {\n";
     for (const Field& f : as.fields)
-        s << "\t" << toExported(f.name) << " string\n";
+        s << "\t" << toExported(f.name) << " " << fieldType(f) << "\n";
     s << "}\n\n";
 
     s << "func New" << typeName << "FromSlice(v []string) " << typeName << " {\n";
     s << "\ts := " << typeName << "{}\n";
     for (int i = 0; i < as.fields.size(); ++i) {
+        // A nested block cannot come from a flat slice; those rows are built
+        // with a struct literal instead.
+        if (isAttrSetType(as.fields[i].type, file)) continue;
         s << "\tif len(v) > " << i << " { s." << toExported(as.fields[i].name)
           << " = v[" << i << "] }\n";
     }
@@ -299,12 +405,43 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg) cons
     s << "\treturn fmt.Sprintf(\"";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << as.fields[i].name << "=%s";
+        s << as.fields[i].name << (isAttrSetType(as.fields[i].type, file) ? "=%v" : "=%s");
     }
     s << "\"";
     for (const Field& f : as.fields)
         s << ", s." << toExported(f.name);
-    s << ")\n}\n";
+    s << ")\n}\n\n";
+
+    // A field holding the Do-Not-Care marker on either side matches whatever
+    // the other side holds — that is what lets a CompareOnly step name only the
+    // columns it cares about. Use Equals, not ==, to compare rows. DNCEqual
+    // itself lives in common.go, which every String struct shares.
+    s << "func (s " << typeName << ") Equals(o " << typeName << ") bool {\n";
+    if (as.fields.isEmpty()) {
+        s << "\treturn true\n";
+    } else {
+        // Go inserts a semicolon at a line break, so the operator has to stay
+        // at the end of the line rather than starting the next one.
+        s << "\treturn ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << " &&\n\t\t";
+            const QString fn = toExported(as.fields[i].name);
+            // A nested block delegates to its own Equals; the marker is a text
+            // convention and does not apply at that level.
+            if (isAttrSetType(as.fields[i].type, file))
+                s << "s." << fn << ".Equals(o." << fn << ")";
+            else
+                s << "DNCEqual(s." << fn << ", o." << fn << ")";
+        }
+        s << "\n";
+    }
+    s << "}\n\n";
+
+    s << "func Equal" << typeName << "Slices(a, b []" << typeName << ") bool {\n";
+    s << "\tif len(a) != len(b) { return false }\n";
+    s << "\tfor i := range a {\n";
+    s << "\t\tif !a[i].Equals(b[i]) { return false }\n";
+    s << "\t}\n\treturn true\n}\n";
 
     return out;
 }
@@ -518,7 +655,6 @@ func JSONAsObject(v interface{}, ctx string) (map[string]interface{}, error) {
 QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
                                      const SpectableFile& file) const
 {
-    (void)file;
     const QString strType   = toExported(as.name) + "String";
     const QString typedName = toExported(as.name) + "Typed";
     QString out;
@@ -528,7 +664,7 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     // strings. Including bool here emitted an unused import, which Go rejects.
     bool needsStrconv = false;
     for (const Field& f : as.fields) {
-        const QString gt = goType(f.type);
+        const QString gt = goCommonType(f, file);
         if (gt == "int" || gt == "float64") { needsStrconv = true; break; }
     }
 
@@ -537,7 +673,7 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
 
     s << "type " << typedName << " struct {\n";
     for (const Field& f : as.fields) {
-        const QString gt = goType(f.type);
+        const QString gt = goCommonType(f, file);
         s << "\t" << toExported(f.name) << " " << gt << "\n";
     }
     s << "}\n\n";
@@ -546,21 +682,21 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     s << "\tt := " << typedName << "{}\n";
     for (const Field& f : as.fields) {
         const QString fe = toExported(f.name);
-        const QString gt = goType(f.type);
+        const QString gt = goCommonType(f, file);
         const QString sf = "s." + fe;
         if (gt == "int") {
             s << "\tif v, err := strconv.Atoi(" << sf << "); err == nil { t." << fe << " = v }\n";
         } else if (gt == "float64") {
             s << "\tif v, err := strconv.ParseFloat(" << sf << ", 64); err == nil { t." << fe << " = v }\n";
         } else if (gt == "bool") {
-            s << "\tt." << fe << " = " << sf << " == \"true\" || " << sf
-              << " == \"t\" || " << sf << " == \"yes\" || " << sf
-              << " == \"y\" || " << sf << " == \"1\"\n";
+            // A spec writes Yes/No/True/False in any casing, so the comparison
+            // has to be case-insensitive; ParseBoolCell lives in common.go.
+            s << "\tt." << fe << " = ParseBoolCell(" << sf << ")\n";
         } else if (gt == "string") {
             s << "\tt." << fe << " = " << sf << "\n";
         } else {
-            // User-defined DataType — a named string type needs the conversion.
-            s << "\tt." << fe << " = " << gt << "(" << sf << ")\n";
+            // Nested Attributes block — build its own Typed struct.
+            s << "\tt." << fe << " = New" << gt << "FromString(" << sf << ")\n";
         }
     }
     s << "\treturn t\n}\n\n";
@@ -572,12 +708,12 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     s << "\treturn map[string]interface{}{\n";
     for (const Field& f : as.fields) {
         const QString fe = toExported(f.name);
-        const QString gt = goType(f.type);
+        const QString gt = goCommonType(f, file);
         const QString key = toIdentifier(f.name);
         if (gt == "int" || gt == "float64" || gt == "bool" || gt == "string")
             s << "\t\t\"" << key << "\": t." << fe << ",\n";
-        else    // user-defined named string type
-            s << "\t\t\"" << key << "\": string(t." << fe << "),\n";
+        else    // nested Attributes block
+            s << "\t\t\"" << key << "\": t." << fe << ".ToJSONValue(),\n";
     }
     s << "\t}\n}\n\n";
 
@@ -590,9 +726,12 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     s << "\tt := " << typedName << "{}\n";
     for (const Field& f : as.fields) {
         const QString fe  = toExported(f.name);
-        const QString gt  = goType(f.type);
+        const QString gt  = goCommonType(f, file);
         const QString key = toIdentifier(f.name);
-        const QString fn  = (gt == "int")     ? "JSONAsInt"
+        const bool nested = !(gt == "int" || gt == "float64"
+                           || gt == "bool" || gt == "string");
+        const QString fn  = nested            ? "JSONAsObject"
+                          : (gt == "int")     ? "JSONAsInt"
                           : (gt == "float64") ? "JSONAsFloat"
                           : (gt == "bool")    ? "JSONAsBool"
                                               : "JSONAsString";
@@ -600,10 +739,14 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
         s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
         s << "\tval" << fe << ", err := " << fn << "(raw" << fe << ", \"" << key << "\")\n";
         s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
-        if (gt == "int" || gt == "float64" || gt == "bool" || gt == "string")
+        if (!nested) {
             s << "\tt." << fe << " = val" << fe << "\n";
-        else
-            s << "\tt." << fe << " = " << gt << "(val" << fe << ")\n";
+        } else {
+            // Nested Attributes block — read it as its own Typed struct.
+            s << "\tsub" << fe << ", err := New" << gt << "FromJSONValue(val" << fe << ")\n";
+            s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
+            s << "\tt." << fe << " = sub" << fe << "\n";
+        }
     }
     s << "\treturn t, nil\n}\n\n";
 
@@ -675,7 +818,9 @@ QVector<GoGenerator::GlueSig> GoGenerator::collectGlueSigs(const SpectableFile& 
         collectSteps(sc.steps);
 
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // A context block belongs to another .spectable and is tested there —
+        // generating a stub for it here produces a method no test ever calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "Examples" + toExported(nb.kind) + toExported(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
@@ -766,7 +911,7 @@ QString GoGenerator::genGlueFile(const SpectableFile& file, const QString& specP
 
     s << "package " << specPkg << "\n\n";
     s << "import (\n\t\"testing\"\n";
-    if (needsCommon) s << "\t\"" << specPkg << "/common\"\n";
+    if (needsCommon) s << "\t\"" << m_modulePath << "/common\"\n";
     s << ")\n\n";
 
     s << "type " << glueType << " struct {\n\t// Add state fields here\n}\n\n";
@@ -796,17 +941,10 @@ QString GoGenerator::genGlueFile(const SpectableFile& file, const QString& specP
 QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specPkg,
                                   const QString& glueType, QStringList& errors) const
 {
-    bool needsCommon = false;
-    for (const AttrSet& as : file.attrSets)
-        if (!as.isContext && !as.fields.isEmpty()) { needsCommon = true; break; }
-
+    // The body is built first so the import block can be decided from what the
+    // body actually references — Go rejects an import that is not used.
     QString out;
     QTextStream s(&out);
-
-    s << "package " << specPkg << "\n\n";
-    s << "import (\n\t\"testing\"\n";
-    if (needsCommon) s << "\t\"" << specPkg << "/common\"\n";
-    s << ")\n\n";
 
     int objectCounter = 0;
 
@@ -857,8 +995,18 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
                 const QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
                 errors << localErrs;
 
+                // A block with a nested-object field cannot be built from a
+                // flat []string, so those rows use a struct literal instead.
+                bool hasNested = false;
+                for (const Field& f : as->fields)
+                    if (isAttrSetType(f.type, file)) { hasNested = true; break; }
+
                 s << "\t" << listVar << " := []" << listType << "{\n";
                 for (const QStringList& row : rows) {
+                    if (hasNested) {
+                        s << "\t\t" << goStringLiteral(*as, row, file, "common.") << ",\n";
+                        continue;
+                    }
                     s << "\t\tcommon.New" << toExported(effectiveAttrSetName)
                       << "StringFromSlice([]string{";
                     for (int ci = 0; ci < row.size(); ++ci) {
@@ -899,7 +1047,8 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
         const QStringList effTags = file.generatorTags + sc.generatorTags;
         if (!TagFilter::matches(m_tagFilter, effTags)) continue;
 
-        s << "func TestScenario_" << toExported(sc.name) << "(t *testing.T) {\n";
+        s << "func Test" << toExported(file.specName) << "_Scenario_"
+          << toExported(sc.name) << "(t *testing.T) {\n";
         s << "\tglue := New" << glueType << "()\n";
         emitSteps(file.backgroundSteps, "glue");
         emitSteps(sc.steps, "glue");
@@ -922,7 +1071,11 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
             const QStringList effTags = file.generatorTags + nb.generatorTags;
             if (!TagFilter::matches(m_tagFilter, effTags)) continue;
 
-            const QString fn       = "Test" + toExported(kind) + "_" + toExported(nb.name);
+            // Every specification in this directory shares one Go package, so
+            // the specification name has to be part of the test function name
+            // or two files declaring the same DataType would collide.
+            const QString fn = "Test" + toExported(file.specName) + "_"
+                             + toExported(kind) + "_" + toExported(nb.name);
             const QString glueMeth = "Examples" + toExported(kind) + toExported(nb.name);
             const AttrSet* as = nb.examples.attrSetName.isEmpty()
                 ? nullptr : findAttrSet(nb.examples.attrSetName, file);
@@ -967,12 +1120,32 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
         }
     }
 
-    return out;
+    QString header;
+    QTextStream h(&header);
+    h << "package " << specPkg << "\n\n";
+    h << "import (\n\t\"testing\"\n";
+    if (out.contains("common.")) h << "\t\"" << m_modulePath << "/common\"\n";
+    h << ")\n\n";
+    return header + out;
 }
 
 // ---------------------------------------------------------------------------
 // Production generators
 // ---------------------------------------------------------------------------
+
+// A spec field can be named "Type", which lowercases to a Go keyword and will
+// not parse as a parameter name.
+QString GoGenerator::goParamName(const QString& fieldName)
+{
+    static const QSet<QString> keywords = {
+        "break", "case", "chan", "const", "continue", "default", "defer", "else",
+        "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+        "map", "package", "range", "return", "select", "struct", "switch", "type",
+        "var"
+    };
+    const QString id = toIdentifier(fieldName);
+    return keywords.contains(id) ? id + "Value" : id;
+}
 
 QString GoGenerator::genProductionEntity(const AttrSet& as, const QString& pkg) const
 {
@@ -989,13 +1162,13 @@ QString GoGenerator::genProductionEntity(const AttrSet& as, const QString& pkg) 
     s << "func New" << name << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << toIdentifier(as.fields[i].name) << " " << goType(as.fields[i].type);
+        s << goParamName(as.fields[i].name) << " " << goType(as.fields[i].type);
     }
     s << ") *" << name << " {\n";
     s << "\treturn &" << name << "{";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << toExported(as.fields[i].name) << ": " << toIdentifier(as.fields[i].name);
+        s << toExported(as.fields[i].name) << ": " << goParamName(as.fields[i].name);
     }
     s << "}\n}\n";
 
@@ -1076,9 +1249,15 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         return msgs;
     }
 
-    const QString specPkg   = toPackageName(file.specName);
+    const QString specId    = toPackageName(file.specName);   // file-name stem
     const QString glueType  = toExported(file.specName) + "Glue";
     const QString commonPkg = "common";
+
+    // Go allows exactly one package per directory, so the package name comes
+    // from the directory, not from the specification. The module path is the
+    // output root's own name, which is what makes "<module>/common" resolve.
+    m_modulePath = toPackageName(QFileInfo(opts.outputDir).fileName());
+    if (m_modulePath.isEmpty()) m_modulePath = "spectable";
 
     // Derive subfolder from the .spectable file's path relative to sourceRoot
     QString specSubDir;
@@ -1104,6 +1283,21 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
     if (!commonDir.exists() && !commonDir.mkpath(".")) {
         msgs << QString("ERROR:0:Cannot create common directory: %1").arg(commonDir.path());
         return msgs;
+    }
+
+    // The package each generated file declares, taken from its own directory.
+    const QString specPkg = toPackageName(QFileInfo(dir.absolutePath()).fileName());
+
+    // go.mod makes the tree a module so "<module>/common" resolves. Written
+    // once and then left alone, like the other build files.
+    {
+        const QString modPath = QDir(opts.outputDir).filePath("go.mod");
+        if (!QFile::exists(modPath)) {
+            QString mod;
+            QTextStream ms(&mod);
+            ms << "module " << m_modulePath << "\n\ngo 1.21\n";
+            writeFile(modPath, mod, msgs);
+        }
     }
 
     // Copy source .spectable
@@ -1143,9 +1337,21 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
     {
         QString commonGo;
         QTextStream s(&commonGo);
-        s << "package " << commonPkg << "\n\n";
+        s << "package " << commonPkg << "\n\nimport \"strings\"\n\n";
         s << "// Unused suppresses \"imported and not used\" errors during development.\n";
-        s << "var Unused = struct{}{}\n";
+        s << "var Unused = struct{}{}\n\n";
+        s << "// DNCString is the Do-Not-Care marker a CompareOnly step puts in\n";
+        s << "// every column it does not name.\n";
+        s << "const DNCString = \"?DNC?\"\n\n";
+        s << "// DNCEqual compares two cells, treating the marker as a wildcard.\n";
+        s << "func DNCEqual(a, b string) bool {\n";
+        s << "\treturn a == b || a == DNCString || b == DNCString\n}\n\n";
+        s << "// ParseBoolCell reads the Yes/No/True/False text a spec cell may\n";
+        s << "// hold, in any casing.\n";
+        s << "func ParseBoolCell(v string) bool {\n";
+        s << "\tswitch strings.ToLower(strings.TrimSpace(v)) {\n";
+        s << "\tcase \"true\", \"t\", \"yes\", \"y\", \"1\":\n\t\treturn true\n";
+        s << "\t}\n\treturn false\n}\n";
         writeFile(commonDir.filePath("common.go"), commonGo, msgs);
     }
 
@@ -1161,7 +1367,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         }
         const QString mid = toIdentifier(as.name);
         writeFile(commonDir.filePath(mid + "_string.go"),
-                  genStringStruct(as, commonPkg), msgs);
+                  genStringStruct(as, commonPkg, augmented), msgs);
         writeFile(commonDir.filePath(mid + "_typed.go"),
                   genTypedStruct(as, commonPkg, augmented), msgs);
     }
@@ -1174,12 +1380,12 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(dir.filePath("test_" + specPkg + ".go"), testContent, msgs);
+            writeFile(dir.filePath(specId + "_test.go"), testContent, msgs);
     }
 
     // Glue file
     {
-        const QString gluePath = dir.filePath(specPkg + "_glue.go");
+        const QString gluePath = dir.filePath(specId + "_glue.go");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specPkg, glueType), msgs);
         } else {
@@ -1191,8 +1397,11 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
 
     // Production classes
     if (opts.createProductionClasses && !opts.productionClassesDir.isEmpty()) {
+        // Go resolves an import by directory, so the package has to be named
+        // after the folder the files land in.
         const QString prodPkg = opts.productionClassesPackage.isEmpty()
-                                ? "domain" : opts.productionClassesPackage;
+            ? toPackageName(QFileInfo(opts.productionClassesDir).fileName())
+            : opts.productionClassesPackage;
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 

@@ -48,6 +48,8 @@ private:
     static const Define*  findDefine(const QString& name, const SpectableFile& file);
 
     // File generators
+    QString genEqualityMembers(const AttrSet& as, const QString& cn,
+                               const SpectableFile& file, bool dncAware) const;
     QString genStringClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const;
     QString genTypedClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const;
     QString genTestFile(const SpectableFile& file, const QString& ns,

@@ -58,6 +58,88 @@ QString CppGenerator::cppType(const QString& specType)
     return specType.trimmed();
 }
 
+bool CppGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The type a field takes inside the common headers. A nested Attributes block
+// becomes that block's own Typed struct. A user DataType lives in the production
+// folder, which common must not depend on, so its value is carried as text.
+QString CppGenerator::cppCommonType(const Field& f, const SpectableFile& file)
+{
+    if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
+
+    static const QSet<QString> builtin = {
+        "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
+        "bool", "string", "text", "character", "char", "date", "time",
+        "datetime", "duration"
+    };
+    if (!builtin.contains(f.type.trimmed().toLower())) return "std::string";
+    return cppType(f.type);
+}
+
+// A cell for a nested-object field is written "=SomeDefine"; expand that define
+// against the nested Attributes block and build its String struct literal.
+QString CppGenerator::nestedLiteral(const QString& cellValue, const QString& fieldType,
+                                    const SpectableFile& file)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+
+        QStringList row(subAs.fields.size());
+        for (int i = 0; i < subAs.fields.size(); ++i)
+            row[i] = subAs.fields[i].defaultValue;
+
+        if (cellValue.startsWith('=')) {
+            const QString defineName = cellValue.mid(1).trimmed();
+            for (const Define& d : file.defines) {
+                if (d.name.compare(defineName, Qt::CaseInsensitive) != 0 || !d.isTable)
+                    continue;
+                QMap<QString, int> fieldIdx;
+                for (int i = 0; i < subAs.fields.size(); ++i)
+                    fieldIdx[subAs.fields[i].name.toLower()] = i;
+                if (d.vertical) {
+                    for (const QStringList& r : d.tableRows) {
+                        if (r.size() < 2) continue;
+                        if (fieldIdx.contains(r[0].toLower()))
+                            row[fieldIdx[r[0].toLower()]] = r[1];
+                    }
+                } else if (d.tableRows.size() >= 2) {
+                    const QStringList& hdrs = d.tableRows[0];
+                    QVector<int> colMap;
+                    for (const QString& h : hdrs)
+                        colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
+                    const QStringList& dr = d.tableRows[1];
+                    for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
+                        if (colMap[ci] >= 0) row[colMap[ci]] = dr[ci];
+                }
+                break;
+            }
+        }
+        return stringLiteral(subAs, row, file);
+    }
+    return "std::string(\"" + cppEscape(cellValue) + "\")";
+}
+
+// A braced initializer for one row, used when the block has a nested-object field.
+QString CppGenerator::stringLiteral(const AttrSet& as, const QStringList& row,
+                                    const SpectableFile& file)
+{
+    QString expr = toTypeName(as.name) + "String{";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) expr += ", ";
+        const QString cell = (i < row.size()) ? row[i] : QString();
+        if (isAttrSetType(as.fields[i].type, file))
+            expr += nestedLiteral(cell, as.fields[i].type, file);
+        else
+            expr += "\"" + cppEscape(cell) + "\"";
+    }
+    return expr + "}";
+}
+
 QString CppGenerator::parseExpr(const QString& field, const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
@@ -66,7 +148,9 @@ QString CppGenerator::parseExpr(const QString& field, const QString& specType)
     if (t == "float" || t == "decimal" || t == "scientific")
         return QString("!s.%1.empty() ? std::stod(s.%1) : 0.0").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
-        return QString("(s.%1 == \"true\" || s.%1 == \"t\" || s.%1 == \"yes\" || s.%1 == \"y\" || s.%1 == \"1\")").arg(field);
+        // A spec writes Yes/No/True/False in any casing, so the comparison has
+        // to be case-insensitive; parse_bool_cell lives in the String header.
+        return QString("parse_bool_cell(s.%1)").arg(field);
     if (t == "string" || t == "text" || t == "character" || t == "char"
      || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
         return QString("s.%1").arg(field);
@@ -165,6 +249,16 @@ QVector<QStringList> CppGenerator::resolveStepRows(
 
     const int fieldCount = attrSet->fields.size();
 
+    // A column the table leaves out takes the field's Default, or the
+    // Do-Not-Care marker when the step is CompareOnly.
+    auto initRow = [&]() {
+        QStringList row(fieldCount);
+        for (int i = 0; i < fieldCount; ++i)
+            row[i] = step.compareOnly ? QStringLiteral("?DNC?")
+                                      : attrSet->fields[i].defaultValue;
+        return row;
+    };
+
     if (!step.defineRef.isEmpty()) {
         const Define* def = findDefine(step.defineRef, file);
         if (!def) {
@@ -184,7 +278,7 @@ QVector<QStringList> CppGenerator::resolveStepRows(
             fieldIdx[attrSet->fields[i].name.toLower()] = i;
 
         if (def->vertical || step.vertical) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const int start = def->vertical ? 1 : 0;
             for (int ri = start; ri < def->tableRows.size(); ++ri) {
                 const QStringList& r = def->tableRows[ri];
@@ -200,7 +294,7 @@ QVector<QStringList> CppGenerator::resolveStepRows(
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
-                QStringList row(fieldCount);
+                QStringList row = initRow();
                 const QStringList& dr = def->tableRows[ri];
                 for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                     if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -221,7 +315,7 @@ QVector<QStringList> CppGenerator::resolveStepRows(
         for (const QStringList& r : step.table.rows)
             if (r.size() > numCols) numCols = r.size();
         for (int col = 1; col < numCols; ++col) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             for (const QStringList& r : step.table.rows) {
                 if (r.size() < 2) continue;
                 const QString key = r[0].toLower();
@@ -237,7 +331,7 @@ QVector<QStringList> CppGenerator::resolveStepRows(
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
-            QStringList row(fieldCount);
+            QStringList row = initRow();
             const QStringList& dr = step.table.rows[ri];
             for (int ci = 0; ci < colMap.size() && ci < dr.size(); ++ci)
                 if (colMap[ci] >= 0) row[colMap[ci]] = resolveValue(dr[ci], file);
@@ -281,30 +375,64 @@ QVector<QStringList> CppGenerator::resolveExamplesRows(
 // String header generator
 // ---------------------------------------------------------------------------
 
-QString CppGenerator::genStringHeader(const AttrSet& as) const
+QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& file) const
 {
     const QString typeName = toTypeName(as.name) + "String";
     QString out;
     QTextStream s(&out);
 
     s << "#pragma once\n";
+    s << "#include <cctype>\n";
     s << "#include <string>\n";
     s << "#include <vector>\n";
     s << "#include <sstream>\n";
+    // A nested Attributes block is held as that block's own String struct.
+    QSet<QString> seenIncludes;
+    for (const Field& f : as.fields) {
+        if (!isAttrSetType(f.type, file)) continue;
+        if (seenIncludes.contains(f.type.trimmed().toLower())) continue;
+        seenIncludes.insert(f.type.trimmed().toLower());
+        s << "#include \"" << toIdentifier(f.type) << "_string.h\"\n";
+    }
     for (const QString& inc : m_extraIncludes) s << inc << "\n";
     s << "\n";
 
+    // The Do-Not-Care marker a CompareOnly step puts in every column it does not
+    // name. Guarded because every String header defines it.
+    s << "#ifndef SPECTABLE_DNC_STRING\n";
+    s << "#define SPECTABLE_DNC_STRING\n";
+    s << "inline const std::string DNCString = \"?DNC?\";\n";
+    s << "inline bool dnc_equal(const std::string& a, const std::string& b) {\n";
+    s << "    return a == b || a == DNCString || b == DNCString;\n";
+    s << "}\n";
+    s << "// Reads the Yes/No/True/False text a spec cell may hold, in any casing.\n";
+    s << "inline bool parse_bool_cell(const std::string& v) {\n";
+    s << "    std::string t;\n";
+    s << "    for (char c : v) t += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));\n";
+    s << "    return t == \"true\" || t == \"t\" || t == \"yes\" || t == \"y\" || t == \"1\";\n";
+    s << "}\n";
+    s << "#endif\n\n";
+
+    auto fieldType = [&](const Field& f) {
+        return isAttrSetType(f.type, file) ? toTypeName(f.type) + "String"
+                                          : QString("std::string");
+    };
+
     s << "struct " << typeName << " {\n";
     for (const Field& f : as.fields)
-        s << "    std::string " << toIdentifier(f.name) << ";\n";
+        s << "    " << fieldType(f) << " " << toIdentifier(f.name) << ";\n";
     s << "\n";
 
     // from_vec factory
     s << "    static " << typeName << " from_vec(const std::vector<std::string>& v) {\n";
     s << "        " << typeName << " obj;\n";
-    for (int i = 0; i < as.fields.size(); ++i)
+    for (int i = 0; i < as.fields.size(); ++i) {
+        // A nested block cannot come from a flat vector; those rows are built
+        // with a braced initializer instead.
+        if (isAttrSetType(as.fields[i].type, file)) continue;
         s << "        if (v.size() > " << i << ") obj." << toIdentifier(as.fields[i].name)
           << " = v[" << i << "];\n";
+    }
     s << "        return obj;\n";
     s << "    }\n\n";
 
@@ -313,10 +441,35 @@ QString CppGenerator::genStringHeader(const AttrSet& as) const
     s << "        std::ostringstream ss;\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << "        ss << \", \";\n";
-        s << "        ss << \"" << as.fields[i].name << "=\" << " << toIdentifier(as.fields[i].name) << ";\n";
+        const QString fid = toIdentifier(as.fields[i].name);
+        s << "        ss << \"" << as.fields[i].name << "=\" << ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << fid << ".to_string();\n";
+        else
+            s << fid << ";\n";
     }
     s << "        return ss.str();\n";
+    s << "    }\n\n";
+
+    // A field holding the marker on either side matches whatever the other side
+    // holds; a nested block delegates to its own comparison.
+    s << "    bool operator==(const " << typeName << "& o) const {\n";
+    if (as.fields.isEmpty()) {
+        s << "        return true;\n";
+    } else {
+        s << "        return ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << "\n            && ";
+            const QString fid = toIdentifier(as.fields[i].name);
+            if (isAttrSetType(as.fields[i].type, file))
+                s << fid << " == o." << fid;
+            else
+                s << "dnc_equal(" << fid << ", o." << fid << ")";
+        }
+        s << ";\n";
+    }
     s << "    }\n";
+    s << "    bool operator!=(const " << typeName << "& o) const { return !(*this == o); }\n";
     s << "};\n";
 
     return out;
@@ -326,7 +479,7 @@ QString CppGenerator::genStringHeader(const AttrSet& as) const
 // Typed header generator
 // ---------------------------------------------------------------------------
 
-QString CppGenerator::genTypedHeader(const AttrSet& as) const
+QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& file) const
 {
     const QString strName   = toTypeName(as.name) + "String";
     const QString typedName = toTypeName(as.name) + "Typed";
@@ -339,12 +492,20 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     s << "#include <vector>\n";
     s << "#include \"json.h\"\n";
     s << "#include \"" << strFile << "\"\n";
+    // A nested Attributes block is held as that block's own Typed struct.
+    QSet<QString> seenTypedIncludes;
+    for (const Field& f : as.fields) {
+        if (!isAttrSetType(f.type, file)) continue;
+        if (seenTypedIncludes.contains(f.type.trimmed().toLower())) continue;
+        seenTypedIncludes.insert(f.type.trimmed().toLower());
+        s << "#include \"" << toIdentifier(f.type) << "_typed.h\"\n";
+    }
     for (const QString& inc : m_extraIncludes) s << inc << "\n";
     s << "\n";
 
     s << "struct " << typedName << " {\n";
     for (const Field& f : as.fields) {
-        const QString ct = cppType(f.type);
+        const QString ct = cppCommonType(f, file);
         s << "    " << ct << " " << toIdentifier(f.name);
         // default value
         const QString tl = f.type.trimmed().toLower();
@@ -363,7 +524,12 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     s << "        " << typedName << " t;\n";
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
-        const QString expr = parseExpr(fid, f.type);
+        const QString ct   = cppCommonType(f, file);
+        // A nested Attributes block builds its own Typed struct; a user DataType
+        // is carried as text, so only the built-ins go through parseExpr.
+        const QString expr = isAttrSetType(f.type, file)
+            ? QString("%1::from_string_struct(s.%2)").arg(ct, fid)
+            : (ct == "std::string" ? QString("s.%1").arg(fid) : parseExpr(fid, f.type));
         s << "        t." << fid << " = " << expr << ";\n";
     }
     s << "        return t;\n";
@@ -375,7 +541,12 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     s << "        json::Members m;\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        s << "        m.emplace_back(\"" << fid << "\", json::Convert<" << cppType(f.type)
+        if (isAttrSetType(f.type, file)) {
+            // Nested Attributes block — written as a nested object.
+            s << "        m.emplace_back(\"" << fid << "\", " << fid << ".to_json_value());\n";
+            continue;
+        }
+        s << "        m.emplace_back(\"" << fid << "\", json::Convert<" << cppCommonType(f, file)
           << ">::to_json(" << fid << "));\n";
     }
     s << "        return json::Value::make_object(std::move(m));\n";
@@ -387,7 +558,13 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     s << "        " << typedName << " t;\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        s << "        t." << fid << " = json::Convert<" << cppType(f.type)
+        if (isAttrSetType(f.type, file)) {
+            // Nested Attributes block — read as its own Typed struct.
+            s << "        t." << fid << " = " << cppCommonType(f, file)
+              << "::from_json_value(json::require(v, \"" << fid << "\"));\n";
+            continue;
+        }
+        s << "        t." << fid << " = json::Convert<" << cppCommonType(f, file)
           << ">::from_json(json::require(v, \"" << fid << "\"), \"" << fid << "\");\n";
     }
     s << "        return t;\n";
@@ -410,7 +587,22 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
     s << "        for (const json::Value& e : v.elements())\n";
     s << "            result.push_back(from_json_value(e));\n";
     s << "        return result;\n";
+    s << "    }\n\n";
+
+    s << "    bool operator==(const " << typedName << "& o) const {\n";
+    if (as.fields.isEmpty()) {
+        s << "        return true;\n";
+    } else {
+        s << "        return ";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << "\n            && ";
+            const QString fid = toIdentifier(as.fields[i].name);
+            s << fid << " == o." << fid;
+        }
+        s << ";\n";
+    }
     s << "    }\n";
+    s << "    bool operator!=(const " << typedName << "& o) const { return !(*this == o); }\n";
     s << "};\n";
 
     return out;
@@ -420,17 +612,33 @@ QString CppGenerator::genTypedHeader(const AttrSet& as) const
 // Common aggregate header
 // ---------------------------------------------------------------------------
 
-QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets) const
+// Every .spectable in a project generates into the same common folder, and this
+// aggregate header is rewritten on each one. Emitting only the current file's
+// AttrSets meant the last file processed erased every struct contributed by the
+// others. The existing header is therefore merged with the new entries.
+QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets,
+                                      const QString& existing) const
 {
+    QStringList includes;
+    for (const QString& line : existing.split('\n')) {
+        const QString t = line.trimmed();
+        if (t.startsWith("#include \"") && t != "#include \"json.h\""
+         && !includes.contains(t))
+            includes << t;
+    }
+    for (const AttrSet& as : attrSets) {
+        const QString id = toIdentifier(as.name);
+        for (const QString& l : { QString("#include \"%1_string.h\"").arg(id),
+                                  QString("#include \"%1_typed.h\"").arg(id) })
+            if (!includes.contains(l)) includes << l;
+    }
+    includes.sort();
+
     QString out;
     QTextStream s(&out);
     s << "#pragma once\n";
     s << "#include \"json.h\"\n";
-    for (const AttrSet& as : attrSets) {
-        const QString id = toIdentifier(as.name);
-        s << "#include \"" << id << "_string.h\"\n";
-        s << "#include \"" << id << "_typed.h\"\n";
-    }
+    for (const QString& l : includes) s << l << "\n";
     return out;
 }
 
@@ -934,9 +1142,21 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
     int objectCounter = 0;
     const QString specClass = toTypeName(file.specName);
 
-    auto emitStrVec = [&](const QString& listType, const QVector<QStringList>& rows) {
+    // A block with a nested-object field cannot be built from a flat vector, so
+    // those rows use a braced initializer instead.
+    auto emitStrVec = [&](const QString& listType, const QVector<QStringList>& rows,
+                          const AttrSet* as) {
+        bool hasNested = false;
+        if (as)
+            for (const Field& f : as->fields)
+                if (isAttrSetType(f.type, file)) { hasNested = true; break; }
+
         s << "    std::vector<" << listType << "> objectList" << (++objectCounter) << " = {\n";
         for (const QStringList& row : rows) {
+            if (hasNested) {
+                s << "        " << stringLiteral(*as, row, file) << ",\n";
+                continue;
+            }
             s << "        " << listType << "::from_vec({";
             for (int ci = 0; ci < row.size(); ++ci) {
                 if (ci) s << ", ";
@@ -1002,7 +1222,7 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
                 errors << localErrs;
                 const QString listType = toTypeName(effectiveAttrSetName) + "String";
                 const int idx = objectCounter + 1;
-                emitStrVec(listType, rows);
+                emitStrVec(listType, rows, as);
                 s << "    " << glueVar << "." << meth << "(objectList" << idx << ");\n\n";
             } else {
                 const StepTable& tbl = step.table;
@@ -1064,7 +1284,7 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
                 const QVector<QStringList> rows = resolveExamplesRows(nb, as);
                 const QString listType = toTypeName(nb.examples.attrSetName) + "String";
                 const int idx = objectCounter + 1;
-                emitStrVec(listType, rows);
+                emitStrVec(listType, rows, as);
                 s << "    glue." << glueFn << "(objectList" << idx << ");\n";
             } else {
                 const QVector<QStringList> rows = resolveExamplesRows(nb, nullptr);
@@ -1117,7 +1337,9 @@ QVector<CppGenerator::GlueSig> CppGenerator::collectGlueSigs(const SpectableFile
         collectSteps(sc.steps);
 
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // A context block belongs to another .spectable and is tested there —
+        // generating a stub for it here produces a method no test ever calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "examples_" + nb.kind.toLower() + "_" + toIdentifier(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
@@ -1460,12 +1682,22 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
             continue;
         }
         const QString id = toIdentifier(as.name);
-        writeFile(commonDir.filePath(id + "_string.h"), genStringHeader(as), msgs);
-        writeFile(commonDir.filePath(id + "_typed.h"),  genTypedHeader(as),  msgs);
+        writeFile(commonDir.filePath(id + "_string.h"), genStringHeader(as, augmented), msgs);
+        writeFile(commonDir.filePath(id + "_typed.h"),  genTypedHeader(as, augmented),  msgs);
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.h"),   genJsonHeader(),                 msgs);
-    writeFile(commonDir.filePath("common.h"), genCommonHeader(domainSets), msgs);
+    {
+        // Read the existing header so structs from the other .spectable files survive.
+        QString existingCommon;
+        QFile cf(commonDir.filePath("common.h"));
+        if (cf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            existingCommon = QTextStream(&cf).readAll();
+            cf.close();
+        }
+        writeFile(commonDir.filePath("common.h"),
+                  genCommonHeader(domainSets, existingCommon), msgs);
+    }
 
     // Test file (always overwritten)
     {

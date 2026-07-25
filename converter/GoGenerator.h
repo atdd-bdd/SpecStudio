@@ -23,12 +23,20 @@ public:
 private:
     QStringList m_extraImports;
     QString     m_tagFilter;
+    QString     m_modulePath;   // go.mod module name; prefixes the common import
 
     static QString goType(const QString& specType);
+    static bool    isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString goCommonType(const Field& f, const SpectableFile& file);
+    static QString goNestedLiteral(const QString& cellValue, const QString& fieldType,
+                                   const SpectableFile& file, const QString& prefix);
+    static QString goStringLiteral(const AttrSet& as, const QStringList& row,
+                                   const SpectableFile& file, const QString& prefix);
     static QString toIdentifier(const QString& name);   // snake_case
     static QString toExported(const QString& name);     // PascalCase
     static QString toMethodName(const QString& keyword, const QString& stepText); // PascalCase
     static QString toPackageName(const QString& name);  // lowercase no-separator
+    static QString goParamName(const QString& fieldName); // avoids Go keywords
 
     static bool    isDataType(const QString& name, const SpectableFile& file);
     static bool    isCollectionType(const QString& name, const SpectableFile& file);
@@ -44,7 +52,8 @@ private:
     static QVector<QStringList> resolveExamplesRows(
         const NamedBlock& nb, const AttrSet* as);
 
-    QString genStringStruct(const AttrSet& as, const QString& pkg) const;
+    QString genStringStruct(const AttrSet& as, const QString& pkg,
+                            const SpectableFile& file) const;
     QString genTypedStruct(const AttrSet& as, const QString& pkg,
                            const SpectableFile& file) const;
     QString genCommonGo(const QString& pkg) const;

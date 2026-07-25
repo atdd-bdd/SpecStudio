@@ -41,8 +41,14 @@ private:
     static QVector<QStringList> resolveExamplesRows(
         const NamedBlock& nb, const AttrSet* as);
 
-    QString genStringStruct(const AttrSet& as) const;
-    QString genTypedStruct(const AttrSet& as) const;
+    static bool    isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString swiftCommonType(const Field& f, const SpectableFile& file);
+    static QString nestedLiteral(const QString& cellValue, const QString& fieldType,
+                                 const SpectableFile& file);
+    static QString stringLiteral(const AttrSet& as, const QStringList& row,
+                                 const SpectableFile& file);
+    QString genStringStruct(const AttrSet& as, const SpectableFile& file) const;
+    QString genTypedStruct(const AttrSet& as, const SpectableFile& file) const;
     QString genTestFile(const SpectableFile& file, const QString& className,
                         const QString& glueClass, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;
