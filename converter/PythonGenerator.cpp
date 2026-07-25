@@ -820,7 +820,9 @@ QVector<PythonGenerator::GlueSig> PythonGenerator::collectGlueSigs(const Spectab
         collectSteps(sc.steps);
 
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // Context blocks belong to another .spectable and are tested there.
+        // Emitting stubs for them here produced glue methods no test calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "examples_" + nb.kind + "_" + toTypeName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);

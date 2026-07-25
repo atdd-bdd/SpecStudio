@@ -61,7 +61,8 @@ QString CSharpGenerator::csharpType(const QString& specType)
 }
 
 // Produce the expression used inside To<Name>Typed() to convert one field
-QString CSharpGenerator::parseExpr(const QString& field, const QString& specType)
+QString CSharpGenerator::parseExpr(const QString& field, const QString& specType,
+                                   const SpectableFile* file)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")     return QString("int.Parse(this.%1)").arg(field);
@@ -147,6 +148,36 @@ static QString collectionElementType(const QString& name, const SpectableFile& f
     for (const Collection& c : file.collections)
         if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
     return {};
+}
+
+// A field whose type is another Attributes/Entity block. Such a field is
+// carried as <Name>String / <Name>Typed, exactly as JavaGenerator does it -
+// not as a user DataType constructed from a string.
+static bool isAttrSetType(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// Field type inside the *String class: everything is a string except a nested
+// AttributeSet, which is that block's own String class.
+static QString stringFieldType(const Field& f, const SpectableFile& file)
+{
+    return isAttrSetType(f.type, file) ? f.type.trimmed() + "String" : QString("string");
+}
+
+// Field type inside the *Typed class.
+static QString typedFieldType(const Field& f, const SpectableFile& file)
+{
+    if (isCollectionType(f.type, file)) {
+        const QString elem = collectionElementType(f.type, file);
+        const QString inner = isAttrSetType(elem, file) ? elem + "Typed"
+                                                        : CSharpGenerator::csharpType(elem);
+        return "List<" + inner + ">";
+    }
+    if (isAttrSetType(f.type, file)) return f.type.trimmed() + "Typed";
+    return CSharpGenerator::csharpType(f.type);
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +353,7 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
 // String class generator
 // ---------------------------------------------------------------------------
 
-QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) const
+QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
     QString out;
@@ -342,7 +373,7 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     s << "        public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << "string " << toCamelCase(as.fields[i].name);
+        s << stringFieldType(as.fields[i], file) << " " << toCamelCase(as.fields[i].name);
     }
     s << ")\n        {\n";
     for (const Field& f : as.fields)
@@ -355,7 +386,7 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
     s << "            return new " << tn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f = as.fields[i];
-        const QString expr = parseExpr(toCamelCase(f.name), f.type);
+        const QString expr = parseExpr(toCamelCase(f.name), f.type, &file);
         s << "                " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
@@ -545,7 +576,7 @@ static QString genCSharpJsonClass(const QString& ns, const QStringList& extraImp
 // Typed class generator
 // ---------------------------------------------------------------------------
 
-QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) const
+QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const
 {
     const QString cn = as.name + "Typed";
     QString out;
@@ -925,7 +956,9 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
 
     // Named blocks — emit ExamplesBusinessRule_*, ExamplesCalculation_*, ExamplesDataType_*
     for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.hasExamples) continue;
+        // Context blocks belong to another .spectable and are tested there.
+        // Emitting stubs for them here produced glue methods no test calls.
+        if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "Examples_" + nb.kind + "_" + toClassName(nb.name);
         if (seen.contains(meth)) continue;
         seen.insert(meth);
@@ -1353,8 +1386,8 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
             continue;
         }
 
-        writeFile(commonDir.filePath(as.name + "String.cs"), genStringClass(as, commonNs), msgs);
-        writeFile(commonDir.filePath(as.name + "Typed.cs"),  genTypedClass(as, commonNs),  msgs);
+        writeFile(commonDir.filePath(as.name + "String.cs"), genStringClass(as, commonNs, augmented), msgs);
+        writeFile(commonDir.filePath(as.name + "Typed.cs"),  genTypedClass(as, commonNs, augmented),  msgs);
     }
 
     // 2. Unit test file (always overwritten, but only if no errors)
