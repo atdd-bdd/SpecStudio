@@ -1031,6 +1031,10 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
     s << "    using System;\n";
     s << "    using System.Collections.Generic;\n";
     s << "    using " << m_commonNs << ";\n";
+    // The namespace import is what makes the qualified `Assert.Fail(...)` in
+    // the generated stubs compile; the static import additionally allows the
+    // unqualified `Fail(...)` / `AreEqual(...)` that hand-written glue uses.
+    s << "    using Microsoft.VisualStudio.TestTools.UnitTesting;\n";
     s << "    using static Microsoft.VisualStudio.TestTools.UnitTesting.Assert;\n";
     for (const QString& u : m_extraImports) s << "    " << u << "\n";
     s << "\n";
@@ -1248,6 +1252,18 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
     m_commonNs     = joinNs(opts.nsPrefix, "common");
+
+    // Typed classes name production DataTypes (SimpleText, Dollar, ...) directly,
+    // so the production namespace has to be in scope or nothing compiles. Java
+    // injects the equivalent import; C# was missing it entirely.
+    if (opts.createProductionClasses) {
+        const QString prodNs = opts.productionClassesNamespace.isEmpty()
+                             ? joinNs(opts.nsPrefix, "domain")
+                             : opts.productionClassesNamespace;
+        const QString prodUsing = "using " + prodNs + ";";
+        if (!prodNs.isEmpty() && !m_extraImports.contains(prodUsing))
+            m_extraImports.prepend(prodUsing);
+    }
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
