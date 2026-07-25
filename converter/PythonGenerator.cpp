@@ -446,17 +446,29 @@ QString PythonGenerator::genTypedClass(const AttrSet& as) const
 // common/__init__.py
 // ---------------------------------------------------------------------------
 
-QString PythonGenerator::genCommonInit(const QVector<AttrSet>& attrSets) const
+// Every .spectable in a project generates into the same common/ package, and
+// this index is rewritten on each one. Emitting only the current file's
+// AttrSets meant the last file processed erased every class contributed by the
+// others, so `from common import *` resolved almost nothing. The existing
+// index is therefore merged with the new entries instead of replaced.
+QString PythonGenerator::genCommonInit(const QVector<AttrSet>& attrSets,
+                                        const QString& existing) const
 {
-    QString out;
-    QTextStream s(&out);
+    QStringList lines;
+    for (const QString& line : existing.split('\n')) {
+        const QString t = line.trimmed();
+        if (!t.isEmpty() && !lines.contains(t)) lines << t;
+    }
     for (const AttrSet& as : attrSets) {
         const QString cn  = toTypeName(as.name);
         const QString mod = toModuleName(as.name);
-        s << "from ." << mod << "_string import " << cn << "String\n";
-        s << "from ." << mod << "_typed import "  << cn << "Typed\n";
+        const QString a = QString("from .%1_string import %2String").arg(mod, cn);
+        const QString b = QString("from .%1_typed import %2Typed").arg(mod, cn);
+        if (!lines.contains(a)) lines << a;
+        if (!lines.contains(b)) lines << b;
     }
-    return out;
+    lines.sort();
+    return lines.join('\n') + "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -1102,7 +1114,14 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json_util.py"), genJsonUtil(),               msgs);
-    writeFile(commonDir.filePath("__init__.py"),  genCommonInit(domainSets), msgs);
+    {
+        const QString initPath = commonDir.filePath("__init__.py");
+        QString existing;
+        QFile ef(initPath);
+        if (ef.open(QIODevice::ReadOnly | QIODevice::Text))
+            existing = QTextStream(&ef).readAll();
+        writeFile(initPath, genCommonInit(domainSets, existing), msgs);
+    }
 
     // Test file (always overwritten)
     {

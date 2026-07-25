@@ -49,7 +49,7 @@ private:
     // File generators
     QString genStringClass(const AttrSet& as) const;
     QString genTypedClass(const AttrSet& as) const;
-    QString genCommonInit(const QVector<AttrSet>& attrSets) const;
+    QString genCommonInit(const QVector<AttrSet>& attrSets, const QString& existing) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueClass, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;
