@@ -1290,8 +1290,12 @@ static QString genGridConverter(const QString& dataType, const SpectableFile& fi
     return out;
 }
 
+// extraImports matters here: a grid over a user DataType emits
+// `new IDForm(cell)`, and without `import production.*;` the file does not
+// compile. Every other file in common/ already receives these imports.
 static QString genTableHelperClass(const QVector<JavaGenerator::GlueSig>& sigs,
-                                    const QString& pkg, const SpectableFile& file)
+                                    const QString& pkg, const SpectableFile& file,
+                                    const QStringList& extraImports)
 {
     QSet<QString> seen;
     QStringList methods;
@@ -1308,7 +1312,9 @@ static QString genTableHelperClass(const QVector<JavaGenerator::GlueSig>& sigs,
     QTextStream s(&out);
     s << "package " << pkg << ";\n\n";
     s << "import java.util.ArrayList;\n";
-    s << "import java.util.List;\n\n";
+    s << "import java.util.List;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
     s << "public class TableHelper {\n";
     for (const QString& m : methods)
         s << "\n" << m;
@@ -2468,7 +2474,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     // Generate TableHelper.java in common/ with toListListXxx static converters
     {
         const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-        const QString helperContent = genTableHelperClass(sigs, domainPkg, augmented);
+        const QString helperContent = genTableHelperClass(sigs, domainPkg, augmented, m_extraImports);
         if (!helperContent.isEmpty())
             writeFile(domainDir.filePath("TableHelper.java"), helperContent, msgs);
     }
