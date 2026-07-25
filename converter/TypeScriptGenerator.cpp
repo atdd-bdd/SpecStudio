@@ -1,4 +1,4 @@
-#include "JavaScriptGenerator.h"
+#include "TypeScriptGenerator.h"
 #include "TagFilter.h"
 #include "SourceScan.h"
 
@@ -54,18 +54,41 @@ static QString jsStringEscape(const QString& s)
 // Type helpers
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::jsDefaultValue(const QString& specType)
+QString TypeScriptGenerator::tsDefaultValue(const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")        return "0";
     if (t == "float"   || t == "decimal" || t == "scientific")    return "0.0";
     if (t == "boolean" || t == "yesno"
      || t == "bool")                         return "false";
-    // strings, date/time, user-defined
-    return "\"\"";
+    // strings and date/time
+    if (t == "string" || t == "text" || t == "character" || t == "char"
+     || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
+        return "\"\"";
+    // User-defined DataType — no sensible literal default, so require the
+    // caller to pass one rather than inventing a value of the wrong type.
+    return {};
 }
 
-QString JavaScriptGenerator::parseExpr(const QString& field, const QString& specType)
+// Spec type → TypeScript type. Unlike the JavaScript target, these annotations
+// are what make the String/Typed split mean something: the compiler enforces
+// that a Typed field really holds the converted value.
+QString TypeScriptGenerator::tsType(const QString& specType)
+{
+    const QString t = specType.trimmed().toLower();
+    if (t == "integer" || t == "int" || t == "float"
+     || t == "decimal" || t == "scientific")                      return "number";
+    if (t == "boolean" || t == "yesno" || t == "bool")            return "boolean";
+    if (t == "string"  || t == "text"
+     || t == "character" || t == "char")                          return "string";
+    // date/time/datetime/duration are carried as strings, matching the other
+    // targets that avoid a date library.
+    if (t == "date" || t == "time" || t == "datetime" || t == "duration") return "string";
+    // User-defined DataType — emitted by name; the project supplies the class.
+    return specType.trimmed();
+}
+
+QString TypeScriptGenerator::parseExpr(const QString& field, const QString& specType)
 {
     const QString t = specType.trimmed().toLower();
     if (t == "integer" || t == "int")
@@ -85,7 +108,7 @@ QString JavaScriptGenerator::parseExpr(const QString& field, const QString& spec
 // Identifier helpers
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::toCamelCase(const QString& name)
+QString TypeScriptGenerator::toCamelCase(const QString& name)
 {
     const QStringList parts = name.split(QRegularExpression(R"([\s_]+)"), Qt::SkipEmptyParts);
     if (parts.isEmpty()) return name;
@@ -96,7 +119,7 @@ QString JavaScriptGenerator::toCamelCase(const QString& name)
     return result;
 }
 
-QString JavaScriptGenerator::toPascalCase(const QString& name)
+QString TypeScriptGenerator::toPascalCase(const QString& name)
 {
     QString s = name.trimmed();
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), " ");
@@ -108,7 +131,7 @@ QString JavaScriptGenerator::toPascalCase(const QString& name)
     return result;
 }
 
-QString JavaScriptGenerator::toMethodName(const QString& keyword, const QString& stepText)
+QString TypeScriptGenerator::toMethodName(const QString& keyword, const QString& stepText)
 {
     // "Given" + "check account balance" → "givenCheckAccountBalance"
     QString combined = keyword + "_" + stepText;
@@ -123,7 +146,7 @@ QString JavaScriptGenerator::toMethodName(const QString& keyword, const QString&
     return result;
 }
 
-QString JavaScriptGenerator::toFileName(const QString& name)
+QString TypeScriptGenerator::toFileName(const QString& name)
 {
     // "MySpecName" → "mySpecName"
     if (name.isEmpty()) return name;
@@ -134,14 +157,14 @@ QString JavaScriptGenerator::toFileName(const QString& name)
 // Collection helpers
 // ---------------------------------------------------------------------------
 
-bool JavaScriptGenerator::isCollectionType(const QString& name, const SpectableFile& file)
+bool TypeScriptGenerator::isCollectionType(const QString& name, const SpectableFile& file)
 {
     for (const Collection& c : file.collections)
         if (c.name.compare(name, Qt::CaseInsensitive) == 0) return true;
     return false;
 }
 
-QString JavaScriptGenerator::collectionElementType(const QString& name, const SpectableFile& file)
+QString TypeScriptGenerator::collectionElementType(const QString& name, const SpectableFile& file)
 {
     for (const Collection& c : file.collections)
         if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
@@ -152,7 +175,7 @@ QString JavaScriptGenerator::collectionElementType(const QString& name, const Sp
 // DataType detection
 // ---------------------------------------------------------------------------
 
-bool JavaScriptGenerator::isDataType(const QString& name, const SpectableFile& file)
+bool TypeScriptGenerator::isDataType(const QString& name, const SpectableFile& file)
 {
     static const QStringList builtins = {
         "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal", "Boolean",
@@ -169,14 +192,14 @@ bool JavaScriptGenerator::isDataType(const QString& name, const SpectableFile& f
 // Lookup helpers
 // ---------------------------------------------------------------------------
 
-const AttrSet* JavaScriptGenerator::findAttrSet(const QString& name, const SpectableFile& file)
+const AttrSet* TypeScriptGenerator::findAttrSet(const QString& name, const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
         if (as.name.compare(name, Qt::CaseInsensitive) == 0) return &as;
     return nullptr;
 }
 
-const Define* JavaScriptGenerator::findDefine(const QString& name, const SpectableFile& file)
+const Define* TypeScriptGenerator::findDefine(const QString& name, const SpectableFile& file)
 {
     for (const Define& d : file.defines)
         if (d.name.compare(name, Qt::CaseInsensitive) == 0) return &d;
@@ -187,7 +210,7 @@ const Define* JavaScriptGenerator::findDefine(const QString& name, const Spectab
 // Row resolution
 // ---------------------------------------------------------------------------
 
-QVector<QStringList> JavaScriptGenerator::resolveStepRows(
+QVector<QStringList> TypeScriptGenerator::resolveStepRows(
     const Step& step, const AttrSet* attrSet,
     const SpectableFile& file, QStringList& errors)
 {
@@ -278,7 +301,7 @@ QVector<QStringList> JavaScriptGenerator::resolveStepRows(
     return result;
 }
 
-QVector<QStringList> JavaScriptGenerator::resolveExamplesRows(
+QVector<QStringList> TypeScriptGenerator::resolveExamplesRows(
     const NamedBlock& nb, const AttrSet* as)
 {
     QVector<QStringList> result;
@@ -308,7 +331,7 @@ QVector<QStringList> JavaScriptGenerator::resolveExamplesRows(
 // String class generator
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
+QString TypeScriptGenerator::genStringClass(const AttrSet& as) const
 {
     const QString cn = as.name + "String";
     QString out;
@@ -317,17 +340,20 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << cn << " {\n";
+    for (const Field& f : as.fields)
+        s << "  " << toCamelCase(f.name) << ": string;\n";
+    s << "\n";
     s << "  constructor(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        s << toCamelCase(as.fields[i].name) << " = \"\"";
+        s << toCamelCase(as.fields[i].name) << ": string = \"\"";
     }
     s << ") {\n";
     for (const Field& f : as.fields)
         s << "    this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "  }\n\n";
 
-    s << "  static fromList(values) {\n";
+    s << "  static fromList(values: Iterable<string>): " << cn << " {\n";
     s << "    const v = Array.from(values);\n";
     s << "    return new " << cn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
@@ -337,7 +363,7 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
     }
     s << "    );\n  }\n\n";
 
-    s << "  toString() {\n";
+    s << "  toString(): string {\n";
     s << "    return `";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
@@ -353,7 +379,7 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as) const
 // Typed class generator
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
+QString TypeScriptGenerator::genTypedClass(const AttrSet& as) const
 {
     const QString cn   = as.name + "Typed";
     const QString scn  = as.name + "String";
@@ -366,19 +392,25 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << cn << " {\n";
+    for (const Field& f : as.fields)
+        s << "  " << toCamelCase(f.name) << ": " << tsType(f.type) << ";\n";
+    s << "\n";
+    // Every parameter is required. A user-defined DataType has no literal
+    // default, and TypeScript rejects a required parameter after an optional
+    // one, so defaulting only some of them would not compile. Java, C# and
+    // Swift construct their Typed values the same way.
     s << "  constructor(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        const QString fn = toCamelCase(f.name);
-        s << fn << " = " << jsDefaultValue(f.type);
+        s << toCamelCase(f.name) << ": " << tsType(f.type);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
         s << "    this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "  }\n\n";
 
-    s << "  static fromStringObj(s) {\n";
+    s << "  static fromStringObj(s: " << scn << "): " << cn << " {\n";
     s << "    return new " << cn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f  = as.fields[i];
@@ -393,7 +425,7 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
 
     // toJsonValue() builds a graph of primitives only, so the toJSON() name
     // below can never cause JSON.stringify to double-encode a nested object.
-    s << "  toJsonValue() {\n";
+    s << "  toJsonValue(): Record<string, unknown> {\n";
     s << "    return {\n";
     for (const Field& f : as.fields) {
         const QString fn = toCamelCase(f.name);
@@ -411,15 +443,15 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     s << "    };\n";
     s << "  }\n\n";
 
-    s << "  toJSON() { return _json.stringify(this.toJsonValue()); }\n\n";
+    s << "  toJSON(): string { return _json.stringify(this.toJsonValue()); }\n\n";
 
-    s << "  static fromJsonValue(m) {\n";
+    s << "  static fromJsonValue(m: unknown): " << cn << " {\n";
     s << "    return new " << cn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f   = as.fields[i];
         const QString fn = toCamelCase(f.name);
         const QString t  = f.type.trimmed().toLower();
-        const QString src = QString("_json.require(m, \"%1\")").arg(fn);
+        const QString src = QString("_json.requireField(m, \"%1\")").arg(fn);
         QString expr;
         if (t == "integer" || t == "int")
             expr = QString("_json.asInt(%1, \"%2\")").arg(src, fn);
@@ -438,14 +470,16 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
     }
     s << "    );\n  }\n\n";
 
-    s << "  static fromJSON(text) { return " << cn << ".fromJsonValue(_json.parse(text)); }\n\n";
+    s << "  static fromJSON(text: string): " << cn << " {\n";
+    s << "    return " << cn << ".fromJsonValue(_json.parse(text));\n";
+    s << "  }\n\n";
 
-    s << "  static toJSONList(items) {\n";
+    s << "  static toJSONList(items: readonly " << cn << "[]): string {\n";
     s << "    return _json.stringify(items.map((item) => item.toJsonValue()));\n";
     s << "  }\n\n";
 
-    s << "  static fromJSONList(text) {\n";
-    s << "    const raw = _json.asArray(_json.parse(text), \"" << cn << "\");\n";
+    s << "  static fromJSONList(text: string): " << cn << "[] {\n";
+    s << "    const raw = _json.asArray(_json.parse(text), \"" << cn << "\") ?? [];\n";
     s << "    return raw.map((e) => " << cn << ".fromJsonValue(e));\n";
     s << "  }\n";
     s << "}\n";
@@ -456,7 +490,7 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as) const
 // Common index.js
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets) const
+QString TypeScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets) const
 {
     QString out;
     QTextStream s(&out);
@@ -472,26 +506,54 @@ QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets) co
 // No package dependency: JSON.parse / JSON.stringify are part of ECMAScript.
 // ---------------------------------------------------------------------------
 
-static QString genJsonModule()
-{
-    return QString::fromLatin1(R"JS(// Typed field accessors layered over the built-in JSON object.
-//
-// A missing key or a value of the wrong type throws a TypeError.  An explicit
-// JSON null is passed through as null rather than treated as an error.
+// ---------------------------------------------------------------------------
+// tsconfig.json — NodeNext module resolution, which is why every generated
+// import specifier ends in ".js" even though the files on disk are ".ts".
+// ---------------------------------------------------------------------------
 
-export function parse(text) {
+static QString genTsConfig()
+{
+    return QString::fromLatin1(R"JSON({
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}
+)JSON");
+}
+
+static QString genTsJsonModule()
+{
+    return QString::fromLatin1(R"TS(// Typed field accessors layered over the built-in JSON object.
+//
+// A missing key or a value of the wrong type throws a TypeError. An explicit
+// JSON null reads as the empty/zero value, matching the Go, Rust and Swift
+// targets, so the accessors can return non-nullable types and the generated
+// constructors stay strict-mode clean.
+
+export function parse(text: string): unknown {
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as unknown;
   } catch (e) {
-    throw new TypeError(`Invalid JSON: ${e.message}`);
+    throw new TypeError(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
-export function stringify(value) {
+export function stringify(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function describe(value) {
+function describe(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (Array.isArray(value)) return "an array";
   switch (typeof value) {
@@ -503,26 +565,27 @@ function describe(value) {
   }
 }
 
-function typeError(ctx, expected, value) {
+function typeError(ctx: string, expected: string, value: unknown): TypeError {
   return new TypeError(`JSON field '${ctx}' is not ${expected} (got ${describe(value)})`);
 }
 
-export function require(obj, key) {
+/** Named requireField rather than require to stay clear of the CommonJS global. */
+export function requireField(obj: unknown, key: string): unknown {
   if (obj === null || typeof obj !== "object" || Array.isArray(obj))
     throw new TypeError(`Expected an object holding field '${key}'`);
   if (!Object.prototype.hasOwnProperty.call(obj, key))
     throw new TypeError(`Missing JSON field '${key}'`);
-  return obj[key];
+  return (obj as Record<string, unknown>)[key];
 }
 
-export function asString(value, ctx) {
-  if (value === null || value === undefined) return null;
+export function asString(value: unknown, ctx: string): string {
+  if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   throw typeError(ctx, "a string", value);
 }
 
-export function asNumber(value, ctx) {
+export function asNumber(value: unknown, ctx: string): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);
@@ -531,13 +594,13 @@ export function asNumber(value, ctx) {
   throw typeError(ctx, "a number", value);
 }
 
-export function asInt(value, ctx) {
+export function asInt(value: unknown, ctx: string): number {
   const n = asNumber(value, ctx);
   if (!Number.isInteger(n)) throw typeError(ctx, "an integer", value);
   return n;
 }
 
-export function asBool(value, ctx) {
+export function asBool(value: unknown, ctx: string): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
     const low = value.trim().toLowerCase();
@@ -547,19 +610,19 @@ export function asBool(value, ctx) {
   throw typeError(ctx, "a boolean", value);
 }
 
-export function asArray(value, ctx) {
+export function asArray(value: unknown, ctx: string): unknown[] | null {
   if (value === null || value === undefined) return null;
-  if (Array.isArray(value)) return value;
+  if (Array.isArray(value)) return value as unknown[];
   throw typeError(ctx, "an array", value);
 }
-)JS");
+)TS");
 }
 
 // ---------------------------------------------------------------------------
 // Test file generator
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QString& specName,
+QString TypeScriptGenerator::genTestFile(const SpectableFile& file, const QString& specName,
                                           const QString& glueClass, const QString& commonRelPath,
                                           QStringList& errors) const
 {
@@ -775,7 +838,7 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
 // Glue file generator
 // ---------------------------------------------------------------------------
 
-QVector<JavaScriptGenerator::GlueSig> JavaScriptGenerator::collectGlueSigs(const SpectableFile& file)
+QVector<TypeScriptGenerator::GlueSig> TypeScriptGenerator::collectGlueSigs(const SpectableFile& file)
 {
     QVector<GlueSig> sigs;
     QSet<QString> seen;
@@ -822,34 +885,35 @@ QVector<JavaScriptGenerator::GlueSig> JavaScriptGenerator::collectGlueSigs(const
     return sigs;
 }
 
-QString JavaScriptGenerator::genStubMethod(const GlueSig& sig)
+QString TypeScriptGenerator::genStubMethod(const GlueSig& sig)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
-        s << "\n  " << sig.method << "() {\n";
+        s << "\n  " << sig.method << "(): void {\n";
         s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else if (sig.paramType == "docstring") {
-        s << "\n  " << sig.method << "(value) {\n";
+        s << "\n  " << sig.method << "(value: string): void {\n";
         s << "    console.log(value);\n";
         s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else if (sig.paramType == "grid" || sig.paramType == "list") {
-        s << "\n  " << sig.method << "(values) {\n";
-        s << "    values.forEach(row => console.log(Array.isArray(row) ? row.join(\", \") : String(row)));\n";
+        s << "\n  " << sig.method << "(values: readonly (readonly string[])[]): void {\n";
+        s << "    values.forEach((row) => console.log(Array.isArray(row) ? row.join(\", \") : String(row)));\n";
         s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else {
-        s << "\n  " << sig.method << "(values) {\n";
-        s << "    values.forEach(v => console.log(v.toString()));\n";
+        // paramType is "{AttrSetName}String" — the glue receives the raw rows.
+        s << "\n  " << sig.method << "(values: readonly " << sig.paramType << "[]): void {\n";
+        s << "    values.forEach((v) => console.log(v.toString()));\n";
         s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     }
     return out;
 }
 
-bool JavaScriptGenerator::appendMissingStubs(const QString& gluePath,
+bool TypeScriptGenerator::appendMissingStubs(const QString& gluePath,
                                               const QVector<GlueSig>& sigs,
                                               QStringList& msgs)
 {
@@ -886,7 +950,7 @@ bool JavaScriptGenerator::appendMissingStubs(const QString& gluePath,
     return true;
 }
 
-QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
+QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
                                           const QString& specName,
                                           const QString& commonRelPath) const
 {
@@ -895,7 +959,19 @@ QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
     QString out;
     QTextStream s(&out);
 
-    s << "import { } from \"" << commonRelPath << "/index.js\";\n";
+    // Import the String types the typed stub signatures below refer to.
+    QStringList glueTypes;
+    for (const GlueSig& sig : sigs) {
+        if (sig.paramType.isEmpty() || sig.paramType == "docstring"
+         || sig.paramType == "grid" || sig.paramType == "list") continue;
+        if (!glueTypes.contains(sig.paramType)) glueTypes << sig.paramType;
+    }
+    glueTypes.sort();
+    if (glueTypes.isEmpty())
+        s << "import { } from \"" << commonRelPath << "/index.js\";\n";
+    else
+        s << "import { " << glueTypes.join(", ") << " } from \""
+          << commonRelPath << "/index.js\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << glueClass << " {\n";
@@ -912,21 +988,33 @@ QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
 // Production class generators
 // ---------------------------------------------------------------------------
 
-QString JavaScriptGenerator::genProductionEntity(const AttrSet& as)
+QString TypeScriptGenerator::genProductionEntity(const AttrSet& as)
 {
     QString out;
     QTextStream s(&out);
 
     s << "export class " << as.name << " {\n";
+    for (const Field& f : as.fields)
+        s << "  " << toCamelCase(f.name) << ": " << tsType(f.type) << ";\n";
+    s << "\n";
+    // Defaulted parameters must come last: TypeScript rejects a required
+    // parameter after an optional one.
+    QVector<const Field*> required, defaulted;
+    for (const Field& f : as.fields)
+        (f.defaultValue.isEmpty() ? required : defaulted).push_back(&f);
+
     s << "  constructor(";
-    for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        const Field& f = as.fields[i];
-        const QString fn = toCamelCase(f.name);
-        if (!f.defaultValue.isEmpty())
-            s << fn << " = " << jsStringEscape(f.defaultValue);
-        else
-            s << fn;
+    bool first = true;
+    for (const Field* f : required) {
+        if (!first) s << ", ";
+        first = false;
+        s << toCamelCase(f->name) << ": " << tsType(f->type);
+    }
+    for (const Field* f : defaulted) {
+        if (!first) s << ", ";
+        first = false;
+        s << toCamelCase(f->name) << ": " << tsType(f->type)
+          << " = " << jsStringEscape(f->defaultValue);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
@@ -936,7 +1024,7 @@ QString JavaScriptGenerator::genProductionEntity(const AttrSet& as)
     return out;
 }
 
-QString JavaScriptGenerator::genProductionCollection(const Collection& col)
+QString TypeScriptGenerator::genProductionCollection(const Collection& col)
 {
     const QString elem = col.elementType;
     QString out;
@@ -949,22 +1037,22 @@ QString JavaScriptGenerator::genProductionCollection(const Collection& col)
     if (!col.maximum.isEmpty())
         s << "  static MAXIMUM = " << col.maximum << ";\n";
     if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) s << "\n";
-    s << "  #items = [];\n\n";
-    s << "  add(item) { this.#items.push(item); }\n\n";
-    s << "  delete(item) {\n";
+    s << "  #items: " << elem << "[] = [];\n\n";
+    s << "  add(item: " << elem << "): void { this.#items.push(item); }\n\n";
+    s << "  delete(item: " << elem << "): boolean {\n";
     s << "    const idx = this.#items.indexOf(item);\n";
     s << "    if (idx < 0) return false;\n";
     s << "    this.#items.splice(idx, 1);\n";
     s << "    return true;\n";
     s << "  }\n\n";
-    s << "  read() { return [...this.#items]; }\n\n";
-    s << "  update(oldItem, newItem) {\n";
+    s << "  read(): " << elem << "[] { return [...this.#items]; }\n\n";
+    s << "  update(oldItem: " << elem << ", newItem: " << elem << "): boolean {\n";
     s << "    const idx = this.#items.indexOf(oldItem);\n";
     s << "    if (idx < 0) return false;\n";
     s << "    this.#items[idx] = newItem;\n";
     s << "    return true;\n";
     s << "  }\n\n";
-    s << "  size() { return this.#items.length; }\n";
+    s << "  size(): number { return this.#items.length; }\n";
     s << "}\n";
     return out;
 }
@@ -973,7 +1061,7 @@ QString JavaScriptGenerator::genProductionCollection(const Collection& col)
 // File write helper
 // ---------------------------------------------------------------------------
 
-bool JavaScriptGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
+bool TypeScriptGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
 {
     QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -988,7 +1076,7 @@ bool JavaScriptGenerator::writeFile(const QString& path, const QString& content,
 // Entry point
 // ---------------------------------------------------------------------------
 
-QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Options& opts)
+QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Options& opts)
 {
     QStringList msgs;
     m_extraImports = opts.extraImports;
@@ -1076,12 +1164,19 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
                     .arg(as.line).arg(as.name);
             continue;
         }
-        writeFile(commonDir.filePath(as.name + "String.js"), genStringClass(as), msgs);
-        writeFile(commonDir.filePath(as.name + "Typed.js"),  genTypedClass(as),  msgs);
+        writeFile(commonDir.filePath(as.name + "String.ts"), genStringClass(as), msgs);
+        writeFile(commonDir.filePath(as.name + "Typed.ts"),  genTypedClass(as),  msgs);
         domainSets.push_back(as);
     }
-    writeFile(commonDir.filePath("json.js"),  genJsonModule(),             msgs);
-    writeFile(commonDir.filePath("index.js"), genCommonIndex(domainSets), msgs);
+    writeFile(commonDir.filePath("json.ts"),  genTsJsonModule(),             msgs);
+    // A tsconfig at the output root so `npx tsc` compiles the tree as-is.
+    // Never overwritten — the project owns its build settings after the first run.
+    {
+        const QString cfgPath = QDir(opts.outputDir).filePath("tsconfig.json");
+        if (!QFile::exists(cfgPath))
+            writeFile(cfgPath, genTsConfig(), msgs);
+    }
+    writeFile(commonDir.filePath("index.ts"), genCommonIndex(domainSets), msgs);
 
     // 2. Test file (always overwritten)
     {
@@ -1091,12 +1186,12 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
         if (!hasErr)
-            writeFile(dir.filePath("test_" + specSnake + ".test.js"), testContent, msgs);
+            writeFile(dir.filePath("test_" + specSnake + ".test.ts"), testContent, msgs);
     }
 
     // 3. Glue file
     {
-        const QString gluePath = dir.filePath(specSnake + "_glue.js");
+        const QString gluePath = dir.filePath(specSnake + "_glue.ts");
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specName, commonRelPath), msgs);
         } else {
@@ -1114,13 +1209,13 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
         } else {
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
-                const QString prodPath = prodDir.filePath(as.name + ".js");
+                const QString prodPath = prodDir.filePath(as.name + ".ts");
                 if (!QFile::exists(prodPath))
                     writeFile(prodPath, genProductionEntity(as), msgs);
             }
             for (const Collection& col : file.collections) {
                 if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
-                const QString prodPath = prodDir.filePath(col.name + ".js");
+                const QString prodPath = prodDir.filePath(col.name + ".ts");
                 if (!QFile::exists(prodPath))
                     writeFile(prodPath, genProductionCollection(col), msgs);
             }

@@ -1,0 +1,10 @@
+{
+    "copySpectable": true,
+    "createProductionClasses": true,
+    "framework": "Jest",
+    "language": "TypeScript",
+    "outputDirectory": "C:/Users/user/source/repos/SpecStudioVariousTests/TypeScript/VariousTests",
+    "overwriteGlue": false,
+    "productionClassesDir": "C:/Users/user/source/repos/SpecStudioVariousTests/TypeScript/VariousTests/production",
+    "version": 1
+}

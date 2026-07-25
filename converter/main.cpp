@@ -5,6 +5,7 @@
 #include "PythonGenerator.h"
 #include "CppGenerator.h"
 #include "JavaScriptGenerator.h"
+#include "TypeScriptGenerator.h"
 #include "GoGenerator.h"
 #include "SwiftGenerator.h"
 
@@ -31,7 +32,7 @@ int main(int argc, char* argv[])
     cli.addPositionalArgument("output", "Output directory for generated files");
 
     QCommandLineOption langOpt({ "l", "language" },
-        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, Go, Swift", "language", "CSharp");
+        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, TypeScript, Go, Swift", "language", "CSharp");
     cli.addOption(langOpt);
 
     QCommandLineOption fwOpt({ "f", "framework" },
@@ -205,6 +206,19 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         JavaScriptGenerator gen;
+        genMsgs = gen.generate(file, opts);
+    } else if (language.compare("TypeScript", Qt::CaseInsensitive) == 0
+            || language.compare("TS", Qt::CaseInsensitive) == 0) {
+        TypeScriptGenerator::Options opts;
+        opts.outputDir                = outputDir;
+        opts.sourceRoot                = cli.value(srcRootOpt);
+        opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
+        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.extraImports             = cli.values(importOpt);
+        opts.tagFilter                = cli.value(tagFilterOpt);
+        opts.productionClassesDir     = cli.value(prodDirOpt);
+        opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        TypeScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
         GoGenerator::Options opts;

@@ -104,8 +104,13 @@ bool SpecConfig::save(const QString& filePath) const
 
 QStringList SpecConfig::frameworksFor(const QString& language)
 {
-    if (language == "Java")   return { "JUnit", "TestNG" };
-    if (language == "Python") return { "pytest", "unittest" };
-    if (language == "Rust")   return { "builtin" };
+    if (language == "Java")       return { "JUnit", "TestNG" };
+    if (language == "Python")     return { "pytest", "unittest" };
+    if (language == "Rust")       return { "builtin" };
+    if (language == "Go")         return { "testing" };
+    if (language == "Cpp")        return { "GoogleTest" };
+    if (language == "Swift")      return { "XCTest" };
+    if (language == "JavaScript" ||
+        language == "TypeScript") return { "Jest", "Vitest" };
     return { "MSTest", "NUnit", "xUnit" };   // CSharp default
 }

@@ -77,7 +77,10 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     langForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
     m_language = new QComboBox(langGroup);
-    m_language->addItems({ "CSharp", "Java", "Rust", "Python" });
+    // Every target SpecTableConverter can emit. Cpp, JavaScript, Go and Swift
+    // were already supported by the converter but missing from this list.
+    m_language->addItems({ "CSharp", "Java", "Rust", "Python",
+                           "Cpp", "JavaScript", "TypeScript", "Go", "Swift" });
     langForm->addRow(tr("Language:"), m_language);
 
     m_framework = new QComboBox(langGroup);

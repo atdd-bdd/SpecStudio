@@ -10,6 +10,7 @@ add_executable(SpecTableConverter
     PythonGenerator.cpp
     CppGenerator.cpp
     JavaScriptGenerator.cpp
+    TypeScriptGenerator.cpp
     GoGenerator.cpp
     SwiftGenerator.cpp
 )

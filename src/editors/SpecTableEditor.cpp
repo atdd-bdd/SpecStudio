@@ -1359,7 +1359,7 @@ void SpecTableEditor::editMultilineComment()
     QTextDocument* doc = textEdit()->document();
 
     static QRegularExpression reField(
-        R"(^\s*(Description|Details|Constraint|Notes)\s*(.*))",
+        R"(^\s*(Description|Details|Constraint|Notes|Uses)\s*(.*))",
         QRegularExpression::CaseInsensitiveOption);
 
     // Walk back from cursor to find the field opener line
@@ -2096,7 +2096,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     // Edit Comment (shown when cursor is on a Description/Details/Constraint line or continuation)
     {
         static QRegularExpression reField(
-            R"(^\s*(Description|Details|Constraint|Notes)\b)",
+            R"(^\s*(Description|Details|Constraint|Notes|Uses)\b)",
             QRegularExpression::CaseInsensitiveOption);
         const QTextBlock cur = textEdit()->textCursor().block();
         const bool onField = reField.match(cur.text()).hasMatch();

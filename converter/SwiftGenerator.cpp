@@ -1,5 +1,6 @@
 #include "SwiftGenerator.h"
 #include "TagFilter.h"
+#include "SourceScan.h"
 
 #include <QDir>
 #include <QFile>
@@ -336,6 +337,188 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as) const
 // Typed struct
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// common/Json.swift — field accessors over Foundation's JSONSerialization.
+// No third-party package required.
+// ---------------------------------------------------------------------------
+
+static QString genSwiftJsonFile(const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "import Foundation\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+    s << QString::fromLatin1(R"SW(/// Raised for malformed JSON, a missing field, or a value of the wrong type.
+public enum JsonError: Error, CustomStringConvertible {
+    case invalid(String)
+
+    public var description: String {
+        switch self {
+        case .invalid(let message): return message
+        }
+    }
+}
+
+/// Field accessors over JSONSerialization.
+///
+/// A missing key or a value of the wrong type throws JsonError. An explicit
+/// JSON null is passed through as an empty/zero value rather than an error.
+public enum Json {
+
+    // -----------------------------------------------------------------
+    // Reading
+    // -----------------------------------------------------------------
+
+    public static func parseObject(_ text: String) throws -> [String: Any] {
+        let value = try parseAny(text)
+        guard let object = value as? [String: Any] else {
+            throw JsonError.invalid("Expected a JSON object, got \(describe(value))")
+        }
+        return object
+    }
+
+    public static func parseArray(_ text: String) throws -> [Any] {
+        let value = try parseAny(text)
+        guard let array = value as? [Any] else {
+            throw JsonError.invalid("Expected a JSON array, got \(describe(value))")
+        }
+        return array
+    }
+
+    private static func parseAny(_ text: String) throws -> Any {
+        guard let data = text.data(using: .utf8) else {
+            throw JsonError.invalid("JSON text is not valid UTF-8")
+        }
+        do {
+            return try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            throw JsonError.invalid("Invalid JSON: \(error.localizedDescription)")
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Writing
+    // -----------------------------------------------------------------
+
+    public static func write(_ value: Any) throws -> String {
+        do {
+            // sortedKeys keeps the output stable: Swift dictionaries are unordered.
+            let data = try JSONSerialization.data(withJSONObject: value,
+                                                  options: [.sortedKeys])
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw JsonError.invalid("Could not encode JSON as UTF-8")
+            }
+            return text
+        } catch let error as JsonError {
+            throw error
+        } catch {
+            throw JsonError.invalid("Could not serialize to JSON: \(error.localizedDescription)")
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Field accessors
+    // -----------------------------------------------------------------
+
+    /// True when the value came from JSON `true`/`false`.
+    ///
+    /// CFGetTypeID/CFBooleanGetTypeID are CoreFoundation and exist only on
+    /// Apple platforms; swift-corelibs-foundation on Windows and Linux hands
+    /// back a Swift Bool instead, so each side gets the check it supports.
+    private static func isBoolean(_ value: Any) -> Bool {
+        #if canImport(Darwin)
+        if let number = value as? NSNumber {
+            return CFGetTypeID(number) == CFBooleanGetTypeID()
+        }
+        return false
+        #else
+        return value is Bool
+        #endif
+    }
+
+    private static func describe(_ value: Any?) -> String {
+        guard let value = value else { return "null" }
+        if value is NSNull        { return "null" }
+        if value is String        { return "a string" }
+        if value is [Any]         { return "an array" }
+        if value is [String: Any] { return "an object" }
+        if isBoolean(value)       { return "a boolean" }
+        if value is NSNumber      { return "a number" }
+        if value is Bool          { return "a boolean" }
+        return "a number"
+    }
+
+    private static func typeError(_ ctx: String, _ expected: String, _ actual: Any?) -> JsonError {
+        return JsonError.invalid(
+            "JSON field '\(ctx)' is not \(expected) (got \(describe(actual)))")
+    }
+
+    public static func require(_ object: [String: Any], _ key: String) throws -> Any {
+        guard let value = object[key] else {
+            throw JsonError.invalid("Missing JSON field '\(key)'")
+        }
+        return value
+    }
+
+    public static func asString(_ value: Any?, _ ctx: String) throws -> String {
+        if value == nil || value is NSNull { return "" }
+        if let text = value as? String     { return text }
+        if let flag = value as? Bool       { return flag ? "true" : "false" }
+        if let number = value as? NSNumber { return number.stringValue }
+        throw typeError(ctx, "a string", value)
+    }
+
+    public static func asDouble(_ value: Any?, _ ctx: String) throws -> Double {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let text = value as? String, let parsed = Double(text.trimmingCharacters(in: .whitespaces)) {
+            return parsed
+        }
+        throw typeError(ctx, "a number", value)
+    }
+
+    /// Accepts 7 and 7.0 for an integer field, but not 7.5.
+    public static func asInt(_ value: Any?, _ ctx: String) throws -> Int {
+        if let number = value as? NSNumber {
+            let d = number.doubleValue
+            guard d == d.rounded(), d >= Double(Int.min), d <= Double(Int.max) else {
+                throw typeError(ctx, "an integer", value)
+            }
+            return Int(d)
+        }
+        if let text = value as? String, let parsed = Int(text.trimmingCharacters(in: .whitespaces)) {
+            return parsed
+        }
+        throw typeError(ctx, "an integer", value)
+    }
+
+    public static func asBool(_ value: Any?, _ ctx: String) throws -> Bool {
+        if let value = value, isBoolean(value) {
+            if let number = value as? NSNumber { return number.boolValue }
+            if let flag = value as? Bool       { return flag }
+        }
+        if let flag = value as? Bool { return flag }
+        if let text = value as? String {
+            switch text.trimmingCharacters(in: .whitespaces).lowercased() {
+            case "true", "t", "yes", "y", "1":  return true
+            case "false", "f", "no", "n", "0":  return false
+            default: break
+            }
+        }
+        throw typeError(ctx, "a boolean", value)
+    }
+
+    public static func asObject(_ value: Any?, _ ctx: String) throws -> [String: Any] {
+        guard let object = value as? [String: Any] else {
+            throw typeError(ctx, "an object", value)
+        }
+        return object
+    }
+}
+)SW");
+    return out;
+}
+
 QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
 {
     const QString strTypeName = toTypeName(as.name) + "String";
@@ -372,6 +555,55 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as) const
         const QString expr = parseExpr(fid, f.type);
         s << "        self." << fid << " = " << expr << "\n";
     }
+    s << "    }\n\n";
+
+    // ---- JSON (Foundation's JSONSerialization; see common/Json.swift) ----
+
+    s << "    public func toJSONValue() -> [String: Any] {\n";
+    s << "        return [\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        const QString st  = swiftType(f.type);
+        if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
+            s << "            \"" << fid << "\": " << fid << ",\n";
+        else    // user-defined type — same text convention init(from:) assumes
+            s << "            \"" << fid << "\": String(describing: " << fid << "),\n";
+    }
+    s << "        ]\n";
+    s << "    }\n\n";
+
+    s << "    public func toJSON() throws -> String {\n";
+    s << "        return try Json.write(toJSONValue())\n";
+    s << "    }\n\n";
+
+    s << "    public init(fromJSONValue m: [String: Any]) throws {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        const QString st  = swiftType(f.type);
+        const QString fn  = (st == "Int")    ? "asInt"
+                          : (st == "Double") ? "asDouble"
+                          : (st == "Bool")   ? "asBool"
+                                             : "asString";
+        const QString src = QString("try Json.%1(Json.require(m, \"%2\"), \"%2\")").arg(fn, fid);
+        if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
+            s << "        self." << fid << " = " << src << "\n";
+        else
+            s << "        self." << fid << " = " << f.type.trimmed() << "(" << src << ")\n";
+    }
+    s << "    }\n\n";
+
+    s << "    public init(fromJSON text: String) throws {\n";
+    s << "        try self.init(fromJSONValue: Json.parseObject(text))\n";
+    s << "    }\n\n";
+
+    s << "    public static func toJSONList(_ list: [" << typedName << "]) throws -> String {\n";
+    s << "        return try Json.write(list.map { $0.toJSONValue() })\n";
+    s << "    }\n\n";
+
+    s << "    public static func fromJSONList(_ text: String) throws -> [" << typedName << "] {\n";
+    s << "        return try Json.parseArray(text).map {\n";
+    s << "            try " << typedName << "(fromJSONValue: Json.asObject($0, \"" << typedName << "\"))\n";
+    s << "        }\n";
     s << "    }\n";
     s << "}\n";
 
@@ -638,10 +870,13 @@ bool SwiftGenerator::appendMissingStubs(const QString& gluePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
     QString content = QTextStream(&f).readAll();
     f.close();
+    // A commented-out method has been removed as far as the compiler is
+    // concerned, so search a copy with comments blanked out.
+    const QString scan = sourcescan::stripCStyleComments(content);
 
     QString stubs;
     for (const GlueSig& sig : sigs) {
-        if (!content.contains(QStringLiteral("func %1(").arg(sig.method)))
+        if (!scan.contains(QStringLiteral("func %1(").arg(sig.method)))
             stubs += "\n" + genStubFn(sig);
     }
     if (stubs.isEmpty()) return false;
@@ -915,6 +1150,8 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
     // Write common structs. Swift files in the same target see each other
     // without per-file imports, so — unlike Rust's mod.rs — no index file
     // or "use" statement is needed to wire them together.
+    writeFile(commonDir.filePath("Json.swift"), genSwiftJsonFile(m_extraImports), msgs);
+
     for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;
         if (as.fields.isEmpty()) {

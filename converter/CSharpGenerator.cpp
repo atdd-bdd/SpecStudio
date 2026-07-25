@@ -1,5 +1,6 @@
 #include "CSharpGenerator.h"
 #include "TagFilter.h"
+#include "SourceScan.h"
 
 #include <QDir>
 #include <QFile>
@@ -375,6 +376,172 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns) co
 }
 
 // ---------------------------------------------------------------------------
+// common/Json.cs — typed field accessors over System.Text.Json.
+//
+// The previous implementation called JsonSerializer.Serialize(this), which
+// silently produced "{}" because System.Text.Json ignores public fields, and
+// Deserialize needed a parameterless constructor that is never generated.
+// Reading and writing are now explicit, field by field.
+// ---------------------------------------------------------------------------
+
+static QString genCSharpJsonClass(const QString& ns, const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    s << "using System;\n";
+    s << "using System.Globalization;\n";
+    s << "using System.Text.Json;\n";
+    for (const QString& u : extraImports) s << u << "\n";
+    s << "\n";
+    s << QString::fromLatin1(R"CS(    /// <summary>
+    /// Field accessors over System.Text.Json.  A missing key or a value of the
+    /// wrong type throws JsonException.  An explicit JSON null is passed through
+    /// rather than treated as an error.
+    /// </summary>
+    public static class Json
+    {
+        /// <summary>Parse JSON text into a detached element.</summary>
+        public static JsonElement Parse(string text)
+        {
+            if (text == null) throw new JsonException("JSON text is null");
+            try
+            {
+                // Clone() detaches the element so it stays valid after the
+                // document is disposed.
+                using (var doc = JsonDocument.Parse(text))
+                    return doc.RootElement.Clone();
+            }
+            catch (JsonException ex)
+            {
+                throw new JsonException("Invalid JSON: " + ex.Message, ex);
+            }
+        }
+
+        private static string Describe(JsonElement v)
+        {
+            switch (v.ValueKind)
+            {
+                case JsonValueKind.Null:
+                case JsonValueKind.Undefined: return "null";
+                case JsonValueKind.True:
+                case JsonValueKind.False:     return "a boolean";
+                case JsonValueKind.Number:    return "a number";
+                case JsonValueKind.String:    return "a string";
+                case JsonValueKind.Array:     return "an array";
+                case JsonValueKind.Object:    return "an object";
+                default:                      return "a value";
+            }
+        }
+
+        private static JsonException TypeError(string ctx, string expected, JsonElement actual)
+        {
+            return new JsonException(
+                "JSON field '" + ctx + "' is not " + expected + " (got " + Describe(actual) + ")");
+        }
+
+        public static JsonElement Require(JsonElement obj, string key)
+        {
+            if (obj.ValueKind != JsonValueKind.Object)
+                throw new JsonException("Expected an object holding field '" + key + "'");
+            JsonElement value;
+            if (!obj.TryGetProperty(key, out value))
+                throw new JsonException("Missing JSON field '" + key + "'");
+            return value;
+        }
+
+        public static void RequireArray(JsonElement v, string ctx)
+        {
+            if (v.ValueKind != JsonValueKind.Array) throw TypeError(ctx, "an array", v);
+        }
+
+        /// <summary>Invariant text for any value; used for user-defined DataTypes.</summary>
+        public static string ToText(object value)
+        {
+            return value == null ? null : Convert.ToString(value, CultureInfo.InvariantCulture);
+        }
+
+        public static string AsString(JsonElement v, string ctx)
+        {
+            switch (v.ValueKind)
+            {
+                case JsonValueKind.Null:
+                case JsonValueKind.Undefined: return null;
+                case JsonValueKind.String:    return v.GetString();
+                case JsonValueKind.Number:    return v.GetRawText();
+                case JsonValueKind.True:      return "true";
+                case JsonValueKind.False:     return "false";
+                default: throw TypeError(ctx, "a string", v);
+            }
+        }
+
+        public static decimal AsDecimal(JsonElement v, string ctx)
+        {
+            decimal d;
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out d)) return d;
+            if (v.ValueKind == JsonValueKind.String
+                && decimal.TryParse(v.GetString(), NumberStyles.Any,
+                                    CultureInfo.InvariantCulture, out d)) return d;
+            throw TypeError(ctx, "a number", v);
+        }
+
+        public static double AsDouble(JsonElement v, string ctx)
+        {
+            double d;
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out d)) return d;
+            if (v.ValueKind == JsonValueKind.String
+                && double.TryParse(v.GetString(), NumberStyles.Any,
+                                   CultureInfo.InvariantCulture, out d)) return d;
+            throw TypeError(ctx, "a number", v);
+        }
+
+        public static int AsInt(JsonElement v, string ctx)
+        {
+            int i;
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out i)) return i;
+            // Accept 7.0 for an integer field, but not 7.5.
+            decimal d = AsDecimal(v, ctx);
+            if (decimal.Truncate(d) != d || d < int.MinValue || d > int.MaxValue)
+                throw TypeError(ctx, "an integer", v);
+            return (int)d;
+        }
+
+        public static bool AsBool(JsonElement v, string ctx)
+        {
+            if (v.ValueKind == JsonValueKind.True)  return true;
+            if (v.ValueKind == JsonValueKind.False) return false;
+            if (v.ValueKind == JsonValueKind.String)
+            {
+                string t = (v.GetString() ?? string.Empty).Trim().ToLowerInvariant();
+                if (t == "true"  || t == "t" || t == "yes" || t == "y" || t == "1") return true;
+                if (t == "false" || t == "f" || t == "no"  || t == "n" || t == "0") return false;
+            }
+            throw TypeError(ctx, "a boolean", v);
+        }
+
+        public static DateTime AsDateTime(JsonElement v, string ctx)
+        {
+            DateTime dt;
+            string text = AsString(v, ctx);
+            if (text != null && DateTime.TryParse(text, CultureInfo.InvariantCulture,
+                                                  DateTimeStyles.RoundtripKind, out dt)) return dt;
+            throw TypeError(ctx, "a date/time", v);
+        }
+
+        public static TimeSpan AsTimeSpan(JsonElement v, string ctx)
+        {
+            TimeSpan ts;
+            string text = AsString(v, ctx);
+            if (text != null && TimeSpan.TryParse(text, CultureInfo.InvariantCulture, out ts)) return ts;
+            throw TypeError(ctx, "a duration", v);
+        }
+    }
+)CS");
+    s << "}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Typed class generator
 // ---------------------------------------------------------------------------
 
@@ -385,6 +552,11 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
     QTextStream s(&out);
 
     s << "namespace " << ns << "\n{\n";
+    s << "using System;\n";
+    s << "using System.Buffers;\n";
+    s << "using System.Collections.Generic;\n";
+    s << "using System.Globalization;\n";
+    s << "using System.Text;\n";
     s << "using System.Text.Json;\n";
     for (const QString& u : m_extraImports) s << u << "\n";
     s << "\n";
@@ -407,10 +579,81 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns) con
         s << "            this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "        }\n\n";
 
-    s << "        public string ToJSON() { return JsonSerializer.Serialize(this); }\n";
-    s << "        public static " << cn << " FromJSON(string json) { return JsonSerializer.Deserialize<" << cn << ">(json)!; }\n";
-    s << "        public static string ToJSONList(List<" << cn << "> list) { return JsonSerializer.Serialize(list); }\n";
-    s << "        public static List<" << cn << "> FromJSONList(string json) { return JsonSerializer.Deserialize<List<" << cn << ">>(json)!; }\n";
+    // ---- JSON: explicit per-field read/write over System.Text.Json ----
+
+    s << "        public void WriteJson(Utf8JsonWriter w)\n        {\n";
+    s << "            w.WriteStartObject();\n";
+    for (const Field& f : as.fields) {
+        const QString fn = toCamelCase(f.name);
+        const QString ct = csharpType(f.type);
+        if (ct == "int" || ct == "double" || ct == "decimal")
+            s << "            w.WriteNumber(\"" << fn << "\", this." << fn << ");\n";
+        else if (ct == "bool")
+            s << "            w.WriteBoolean(\"" << fn << "\", this." << fn << ");\n";
+        else if (ct == "DateTime")
+            s << "            w.WriteString(\"" << fn << "\", this." << fn
+              << ".ToString(\"o\", CultureInfo.InvariantCulture));\n";
+        else if (ct == "TimeSpan")
+            s << "            w.WriteString(\"" << fn << "\", this." << fn
+              << ".ToString(\"c\", CultureInfo.InvariantCulture));\n";
+        else if (ct == "string")
+            s << "            w.WriteString(\"" << fn << "\", this." << fn << ");\n";
+        else    // user-defined DataType — same text convention parseExpr assumes
+            s << "            w.WriteString(\"" << fn << "\", Json.ToText(this." << fn << "));\n";
+    }
+    s << "            w.WriteEndObject();\n";
+    s << "        }\n\n";
+
+    s << "        public string ToJSON()\n        {\n";
+    s << "            var buffer = new ArrayBufferWriter<byte>();\n";
+    s << "            using (var w = new Utf8JsonWriter(buffer)) { WriteJson(w); }\n";
+    s << "            return Encoding.UTF8.GetString(buffer.WrittenSpan);\n";
+    s << "        }\n\n";
+
+    s << "        public static " << cn << " FromJsonElement(JsonElement m)\n        {\n";
+    s << "            return new " << cn << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f   = as.fields[i];
+        const QString fn = toCamelCase(f.name);
+        const QString ct = csharpType(f.type);
+        const QString src = QString("Json.Require(m, \"%1\")").arg(fn);
+        QString expr;
+        if (ct == "int")           expr = QString("Json.AsInt(%1, \"%2\")").arg(src, fn);
+        else if (ct == "double")   expr = QString("Json.AsDouble(%1, \"%2\")").arg(src, fn);
+        else if (ct == "decimal")  expr = QString("Json.AsDecimal(%1, \"%2\")").arg(src, fn);
+        else if (ct == "bool")     expr = QString("Json.AsBool(%1, \"%2\")").arg(src, fn);
+        else if (ct == "DateTime") expr = QString("Json.AsDateTime(%1, \"%2\")").arg(src, fn);
+        else if (ct == "TimeSpan") expr = QString("Json.AsTimeSpan(%1, \"%2\")").arg(src, fn);
+        else if (ct == "string")   expr = QString("Json.AsString(%1, \"%2\")").arg(src, fn);
+        else                       expr = QString("new %1(Json.AsString(%2, \"%3\"))")
+                                              .arg(f.type.trimmed(), src, fn);
+        s << "                " << expr;
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "            );\n        }\n\n";
+
+    s << "        public static " << cn << " FromJSON(string json)\n        {\n";
+    s << "            return FromJsonElement(Json.Parse(json));\n";
+    s << "        }\n\n";
+
+    s << "        public static string ToJSONList(List<" << cn << "> list)\n        {\n";
+    s << "            var buffer = new ArrayBufferWriter<byte>();\n";
+    s << "            using (var w = new Utf8JsonWriter(buffer))\n            {\n";
+    s << "                w.WriteStartArray();\n";
+    s << "                foreach (var item in list) item.WriteJson(w);\n";
+    s << "                w.WriteEndArray();\n";
+    s << "            }\n";
+    s << "            return Encoding.UTF8.GetString(buffer.WrittenSpan);\n";
+    s << "        }\n\n";
+
+    s << "        public static List<" << cn << "> FromJSONList(string json)\n        {\n";
+    s << "            var result = new List<" << cn << ">();\n";
+    s << "            var root = Json.Parse(json);\n";
+    s << "            Json.RequireArray(root, \"" << cn << "\");\n";
+    s << "            foreach (var e in root.EnumerateArray()) result.Add(FromJsonElement(e));\n";
+    s << "            return result;\n";
+    s << "        }\n";
 
     s << "    }\n}\n";
     return out;
@@ -746,11 +989,14 @@ bool CSharpGenerator::appendMissingStubs(const QString& gluePath,
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
     QString content = QTextStream(&f).readAll();
     f.close();
+    // A commented-out method has been removed as far as the compiler is
+    // concerned, so search a copy with comments blanked out.
+    const QString scan = sourcescan::stripCStyleComments(content);
 
     QString stubs;
     for (const GlueSig& sig : sigs) {
         const QString signature = QStringLiteral("public void %1(").arg(sig.method);
-        if (!content.contains(signature))
+        if (!scan.contains(signature))
             stubs += "\n" + genStubMethod(sig);
     }
     if (stubs.isEmpty()) return false;
@@ -1079,6 +1325,8 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         if (!QFile::copy(file.filePath, destPath))
             msgs << QString("WARNING:0:Could not copy %1 to %2").arg(file.filePath, destPath);
     }
+
+    writeFile(commonDir.filePath("Json.cs"), genCSharpJsonClass(commonNs, m_extraImports), msgs);
 
     // 1. String + Typed classes for each AttrSet → go into common/
     for (const AttrSet& as : augmented.attrSets) {

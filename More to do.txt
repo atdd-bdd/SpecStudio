@@ -78,9 +78,24 @@ Maybe have a tag after the Entity definition.
   
 
 
-The executor should turn And into Given when making up step names.   
+The executor should turn And into Given when making up step names.
 The Definition should add the Domain Term, Data Type to the Definition to eliminate overlaps
- 
+
+
+Collections are not resolved as AttributeSets by the Rust and Swift generators.
+genTestFile in RustGenerator.cpp and SwiftGenerator.cpp reports
+"ERROR:<line>:AttributeSet '<Name>' not defined" for a Collection such as
+Catalog or OrderItemCollection, so no test file is written for those two
+languages. The common/ String and Typed structs still generate correctly.
+Java, C#, Python, C++, JavaScript and Go handle the same file without errors.
+
+Rust enum DataTypes have no From<String>. genRustProductionEnum emits a bare
+enum, but both parseExpr and the generated from_json_value call
+EnumName::from(String). The ValidValues production class now implements
+From<String>/From<&str>; the enum case still needs a decision on what to do
+with a value that matches no variant - panic, fall back to a default variant,
+or change the conversion to a fallible TryFrom and make the callers handle it.
+
 
 
 
