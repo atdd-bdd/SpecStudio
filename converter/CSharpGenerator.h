@@ -29,7 +29,8 @@ public:
 
 private:
     // Parse expression for Typed conversion
-    static QString parseExpr(const QString& field, const QString& specType);
+    static QString parseExpr(const QString& field, const QString& specType,
+                             const SpectableFile* file = nullptr);
 
     // Identifier helpers
     static QString toClassName(const QString& name);
@@ -47,8 +48,8 @@ private:
     static const Define*  findDefine(const QString& name, const SpectableFile& file);
 
     // File generators
-    QString genStringClass(const AttrSet& as, const QString& ns) const;
-    QString genTypedClass(const AttrSet& as, const QString& ns) const;
+    QString genStringClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const;
+    QString genTypedClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const;
     QString genTestFile(const SpectableFile& file, const QString& ns,
                         const QString& className, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& ns,
