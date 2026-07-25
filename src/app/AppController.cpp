@@ -1220,11 +1220,31 @@ void AppController::onBuildProject()
 
 void AppController::onSetActiveBuildConfig(const QString& configAbsPath)
 {
-    Project* proj = activeProject();
+    // The Configuration menu lists the .specconfig files of every project in
+    // the solution, so the owning project has to come from the chosen path.
+    // Using activeProject() stored the setting against whichever project
+    // happened to be selected, which left the clicked entry unchecked (the
+    // menu reads the setting back per project) and pointed that other project
+    // at a configuration belonging to someone else.
+    Project* proj = projectForConfig(configAbsPath);
+    if (!proj) proj = activeProject();
     if (!proj) return;
     m_settings->setActiveBuildConfig(proj->rootPath(), configAbsPath);
     m_mainWindow->outputPanel()->appendBuildOutput(
-        tr("Build configuration set to: %1").arg(QFileInfo(configAbsPath).fileName()));
+        tr("Build configuration for %1 set to: %2")
+            .arg(proj->name(), QFileInfo(configAbsPath).fileName()));
+}
+
+// The project whose root directory holds this .specconfig, or nullptr.
+Project* AppController::projectForConfig(const QString& configAbsPath) const
+{
+    if (!m_solution) return nullptr;
+    const QString cfgDir = QFileInfo(configAbsPath).absolutePath();
+    for (Project* p : m_solution->projects()) {
+        if (QFileInfo(p->rootPath()).absoluteFilePath() == cfgDir)
+            return p;
+    }
+    return nullptr;
 }
 
 QString AppController::resolveActiveConfig(Project* proj)

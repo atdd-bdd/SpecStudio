@@ -93,6 +93,7 @@ private:
     // path, or empty if no .specconfig exists for the project.
     QString resolveActiveConfig(Project* proj);
     Project* activeProject() const;  // project in Explorer selection, or current editor's project
+    Project* projectForConfig(const QString& configAbsPath) const;  // project owning a .specconfig
     // Returns the GitClient to use for a project's git actions: the solution's
     // one shared client, or the project's own if it isn't part of a solution.
     GitClient* gitFor(Project* proj) const;
