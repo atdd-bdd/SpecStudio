@@ -60,6 +60,11 @@ QString CSharpGenerator::csharpType(const QString& specType)
     return specType.trimmed();
 }
 
+// Defined below, needed here.
+static bool    isCollectionType(const QString& name, const SpectableFile& file);
+static bool    isAttrSetType(const QString& name, const SpectableFile& file);
+static QString collectionElementType(const QString& name, const SpectableFile& file);
+
 // Produce the expression used inside To<Name>Typed() to convert one field
 QString CSharpGenerator::parseExpr(const QString& field, const QString& specType,
                                    const SpectableFile* file)
@@ -80,7 +85,17 @@ QString CSharpGenerator::parseExpr(const QString& field, const QString& specType
     if (t == "duration")                  return QString("TimeSpan.Parse(this.%1)").arg(field);
     if (t == "string" || t == "text"
      || t == "character" || t == "char")  return QString("this.%1").arg(field);
-    // User-defined: wrap in constructor
+    if (file && isCollectionType(specType.trimmed(), *file)) {
+        // Collections are populated by the glue, not parsed from a cell.
+        const QString elem = collectionElementType(specType.trimmed(), *file);
+        const QString inner = isAttrSetType(elem, *file) ? elem + "Typed" : csharpType(elem);
+        return QString("new List<%1>()").arg(inner);
+    }
+    if (file && isAttrSetType(specType.trimmed(), *file)) {
+        // The String class already holds the nested block's own String class.
+        return QString("this.%1.To%2Typed()").arg(field, specType.trimmed());
+    }
+    // User-defined DataType: wrap in constructor
     return QString("new %1(this.%2)").arg(specType.trimmed()).arg(field);
 }
 
@@ -595,7 +610,7 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
 
     // Fields
     for (const Field& f : as.fields)
-        s << "        public " << csharpType(f.type) << " " << toCamelCase(f.name) << ";\n";
+        s << "        public " << typedFieldType(f, file) << " " << toCamelCase(f.name) << ";\n";
     s << "\n";
 
     // Constructor
@@ -603,7 +618,7 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        s << csharpType(f.type) << " " << toCamelCase(f.name);
+        s << typedFieldType(f, file) << " " << toCamelCase(f.name);
     }
     s << ")\n        {\n";
     for (const Field& f : as.fields)
