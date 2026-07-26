@@ -116,13 +116,12 @@ Examples: CartInput
 | $80        | $5       | $4       | $81         |                                             |
 
 Attributes CartInput
-| Attribute       | DataType |
-| Total for Items | Dollar   |
-| Shipping        | Dollar   |
-| Discount        | Dollar   |
-| Total Price     | Dollar   |
-| Notes           | String   |
-
+| Attribute   | DataType |
+| TotalItems  | Dollar   |
+| Shipping    | Dollar   |
+| Discount    | Dollar   |
+| Total Price | Dollar   |
+| Notes       | String   |
 
 Scenario Cost of Empty OrderItemCollection
 Given item collection : OrderItemCollection 
@@ -131,7 +130,7 @@ Then total of items is: ItemPriceInput
 | TotalItems |
 | $0         |
 
-Attributes ItemPriceInpt
+Attributes ItemPriceInput
 | Attribute  | DataType |
 | TotalItems | Dollar   |
 
