@@ -6,7 +6,25 @@
 
 #include <QFileInfo>
 #include <QMap>
+#include <algorithm>
 #include <functional>
+
+namespace {
+
+// Order files take in the Solution Explorer, within one folder: the
+// specifications first, then the notes about them, then whatever else the
+// project holds, and the configuration last — it is set once and rarely read.
+int listingRank(FileType type)
+{
+    switch (type) {
+        case FileType::SpecTable:  return 0;
+        case FileType::Markdown:   return 1;
+        case FileType::SpecConfig: return 3;
+        default:                   return 2;
+    }
+}
+
+} // namespace
 
 SolutionTreeModel::SolutionTreeModel(QObject* parent)
     : QAbstractItemModel(parent)
@@ -94,8 +112,45 @@ void SolutionTreeModel::buildNodes()
             return folderNode;
         };
 
+        // The files to show, and the folders that hold them. Project::scanFiles
+        // hands them over in QDirIterator order, which is neither grouped nor
+        // stable across machines.
+        QList<ProjectFile*> ordered;
+        QStringList dirs;
         for (auto* file : proj->files()) {
             if (!m_showAllFiles && file->type() == FileType::Other) continue;
+            ordered.append(file);
+            const QString dir = QFileInfo(file->relativePath()).path();
+            if (!dir.isEmpty() && dir != "." && !dirs.contains(dir))
+                dirs.append(dir);
+        }
+
+        // Create every folder before any file, so folders head each level the
+        // way Visual Studio's Solution Explorer shows them — and so the
+        // configuration files really do come last, not merely last among the
+        // files that happen to sit beside them. Sorted, so a parent folder is
+        // created (and numbered) before the folders inside it.
+        dirs.sort();
+        for (const QString& dir : dirs)
+            getOrCreateFolder(dir);
+
+        std::sort(ordered.begin(), ordered.end(),
+                  [](const ProjectFile* a, const ProjectFile* b) {
+            // Group by folder first: a file belongs beside its siblings, not
+            // beside every other .spectable in the project.
+            const QString dirA = QFileInfo(a->relativePath()).path();
+            const QString dirB = QFileInfo(b->relativePath()).path();
+            if (dirA != dirB) return dirA < dirB;
+
+            const int rankA = listingRank(a->type());
+            const int rankB = listingRank(b->type());
+            if (rankA != rankB) return rankA < rankB;
+
+            return a->relativePath().compare(b->relativePath(),
+                                             Qt::CaseInsensitive) < 0;
+        });
+
+        for (auto* file : ordered) {
             QString dir = QFileInfo(file->relativePath()).path();
             Node* parentNode = getOrCreateFolder(dir);
 
