@@ -31,6 +31,13 @@ public:
     virtual void setErrorMarks(const QList<QPair<int,int>>&) {}
     virtual void setTagCompletionWords(const QStringList&)  {}
 
+    // Caret and viewport, so a command that works over every open editor can
+    // put the user back where they were. -1 means "this editor has none".
+    virtual int  cursorPosition() const     { return -1; }
+    virtual void setCursorPosition(int)     {}
+    virtual int  verticalScroll() const     { return -1; }
+    virtual void setVerticalScroll(int)     {}
+
 signals:
     void modificationChanged(bool dirty);
     void fileOpenRequested(const QString& absolutePath);

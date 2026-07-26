@@ -43,6 +43,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QSet>
 #include <QTimer>
 #include <QDirIterator>
 #include <QFile>
@@ -802,6 +803,36 @@ static QString resolveOutputDir(const SpecConfig& cfg, const QString& configFile
     return QDir(base).absoluteFilePath(out);
 }
 
+// Delete the generated *String / *Typed classes from one common folder, and
+// report how many went.
+//
+// Building a whole project or solution converts every .spectable in it, so
+// every one of these classes is about to be written again. Anything still
+// standing afterwards belongs to an AttributeSet that was renamed or removed:
+// dead code that still compiles, and in the languages with a common index, a
+// stale entry pointing at it. Clearing first makes the folder reflect the
+// specifications as they are now.
+//
+// Naming differs by language — AddressString.java, address_string.py,
+// address_string.h — so both spellings are matched. Nothing else in common is
+// touched: the JSON reader, the index/module file, YesNo, TableHelper and
+// ProductionHelper are not per-AttributeSet, and converting a single file still
+// expects to find them.
+static int clearGeneratedCommonClasses(const QString& commonDir)
+{
+    QDir dir(commonDir);
+    if (!dir.exists()) return 0;
+
+    static const QStringList patterns = {
+        "*String.*", "*Typed.*", "*_string.*", "*_typed.*"
+    };
+
+    int removed = 0;
+    for (const QFileInfo& fi : dir.entryInfoList(patterns, QDir::Files))
+        if (QFile::remove(fi.absoluteFilePath())) ++removed;
+    return removed;
+}
+
 // Rewrite a single .spectable file's Insert "..." / Insert '...' / Insert <...> /
 // Import "..." statements that resolve to oldAbsPath, pointing them at newAbsPath
 // instead (as a path relative to this file). Returns true if the file was changed.
@@ -1139,12 +1170,57 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
     m_buildLogPath = targets.isEmpty() ? QString() : targets.first()->rootPath() + "/build.log";
     setupBuildConnections();
 
+    // Resolve every project's configuration up front. resolveActiveConfig can
+    // put up a dialog when a project holds more than one .specconfig, and the
+    // clearing pass below would otherwise ask a second time.
+    struct BuildTarget {
+        Project*   proj;
+        QString    cfgPath;
+        SpecConfig cfg;
+        QString    converter;
+    };
+    QList<BuildTarget> plan;
     for (auto* proj : targets) {
         // Prefer the active (most-recently-set) config for this project
         const QString cfgPath = resolveActiveConfig(proj);
         const SpecConfig cfg  = cfgPath.isEmpty() ? SpecConfig{} : SpecConfig::load(cfgPath);
-        const QString converter = cfg.converterPath.isEmpty() ? autoDetectConverter()
-                                                               : cfg.converterPath;
+        plan.append({ proj, cfgPath, cfg,
+                      cfg.converterPath.isEmpty() ? autoDetectConverter()
+                                                  : cfg.converterPath });
+    }
+
+    // Clear the previously generated String/Typed classes before converting
+    // anything. This has to finish before the first converter starts: run()
+    // below returns as soon as the process is spawned, so every conversion is
+    // in flight at once, and deleting from inside that loop would throw away
+    // files a sibling conversion had already written.
+    // Build > Current File deliberately does not do this — one .spectable
+    // cannot tell which classes belong to the specs it was not given.
+    {
+        QSet<QString> seen;
+        int removed = 0;
+        for (const BuildTarget& t : plan) {
+            for (auto* pf : t.proj->files()) {
+                if (pf->type() != FileType::SpecTable) continue;
+                const QString commonDir =
+                    QDir(resolveOutputDir(t.cfg, t.cfgPath, pf->absolutePath()))
+                        .absoluteFilePath("common");
+                if (seen.contains(commonDir)) continue;
+                seen.insert(commonDir);
+                removed += clearGeneratedCommonClasses(commonDir);
+            }
+        }
+        if (removed > 0)
+            m_mainWindow->outputPanel()->appendBuildOutput(
+                tr("Cleared %1 generated String/Typed file(s) — all are rebuilt below")
+                    .arg(removed));
+    }
+
+    for (const BuildTarget& t : plan) {
+        Project* proj           = t.proj;
+        const QString cfgPath   = t.cfgPath;
+        const SpecConfig& cfg   = t.cfg;
+        const QString converter = t.converter;
         if (!cfgPath.isEmpty())
             m_mainWindow->outputPanel()->appendBuildOutput(
                 tr("Configuration: %1").arg(QFileInfo(cfgPath).fileName()));
@@ -1293,6 +1369,20 @@ void AppController::onBuildSolution()
 
 void AppController::doAnalyze(const QList<Project*>& targets)
 {
+    // Analysis rebuilds the indexes, re-marks errors and refreshes the
+    // completion lists across every open editor, and shows the Analysis tab.
+    // None of that should cost the user their place, so note where each caret
+    // and viewport were and put them back at the end.
+    struct EditorPlace { BaseEditor* editor; int cursor; int scroll; };
+    QList<EditorPlace> places;
+    for (auto* ed : m_mainWindow->allOpenEditors())
+        places.append({ ed, ed->cursorPosition(), ed->verticalScroll() });
+
+    // Save first, so the analysis reads what is on disk. Taking the positions
+    // above this means a save that reloads the document is covered too.
+    for (auto* ed : m_mainWindow->allOpenEditors())
+        if (ed->isDirty()) ed->save();
+
     QList<Diagnostic>  all;
     QList<CoverageEntry> coverageEntries;
     QStringList allTags;
@@ -1423,6 +1513,15 @@ void AppController::doAnalyze(const QList<Project*>& targets)
 
     if (auto* panel = m_mainWindow->entityTree())
         panel->refresh(m_specTableIndex);
+
+    // Restore only editors that are still open — analysis can close one whose
+    // file has gone away.
+    const QList<BaseEditor*> stillOpen = m_mainWindow->allOpenEditors();
+    for (const EditorPlace& p : places) {
+        if (!stillOpen.contains(p.editor)) continue;
+        if (p.cursor >= 0) p.editor->setCursorPosition(p.cursor);
+        if (p.scroll >= 0) p.editor->setVerticalScroll(p.scroll);
+    }
 }
 
 void AppController::onAnalyze()
@@ -1439,7 +1538,6 @@ void AppController::onAnalyze()
                "Use Analyze > Solution to analyze all projects."));
         return;
     }
-    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
     doAnalyze({ active });
 }
 
@@ -1448,8 +1546,7 @@ void AppController::onAnalyzeProject(const QString& projectRootPath)
     if (!m_solution) return;
     for (auto* p : m_solution->projects()) {
         if (p->rootPath() == projectRootPath) {
-            for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
-            doAnalyze({ p });
+                    doAnalyze({ p });
             return;
         }
     }
@@ -1462,7 +1559,6 @@ void AppController::onAnalyzeSolution()
             tr("Open a solution first."));
         return;
     }
-    for (auto* e : m_mainWindow->allOpenEditors()) if (e->isDirty()) e->save();
     doAnalyze(m_solution->projects());
 }
 

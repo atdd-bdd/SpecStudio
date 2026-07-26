@@ -27,6 +27,11 @@ public:
     void setErrorMarks(const QList<QPair<int,int>>& marks) override;
     void setTagCompletionWords(const QStringList& tags)    override;
 
+    int  cursorPosition() const     override;
+    void setCursorPosition(int pos) override;
+    int  verticalScroll() const     override;
+    void setVerticalScroll(int v)   override;
+
     void editTable()  override;
     void editString() override;
 

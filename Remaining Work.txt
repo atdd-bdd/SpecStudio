@@ -67,24 +67,37 @@ Altered so that it is separated into Issues and Future Features
   but only does a find/replace across the .spectable source; it never
   touches already-generated glue method names.
 
-  #### Remove common/ files that are no longer referenced by any generated
-  code. Half done. The *index* is now pruned: a carried-over entry survives only
-  while its file still exists, in all five languages that have one (JavaScript
-  common/index.js, TypeScript common/index.ts, Python common/__init__.py, Rust
-  common/mod.rs and production/mod.rs, C++ common/common.h) --
-  sourcescan::dropEntriesForMissingFiles in converter/SourceScan.h. That closes
-  the build break: renaming ItemPriceInpt to ItemPriceInput used to leave
-  index.js exporting ./ItemPriceInptString.js and every Jest suite died with
-  "Cannot find module" before a test ran.
+  #### Remove common/ files that are no longer referenced -- DONE.
+  Build > Project and Build > Solution now delete every generated
+  *String/*Typed file from each output common/ folder before converting
+  anything (AppController::clearGeneratedCommonClasses). A whole-project build
+  converts every .spectable it owns, so all live classes are written again;
+  whatever does not come back belonged to a renamed or deleted AttributeSet.
+  Build > Current File deliberately does not do this -- one spec cannot tell
+  which classes belong to the specs it was not given.
 
-  Still to do: delete the orphaned *files*. Not done deliberately -- a single
-  conversion only knows the types in its own .spectable plus whatever came in
-  via --context, so a converter run given one file and no context would decide
-  that every other spec's common classes are unreferenced and delete them. Wants
-  a project-wide command in the IDE (where the full spec set is known), not a
-  per-file rule in the generator. 36 dead files are waiting in
-  SpecStudioExampleTests: Shipping/Discounting -> ShippingInput/DiscountInput,
-  4 per language x 9.
+  The delete runs as a separate pass over all targets before the first
+  converter starts. BuildController::run returns as soon as the process is
+  spawned, so every conversion is in flight at once and deleting from inside
+  that loop would throw away files a sibling had already written.
+
+  Only *String/*Typed go. The JSON reader, the index/module file, YesNo,
+  TableHelper and ProductionHelper stay -- they are not per-AttributeSet, and
+  converting a single file still expects to find them. The merged index prunes
+  itself (see SourceScan.h), so index and files stay in step.
+
+  Two consequences worth knowing:
+    - It only clears the output folder of the language whose .specconfig is
+      active. Orphans in the other eight stay until you build with each one
+      selected. The 36 Shipping/Discounting orphans in SpecStudioExampleTests
+      went for Java on the first run; the other eight still have theirs.
+    - A dead glue method becomes a compile error instead of staying invisible.
+      First run deleted PricingString/PricingTyped -- Pricing is in no spec any
+      more -- and Shopping_Cart_glue.java still had Then_result_is taking a
+      List<PricingString>. That is the intended signal (it is the same dead
+      glue the analyze-implementation item above is meant to flag), but it does
+      mean the first build after this change can fail to compile until the
+      matching glue method is removed.
 
   #### Production classes are never overwritten -- verified in all nine
   languages: hand-edit a production file, regenerate, the edit survives; and

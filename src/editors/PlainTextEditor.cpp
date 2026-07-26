@@ -13,6 +13,7 @@
 #include <QRegularExpression>
 #include <QSyntaxHighlighter>
 #include <QTextBlock>
+#include <QScrollBar>
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextStream>
@@ -551,6 +552,30 @@ void PlainTextEditor::formatTable()
     c.setPosition(first.position());
     c.setPosition(last.position() + last.length() - 1, QTextCursor::KeepAnchor);
     c.insertText(formatted.join('\n'));
+}
+
+int PlainTextEditor::cursorPosition() const
+{
+    return m_edit->textCursor().position();
+}
+
+void PlainTextEditor::setCursorPosition(int pos)
+{
+    QTextCursor c = m_edit->textCursor();
+    // A reload can leave the document shorter than it was; clamp rather than
+    // let QTextCursor silently move to the end.
+    c.setPosition(qBound(0, pos, m_edit->document()->characterCount() - 1));
+    m_edit->setTextCursor(c);
+}
+
+int PlainTextEditor::verticalScroll() const
+{
+    return m_edit->verticalScrollBar()->value();
+}
+
+void PlainTextEditor::setVerticalScroll(int v)
+{
+    m_edit->verticalScrollBar()->setValue(v);
 }
 
 void PlainTextEditor::setErrorMarks(const QList<QPair<int,int>>& marks)
