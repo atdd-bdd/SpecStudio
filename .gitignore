@@ -1,3 +1,15 @@
 /build/
 *.user
 .vs/
+
+# Claude Code transient state. Only worktrees/ is ignored, so a project skill
+# or a shared settings.json under .claude/ can still be committed deliberately.
+.claude/worktrees/
+
+# Build logs the IDE writes next to the specs it converts
+build.log
+
+# Scratch notes. The tracked backlogs (To Do.txt, Remaining Work.txt) stay
+# tracked; this one is personal working scratch.
+why and what and to do.txt
+
