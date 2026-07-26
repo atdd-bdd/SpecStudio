@@ -54,7 +54,8 @@ private:
     QString genStringStruct(const AttrSet& as, const SpectableFile& file) const;
     QString genTypedStruct(const AttrSet& as, const SpectableFile& file) const;
     QString genCommonMod(const QVector<AttrSet>& attrSets,
-                         const QString& existing) const;
+                         const QString& existing,
+                         const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueStruct, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueStruct) const;

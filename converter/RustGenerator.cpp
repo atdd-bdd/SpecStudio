@@ -637,7 +637,8 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
 // `use crate::common::*` resolved almost nothing. The existing index is therefore
 // merged with the new entries instead of replaced.
 QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
-                                     const QString& existing) const
+                                     const QString& existing,
+                                     const QString& dir) const
 {
     QStringList mods;
     for (const QString& line : existing.split('\n')) {
@@ -647,6 +648,8 @@ QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
             if (!mods.contains(t)) mods << t;
         }
     }
+    mods = sourcescan::dropEntriesForMissingFiles(
+               mods, dir, QRegularExpression("^pub (?:mod|use) ([A-Za-z0-9_]+)"), ".rs");
     for (const AttrSet& as : attrSets) {
         const QString mod = toIdentifier(as.name);
         for (const QString& l : { QString("pub mod %1_string;").arg(mod),
@@ -1769,7 +1772,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             existingMod = QTextStream(&mf).readAll();
             mf.close();
         }
-        writeFile(commonDir.filePath("mod.rs"), genCommonMod(domainSets, existingMod), msgs);
+        writeFile(commonDir.filePath("mod.rs"), genCommonMod(domainSets, existingMod, commonDir.path()), msgs);
     }
 
     // Test file
@@ -1858,6 +1861,20 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
+        // A production file is only ever created, never overwritten. Look for a
+        // declaration of the type anywhere in the folder rather than only for the
+        // filename we would write, so a developer who groups several classes in one
+        // file does not get a duplicate declaration emitted beside their own.
+        const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.rs"});
+        auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+            if (QFile::exists(prodPath)) return true;
+            const QString other = prodScan.declaredIn(typeName);
+            if (other.isEmpty()) return false;
+            msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                            "- no template written").arg(typeName, other);
+            return true;
+        };
+
         // Modules are recorded whether or not the file was just written, so a
         // production class kept from an earlier run stays reachable.
         QStringList prodMods;
@@ -1879,7 +1896,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             const QString mid = toIdentifier(nb.name);
             record(mid);
             const QString prodPath = prodDir.filePath(mid + ".rs");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toTypeName(nb.name))) continue;
             writeFile(prodPath, isValidValues ? genRustProductionClass(nb)
                                               : genRustProductionEnum(nb), msgs);
         }
@@ -1890,7 +1907,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             const QString mid = toIdentifier(as.name);
             record(mid);
             const QString prodPath = prodDir.filePath(mid + ".rs");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toTypeName(as.name))) continue;
             writeFile(prodPath, genRustProductionEntity(as, file), msgs);
         }
 
@@ -1900,7 +1917,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             const QString mid = toIdentifier(col.name);
             record(mid);
             const QString prodPath = prodDir.filePath(mid + ".rs");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toTypeName(col.name))) continue;
             writeFile(prodPath, genRustProductionCollection(col), msgs);
         }
 
@@ -1916,6 +1933,9 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
                     const QString t = l.trimmed();
                     if (!t.isEmpty() && !t.startsWith("#!") && !all.contains(t)) all << t;
                 }
+                all = sourcescan::dropEntriesForMissingFiles(
+                          all, prodDir.path(),
+                          QRegularExpression("^pub (?:mod|use) ([A-Za-z0-9_]+)"), ".rs");
             }
             for (const QString& l : prodMods) if (!all.contains(l)) all << l;
             all.sort();

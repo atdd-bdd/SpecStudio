@@ -2485,6 +2485,20 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
+        // A production file is only ever created, never overwritten. Look for a
+        // declaration of the type anywhere in the folder rather than only for the
+        // filename we would write, so a developer who groups several classes in one
+        // file does not get a duplicate declaration emitted beside their own.
+        const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.java"});
+        auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+            if (QFile::exists(prodPath)) return true;
+            const QString other = prodScan.declaredIn(typeName);
+            if (other.isEmpty()) return false;
+            msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                            "- no template written").arg(typeName, other);
+            return true;
+        };
+
         // DataType → production class / enum. Covers EnumerationValues (enum),
         // ValidValues (wrapper class + inferred numeric ctor), and bare DataTypes
         // with no Examples table at all (plain String-constructor wrapper) — the
@@ -2496,7 +2510,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
                 nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
 
             const QString prodPath = prodDir.filePath(nb.name + ".java");
-            if (QFile::exists(prodPath)) continue;   // never overwrite existing production classes
+            if (alreadyImplemented(prodPath, nb.name)) continue;
 
             if (isEnum)
                 writeFile(prodPath, genProductionEnum(nb, prodPkg, {}), msgs);
@@ -2510,7 +2524,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
             prodEntities << as;
             const QString prodPath = prodDir.filePath(as.name + ".java");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, as.name)) continue;
             writeFile(prodPath, genProductionEntity(as, prodPkg, file), msgs);
         }
 
@@ -2518,7 +2532,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         for (const Collection& col : file.collections) {
             if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
             const QString prodPath = prodDir.filePath(col.name + ".java");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, col.name)) continue;
             writeFile(prodPath, genProductionCollection(col, prodPkg), msgs);
         }
 

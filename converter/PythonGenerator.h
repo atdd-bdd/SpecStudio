@@ -54,7 +54,8 @@ private:
     QString genTypedClass(const AttrSet& as, const SpectableFile& file) const;
     QString genEqualityMethods(const AttrSet& as, const QString& cn,
                                bool dncAware) const;
-    QString genCommonInit(const QVector<AttrSet>& attrSets, const QString& existing) const;
+    QString genCommonInit(const QVector<AttrSet>& attrSets, const QString& existing,
+                          const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueClass, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;

@@ -559,6 +559,9 @@ static QString genCSharpJsonClass(const QString& ns, const QStringList& extraImp
     QTextStream s(&out);
     s << "namespace " << ns << "\n{\n";
     s << "using System;\n";
+    // ReadArray<T> below returns a List<T>. A project with ImplicitUsings
+    // enabled gets this for free; one without it does not, so say it.
+    s << "using System.Collections.Generic;\n";
     s << "using System.Globalization;\n";
     s << "using System.Text.Json;\n";
     for (const QString& u : extraImports) s << u << "\n";
@@ -1608,6 +1611,20 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
+        // A production file is only ever created, never overwritten. Look for a
+        // declaration of the type anywhere in the folder rather than only for the
+        // filename we would write, so a developer who groups several classes in one
+        // file does not get a duplicate declaration emitted beside their own.
+        const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.cs"});
+        auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+            if (QFile::exists(prodPath)) return true;
+            const QString other = prodScan.declaredIn(typeName);
+            if (other.isEmpty()) return false;
+            msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                            "- no template written").arg(typeName, other);
+            return true;
+        };
+
         // DataType ValidValues → class; EnumerationValues → enum
         for (const NamedBlock& nb : file.namedBlocks) {
             if (nb.isContext || !nb.hasExamples || nb.kind != "DataType") continue;
@@ -1617,7 +1634,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
                 nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
             if (!isValidValues && !isEnum) continue;
             const QString prodPath = prodDir.filePath(nb.name + ".cs");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, nb.name)) continue;
             if (isValidValues)
                 writeFile(prodPath, genCSharpProductionClass(nb, prodNs), msgs);
             else
@@ -1628,7 +1645,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         for (const AttrSet& as : file.attrSets) {
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
             const QString prodPath = prodDir.filePath(as.name + ".cs");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, as.name)) continue;
             writeFile(prodPath, genCSharpProductionEntity(as, prodNs, file), msgs);
         }
 
@@ -1636,7 +1653,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
         for (const Collection& col : file.collections) {
             if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
             const QString prodPath = prodDir.filePath(col.name + ".cs");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, col.name)) continue;
             writeFile(prodPath, genCSharpProductionCollection(col, prodNs), msgs);
         }
     }

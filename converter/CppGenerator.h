@@ -54,7 +54,8 @@ private:
     QString genStringHeader(const AttrSet& as, const SpectableFile& file) const;
     QString genTypedHeader(const AttrSet& as, const SpectableFile& file) const;
     QString genCommonHeader(const QVector<AttrSet>& attrSets,
-                            const QString& existing) const;
+                            const QString& existing,
+                            const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueClass, const QString& commonRelPath,
                         QStringList& errors) const;

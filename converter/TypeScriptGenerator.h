@@ -66,7 +66,8 @@ private:
     QString genStringClass(const AttrSet& as, const SpectableFile& file) const;
     QString genTypedClass(const AttrSet& as, const SpectableFile& file) const;
     QString genCommonIndex(const QVector<AttrSet>& attrSets,
-                           const QString& existing) const;
+                           const QString& existing,
+                           const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specName,
                         const QString& glueClass, const QString& commonRelPath,
                         QStringList& errors) const;

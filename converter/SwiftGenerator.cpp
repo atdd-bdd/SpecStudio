@@ -1387,6 +1387,20 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
+        // A production file is only ever created, never overwritten. Look for a
+        // declaration of the type anywhere in the folder rather than only for the
+        // filename we would write, so a developer who groups several classes in one
+        // file does not get a duplicate declaration emitted beside their own.
+        const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.swift"});
+        auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+            if (QFile::exists(prodPath)) return true;
+            const QString other = prodScan.declaredIn(typeName);
+            if (other.isEmpty()) return false;
+            msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                            "- no template written").arg(typeName, other);
+            return true;
+        };
+
         // DataType ValidValues → struct with isValid; EnumerationValues → enum
         for (const NamedBlock& nb : file.namedBlocks) {
             if (nb.isContext || !nb.hasExamples || nb.kind != "DataType") continue;
@@ -1396,7 +1410,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
                 nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
             if (!isValidValues && !isEnum) continue;
             const QString prodPath = prodDir.filePath(toTypeName(nb.name) + ".swift");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toTypeName(nb.name))) continue;
             writeFile(prodPath, isValidValues ? genSwiftProductionClass(nb)
                                               : genSwiftProductionEnum(nb), msgs);
         }
@@ -1405,7 +1419,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
         for (const AttrSet& as : file.attrSets) {
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
             const QString prodPath = prodDir.filePath(toTypeName(as.name) + ".swift");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toTypeName(as.name))) continue;
             writeFile(prodPath, genSwiftProductionEntity(as, file), msgs);
         }
 
@@ -1413,7 +1427,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
         for (const Collection& col : file.collections) {
             if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
             const QString prodPath = prodDir.filePath(toTypeName(col.name) + ".swift");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toTypeName(col.name))) continue;
             writeFile(prodPath, genSwiftProductionCollection(col), msgs);
         }
     }

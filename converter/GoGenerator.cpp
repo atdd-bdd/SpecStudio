@@ -1405,17 +1405,31 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         QDir prodDir(opts.productionClassesDir);
         if (!prodDir.exists()) prodDir.mkpath(".");
 
+        // A production file is only ever created, never overwritten. Look for a
+        // declaration of the type anywhere in the folder rather than only for the
+        // filename we would write, so a developer who groups several classes in one
+        // file does not get a duplicate declaration emitted beside their own.
+        const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.go"});
+        auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+            if (QFile::exists(prodPath)) return true;
+            const QString other = prodScan.declaredIn(typeName);
+            if (other.isEmpty()) return false;
+            msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                            "- no template written").arg(typeName, other);
+            return true;
+        };
+
         for (const AttrSet& as : file.attrSets) {
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
             const QString prodPath = prodDir.filePath(toIdentifier(as.name) + ".go");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toExported(as.name))) continue;
             writeFile(prodPath, genProductionEntity(as, prodPkg), msgs);
         }
 
         for (const Collection& col : file.collections) {
             if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
             const QString prodPath = prodDir.filePath(toIdentifier(col.name) + ".go");
-            if (QFile::exists(prodPath)) continue;
+            if (alreadyImplemented(prodPath, toExported(col.name))) continue;
             writeFile(prodPath, genProductionCollection(col, prodPkg), msgs);
         }
     }

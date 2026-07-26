@@ -625,13 +625,19 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
 // re-export barrel resolved almost nothing. The existing index is therefore
 // merged with the new entries instead of replaced.
 QString JavaScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets,
-                                             const QString& existing) const
+                                             const QString& existing,
+                                             const QString& dir) const
 {
     QStringList lines;
     for (const QString& line : existing.split('\n')) {
         const QString t = line.trimmed();
+        // json.js is re-exported by the fixed header below; carrying it over
+        // too emitted the line twice from the second generation onward.
+        if (t == "export * from \"./json.js\";") continue;
         if (t.startsWith("export * from") && !lines.contains(t)) lines << t;
     }
+    lines = sourcescan::dropEntriesForMissingFiles(
+                lines, dir, QRegularExpression(R"(from "\./([A-Za-z0-9_]+)\.js")"), ".js");
     for (const AttrSet& as : attrSets) {
         for (const QString& l : { QString("export * from \"./%1String.js\";").arg(as.name),
                                   QString("export * from \"./%1Typed.js\";").arg(as.name) })
@@ -1293,7 +1299,7 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
             xf.close();
         }
         writeFile(commonDir.filePath("index.js"),
-                  genCommonIndex(domainSets, existingIndex), msgs);
+                  genCommonIndex(domainSets, existingIndex, commonDir.path()), msgs);
     }
 
     // 2. Test file (always overwritten)
@@ -1325,16 +1331,30 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
         if (!prodDir.exists() && !prodDir.mkpath(".")) {
             msgs << QString("ERROR:0:Cannot create production directory: %1").arg(prodDir.path());
         } else {
+
+            // A production file is only ever created, never overwritten. Look for a
+            // declaration of the type anywhere in the folder rather than only for the
+            // filename we would write, so a developer who groups several classes in one
+            // file does not get a duplicate declaration emitted beside their own.
+            const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.js"});
+            auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+                if (QFile::exists(prodPath)) return true;
+                const QString other = prodScan.declaredIn(typeName);
+                if (other.isEmpty()) return false;
+                msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                                "- no template written").arg(typeName, other);
+                return true;
+            };
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
                 const QString prodPath = prodDir.filePath(as.name + ".js");
-                if (!QFile::exists(prodPath))
+                if (!alreadyImplemented(prodPath, as.name))
                     writeFile(prodPath, genProductionEntity(as), msgs);
             }
             for (const Collection& col : file.collections) {
                 if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
                 const QString prodPath = prodDir.filePath(col.name + ".js");
-                if (!QFile::exists(prodPath))
+                if (!alreadyImplemented(prodPath, col.name))
                     writeFile(prodPath, genProductionCollection(col), msgs);
             }
         }

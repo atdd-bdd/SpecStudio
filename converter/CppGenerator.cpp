@@ -617,7 +617,8 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
 // AttrSets meant the last file processed erased every struct contributed by the
 // others. The existing header is therefore merged with the new entries.
 QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets,
-                                      const QString& existing) const
+                                      const QString& existing,
+                                      const QString& dir) const
 {
     QStringList includes;
     for (const QString& line : existing.split('\n')) {
@@ -626,6 +627,8 @@ QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets,
          && !includes.contains(t))
             includes << t;
     }
+    includes = sourcescan::dropEntriesForMissingFiles(
+                   includes, dir, QRegularExpression(R"(^#include "([A-Za-z0-9_]+)\.h")"), ".h");
     for (const AttrSet& as : attrSets) {
         const QString id = toIdentifier(as.name);
         for (const QString& l : { QString("#include \"%1_string.h\"").arg(id),
@@ -1696,7 +1699,7 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
             cf.close();
         }
         writeFile(commonDir.filePath("common.h"),
-                  genCommonHeader(domainSets, existingCommon), msgs);
+                  genCommonHeader(domainSets, existingCommon, commonDir.path()), msgs);
     }
 
     // Test file (always overwritten)
@@ -1728,18 +1731,32 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
         if (!prodDir.exists() && !prodDir.mkpath(".")) {
             msgs << QString("ERROR:0:Cannot create production directory: %1").arg(prodDir.path());
         } else {
+
+            // A production file is only ever created, never overwritten. Look for a
+            // declaration of the type anywhere in the folder rather than only for the
+            // filename we would write, so a developer who groups several classes in one
+            // file does not get a duplicate declaration emitted beside their own.
+            const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.h"});
+            auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+                if (QFile::exists(prodPath)) return true;
+                const QString other = prodScan.declaredIn(typeName);
+                if (other.isEmpty()) return false;
+                msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                                "- no template written").arg(typeName, other);
+                return true;
+            };
             // Entities
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
                 const QString prodPath = prodDir.filePath(as.name + ".h");
-                if (!QFile::exists(prodPath))
+                if (!alreadyImplemented(prodPath, as.name))
                     writeFile(prodPath, genProductionEntityCpp(as), msgs);
             }
             // Collections
             for (const Collection& col : file.collections) {
                 if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
                 const QString prodPath = prodDir.filePath(col.name + ".h");
-                if (!QFile::exists(prodPath))
+                if (!alreadyImplemented(prodPath, col.name))
                     writeFile(prodPath, genProductionCollectionCpp(col), msgs);
             }
         }

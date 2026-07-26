@@ -67,8 +67,51 @@ Altered so that it is separated into Issues and Future Features
   but only does a find/replace across the .spectable source; it never
   touches already-generated glue method names.
 
-  #### Consider a cleanup command for anything in common/ that is no longer
-  referenced by any generated code.
+  #### Remove common/ files that are no longer referenced by any generated
+  code. Half done. The *index* is now pruned: a carried-over entry survives only
+  while its file still exists, in all five languages that have one (JavaScript
+  common/index.js, TypeScript common/index.ts, Python common/__init__.py, Rust
+  common/mod.rs and production/mod.rs, C++ common/common.h) --
+  sourcescan::dropEntriesForMissingFiles in converter/SourceScan.h. That closes
+  the build break: renaming ItemPriceInpt to ItemPriceInput used to leave
+  index.js exporting ./ItemPriceInptString.js and every Jest suite died with
+  "Cannot find module" before a test ran.
+
+  Still to do: delete the orphaned *files*. Not done deliberately -- a single
+  conversion only knows the types in its own .spectable plus whatever came in
+  via --context, so a converter run given one file and no context would decide
+  that every other spec's common classes are unreferenced and delete them. Wants
+  a project-wide command in the IDE (where the full spec set is known), not a
+  per-file rule in the generator. 36 dead files are waiting in
+  SpecStudioExampleTests: Shipping/Discounting -> ShippingInput/DiscountInput,
+  4 per language x 9.
+
+  #### Production classes are never overwritten -- verified in all nine
+  languages: hand-edit a production file, regenerate, the edit survives; and
+  with the "create production classes" checkbox off, zero production files are
+  written. Working as intended.
+
+  The skip-if-present test no longer keys on the filename. It now looks for a
+  *declaration of the type* anywhere under the production folder
+  (sourcescan::ProductionScan), so grouping several classes into one file --
+  idiomatic Go, normal Rust, mainstream Python -- no longer gets a duplicate
+  template written beside the real implementation. When the type is found in a
+  differently-named file the run says so:
+    INFO:0:Production type 'ShoppingCart' is already implemented in <path>
+        - no template written
+  Verified per language by concatenating every generated production file into
+  one Domain.<ext>, deleting the per-type files, and regenerating: nothing is
+  recreated and one INFO line appears per type.
+
+  Still open: renaming an Entity in the spec orphans the implementation.
+  ShoppingCart -> Cart leaves the developer's ShoppingCart.cs on disk and writes
+  a fresh Cart.cs template; the real implementation is now in the file the tests
+  no longer reference, with no warning. Detecting that needs a record of what was
+  emitted under which name, so it belongs with the rename-aware cleanup above.
+
+  Also cosmetic: the Python generator writes production/Address.py, where PEP 8
+  wants a lowercase module name (address.py). Renaming it would break every
+  existing import in both downstream repos, so it needs doing as its own change.
 
 ### Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
   AppController.cpp:500) but it's a generic git working-tree diff, not a

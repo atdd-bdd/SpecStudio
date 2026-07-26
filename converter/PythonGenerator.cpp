@@ -610,13 +610,16 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
 // others, so `from common import *` resolved almost nothing. The existing
 // index is therefore merged with the new entries instead of replaced.
 QString PythonGenerator::genCommonInit(const QVector<AttrSet>& attrSets,
-                                        const QString& existing) const
+                                        const QString& existing,
+                                        const QString& dir) const
 {
     QStringList lines;
     for (const QString& line : existing.split('\n')) {
         const QString t = line.trimmed();
         if (!t.isEmpty() && !lines.contains(t)) lines << t;
     }
+    lines = sourcescan::dropEntriesForMissingFiles(
+                lines, dir, QRegularExpression(R"(^from \.([A-Za-z0-9_]+) import)"), ".py");
     for (const AttrSet& as : attrSets) {
         const QString cn  = toTypeName(as.name);
         const QString mod = toModuleName(as.name);
@@ -1324,7 +1327,7 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         QFile ef(initPath);
         if (ef.open(QIODevice::ReadOnly | QIODevice::Text))
             existing = QTextStream(&ef).readAll();
-        writeFile(initPath, genCommonInit(domainSets, existing), msgs);
+        writeFile(initPath, genCommonInit(domainSets, existing, commonDir.path()), msgs);
     }
 
     // Test file (always overwritten)
@@ -1356,18 +1359,32 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         if (!prodDir.exists() && !prodDir.mkpath(".")) {
             msgs << QString("ERROR:0:Cannot create production directory: %1").arg(prodDir.path());
         } else {
+
+            // A production file is only ever created, never overwritten. Look for a
+            // declaration of the type anywhere in the folder rather than only for the
+            // filename we would write, so a developer who groups several classes in one
+            // file does not get a duplicate declaration emitted beside their own.
+            const sourcescan::ProductionScan prodScan(prodDir.path(), {"*.py"}, true);
+            auto alreadyImplemented = [&](const QString& prodPath, const QString& typeName) {
+                if (QFile::exists(prodPath)) return true;
+                const QString other = prodScan.declaredIn(typeName);
+                if (other.isEmpty()) return false;
+                msgs << QString("INFO:0:Production type '%1' is already implemented in %2 "
+                                "- no template written").arg(typeName, other);
+                return true;
+            };
             // Entity production classes
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
                 const QString prodPath = prodDir.filePath(toTypeName(as.name) + ".py");
-                if (QFile::exists(prodPath)) continue;
+                if (alreadyImplemented(prodPath, toTypeName(as.name))) continue;
                 writeFile(prodPath, genProductionEntity(as), msgs);
             }
             // Collection production classes
             for (const Collection& col : file.collections) {
                 if (col.isContext || col.name.isEmpty() || col.elementType.isEmpty()) continue;
                 const QString prodPath = prodDir.filePath(toTypeName(col.name) + ".py");
-                if (QFile::exists(prodPath)) continue;
+                if (alreadyImplemented(prodPath, toTypeName(col.name))) continue;
                 writeFile(prodPath, genProductionCollection(col), msgs);
             }
         }
