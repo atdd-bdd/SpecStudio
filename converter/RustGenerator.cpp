@@ -1626,7 +1626,7 @@ static QString genRustProductionCollection(const Collection& col)
           << "_MAXIMUM: usize = " << col.maximum << ";\n";
     if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) s << "\n";
 
-    s << "#[derive(Debug, Clone, Default)]\n";
+    s << "#[derive(Debug, Clone, Default, PartialEq)]\n";
     s << "pub struct " << name << " {\n";
     s << "    items: Vec<" << elemType << ">,\n";
     s << "}\n\n";
