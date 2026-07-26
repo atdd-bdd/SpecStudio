@@ -1,7 +1,5 @@
 Specification Shopping Cart
 
-
-
 Background Catalog 
 Given catalog has: Catalog
 | Name        | Price |
