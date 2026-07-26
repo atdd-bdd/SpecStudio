@@ -230,6 +230,30 @@ const AttrSet* SwiftGenerator::findAttrSet(const QString& name, const SpectableF
     return nullptr;
 }
 
+bool SwiftGenerator::isCollectionType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+QString SwiftGenerator::collectionElementType(const QString& name, const SpectableFile& file)
+{
+    for (const Collection& c : file.collections)
+        if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
+    return {};
+}
+
+// A step naming a Collection is really a step over that collection's element
+// type — `Given item collection is : OrderItemCollection` carries OrderItem
+// rows. Resolving to the element is what every other target already does.
+QString SwiftGenerator::effectiveAttrSetName(const QString& name, const SpectableFile& file)
+{
+    if (!name.isEmpty() && isCollectionType(name, file))
+        return collectionElementType(name, file);
+    return name;
+}
+
 const Define* SwiftGenerator::findDefine(const QString& name, const SpectableFile& file)
 {
     for (const Define& d : file.defines)
@@ -839,10 +863,12 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                 continue;
             }
 
-            const AttrSet* as = findAttrSet(step.attrSetName, file);
+            // A Collection step carries rows of its element type.
+            const QString effName = effectiveAttrSetName(step.attrSetName, file);
+            const AttrSet* as = findAttrSet(effName, file);
 
             if (!step.attrSetName.isEmpty() && !as) {
-                if (!isDataType(step.attrSetName, file)) {
+                if (!isDataType(effName, file)) {
                     errors << QString("ERROR:%1:AttributeSet '%2' not defined")
                               .arg(step.line).arg(step.attrSetName);
                     continue;
@@ -855,7 +881,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                 QStringList localErrs;
                 QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
                 errors << localErrs;
-                const QString listType = toTypeName(step.attrSetName) + "String";
+                const QString listType = toTypeName(effName) + "String";
                 s << "        glue." << meth << "(";
                 emitStrArray(listType, rows, as);
                 s << ")\n";
@@ -965,7 +991,8 @@ QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const Spectable
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "" });
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, step.attrSetName + "String" });
+                // A Collection step takes an array of its element type.
+                sigs.push_back({ meth, effectiveAttrSetName(step.attrSetName, file) + "String" });
             } else {
                 sigs.push_back({ meth, "grid" });
             }

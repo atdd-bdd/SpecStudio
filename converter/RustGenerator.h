@@ -40,6 +40,9 @@ private:
 
     static bool        isDataType(const QString& name, const SpectableFile& file);
     static const AttrSet* findAttrSet(const QString& name, const SpectableFile& file);
+    static bool    isCollectionType(const QString& name, const SpectableFile& file);
+    static QString collectionElementType(const QString& name, const SpectableFile& file);
+    static QString effectiveAttrSetName(const QString& name, const SpectableFile& file);
     static const Define*  findDefine(const QString& name, const SpectableFile& file);
 
     static QVector<QStringList> resolveStepRows(
