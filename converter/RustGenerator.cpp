@@ -1614,6 +1614,8 @@ static QString genRustProductionCollection(const Collection& col)
     const QString elemType = RustGenerator::toTypeName(col.elementType);
     QString out;
     QTextStream s(&out);
+    // The element type is a sibling in the production module.
+    s << "use super::*;\n\n";
     if (!col.minimum.isEmpty())
         s << "pub const " << RustGenerator::toIdentifier(col.name).toUpper()
           << "_MINIMUM: usize = " << col.minimum << ";\n";

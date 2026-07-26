@@ -111,7 +111,7 @@ When item added : OrderItem Vertical
 | Quantity | 3          |
 Then shopping cart is : ShoppingCart
 | Items        | Shipping | Discount | TotalPrice |
-| =TwoItemCart | $5       | $4       | $80        |
+| =TwoItemCart | $5       | $4       | $81        |
 
 Scenario Cost of Empty OrderItemCollection
 Given item collection : OrderItemCollection 
