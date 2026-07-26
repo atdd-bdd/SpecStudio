@@ -45,8 +45,10 @@ Then item collection is : OrderItemCollection
 | Name       | Price  | Quantity | ItemTotal |
 | Widget     | $10.00 | 2        | $20.00    |
 | WhatCallIt | $20.00 | 3        | $60.00    |
+And total of items is: ItemPriceInput  
+| TotalItems |
+| $80        |
 
- 
 Entity Address 
 # will update the individual types later 
 | Name   | Type       | Default | Notes |
@@ -109,9 +111,9 @@ Then shopping cart is : ShoppingCart
 BusinessRule Total Cart Price 
 Description How to Apply Discount and Shipping 
 Examples: CartInput
-| Total for Items | Shipping | Discount | Total Price | Notes                                       |
-| $110            | $5       | $11      | $104        | Discount applied before shipping calculated |
-| $80             | $5       | $4       | $81         |                                             |
+| TotalItems | Shipping | Discount | Total Price | Notes                                       |
+| $110       | $5       | $11      | $104        | Discount applied before shipping calculated |
+| $80        | $5       | $4       | $81         |                                             |
 
 Attributes CartInput
 | Attribute       | DataType |
@@ -125,14 +127,13 @@ Attributes CartInput
 Scenario Cost of Empty OrderItemCollection
 Given item collection : OrderItemCollection 
 | Price | Quantity | TotalPrice |
-When total computed 
-Then result is: Pricing  
-| TotalPrice |
+Then total of items is: ItemPriceInput  
+| TotalItems |
 | $0         |
 
-Attributes Pricing
+Attributes ItemPriceInpt
 | Attribute  | DataType |
-| TotalPrice | Dollar   |
+| TotalItems | Dollar   |
 
 
 BusinessRule Shipping_Cost 
