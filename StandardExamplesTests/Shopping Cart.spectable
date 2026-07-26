@@ -100,6 +100,8 @@ Define TwoItemCart
 
 Scenario Add items to Shopping Cart 
 Uses Discount, Shipping_Cost
+Details Apply Discount to OrderItem Total, then add shipping 
+
 Given shopping cart : ShoppingCart
 | Items      | Shipping | Discount | TotalPrice |
 | =EmptyCart | $0       | $0       | $0         |

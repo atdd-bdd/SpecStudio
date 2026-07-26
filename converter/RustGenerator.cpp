@@ -1581,7 +1581,9 @@ static QString genRustProductionEntity(const AttrSet& as, const SpectableFile& f
     // An entity's fields are typed by the DataTypes and entities alongside it,
     // which production/mod.rs re-exports.
     s << "use super::*;\n\n";
-    s << "#[derive(Debug, Clone)]\n";
+    // PartialEq because a Collection of this entity compares elements to delete
+    // or update them; without it those methods do not satisfy their own bounds.
+    s << "#[derive(Debug, Clone, PartialEq)]\n";
     s << "pub struct " << name << " {\n";
     for (const Field& f : as.fields) {
         const QString fid = RustGenerator::toIdentifier(f.name);
