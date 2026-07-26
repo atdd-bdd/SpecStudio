@@ -624,6 +624,15 @@ static QString genCSharpJsonClass(const QString& ns, const QStringList& extraImp
             if (v.ValueKind != JsonValueKind.Array) throw TypeError(ctx, "an array", v);
         }
 
+        /// <summary>Reads a JSON array into a list, mapping each element.</summary>
+        public static List<T> ReadArray<T>(JsonElement v, Func<JsonElement, T> read)
+        {
+            RequireArray(v, "array");
+            var result = new List<T>();
+            foreach (var e in v.EnumerateArray()) result.Add(read(e));
+            return result;
+        }
+
         /// <summary>Invariant text for any value; used for user-defined DataTypes.</summary>
         public static string ToText(object value)
         {
@@ -767,6 +776,13 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
               << ".ToString(\"c\", CultureInfo.InvariantCulture));\n";
         else if (ct == "string")
             s << "            w.WriteString(\"" << fn << "\", this." << fn << ");\n";
+        else if (isCollectionType(f.type, file)) {
+            // A Collection field is a list of the element's Typed objects.
+            s << "            w.WritePropertyName(\"" << fn << "\");\n";
+            s << "            w.WriteStartArray();\n";
+            s << "            foreach (var e in this." << fn << ") e.WriteJson(w);\n";
+            s << "            w.WriteEndArray();\n";
+        }
         else if (isAttrSetType(f.type, file)) {
             // Nested block — write it as a nested object.
             s << "            w.WritePropertyName(\"" << fn << "\");\n";
@@ -801,6 +817,12 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
         else if (ct == "DateTime") expr = QString("Json.AsDateTime(%1, \"%2\")").arg(src, fn);
         else if (ct == "TimeSpan") expr = QString("Json.AsTimeSpan(%1, \"%2\")").arg(src, fn);
         else if (ct == "string")   expr = QString("Json.AsString(%1, \"%2\")").arg(src, fn);
+        else if (isCollectionType(f.type, file)) {
+            // A Collection field reads back as a list of the element's Typed.
+            const QString elem = collectionElementType(f.type, file);
+            const QString inner = isAttrSetType(elem, file) ? elem + "Typed" : csharpType(elem);
+            expr = QString("Json.ReadArray(%1, e => %2.FromJsonElement(e))").arg(src, inner);
+        }
         else if (isAttrSetType(f.type, file))
             // Nested block — read it as its own Typed object, not a production class.
             expr = QString("%1Typed.FromJsonElement(%2)").arg(f.type.trimmed(), src);

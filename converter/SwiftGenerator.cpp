@@ -1180,7 +1180,9 @@ static QString genSwiftProductionEntity(const AttrSet& as, const SpectableFile& 
     QString out;
     QTextStream s(&out);
 
-    s << "public struct " << name << " {\n";
+    // Equatable because a Collection of this entity compares elements to delete
+    // or update them.
+    s << "public struct " << name << ": Equatable {\n";
     for (const Field& f : as.fields) {
         const QString fid = SwiftGenerator::toIdentifier(f.name);
         const QString st  = SwiftGenerator::swiftType(f.type);
@@ -1217,19 +1219,26 @@ static QString genSwiftProductionCollection(const Collection& col)
         s << "public let " << SwiftGenerator::toIdentifier(col.name) << "Maximum = " << col.maximum << "\n";
     if (!col.minimum.isEmpty() || !col.maximum.isEmpty()) s << "\n";
 
-    s << "public class " << name << " {\n";
+    // Equatable so an Entity holding this collection can itself be Equatable.
+    // A class gets no synthesized ==, so it is written out below.
+    s << "public class " << name << ": Equatable {\n";
     s << "    private var items: [" << elemType << "] = []\n\n";
     s << "    public init() {}\n\n";
+    s << "    public static func == (a: " << name << ", b: " << name << ") -> Bool {\n";
+    s << "        return a.items == b.items\n    }\n\n";
     s << "    public func add(_ item: " << elemType << ") {\n";
     s << "        items.append(item)\n    }\n\n";
-    s << "    public func delete(_ item: " << elemType << ") -> Bool where " << elemType << ": Equatable {\n";
+    // No `where Element: Equatable` clause: the element type is concrete here,
+    // so Swift rejects a where clause on a non-generic member. The element
+    // conforms to Equatable already, which is what these two need.
+    s << "    public func delete(_ item: " << elemType << ") -> Bool {\n";
     s << "        if let idx = items.firstIndex(where: { $0 == item }) {\n";
     s << "            items.remove(at: idx)\n";
     s << "            return true\n        }\n        return false\n    }\n\n";
     s << "    public func read() -> [" << elemType << "] {\n";
     s << "        return items\n    }\n\n";
     s << "    public func update(_ oldItem: " << elemType << ", with newItem: " << elemType
-      << ") -> Bool where " << elemType << ": Equatable {\n";
+      << ") -> Bool {\n";
     s << "        if let idx = items.firstIndex(where: { $0 == oldItem }) {\n";
     s << "            items[idx] = newItem\n";
     s << "            return true\n        }\n        return false\n    }\n\n";

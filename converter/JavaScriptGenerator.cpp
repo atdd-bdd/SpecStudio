@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <algorithm>
+#include <functional>
 
 // ---------------------------------------------------------------------------
 // Cell value helpers
@@ -748,23 +749,33 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
     s << "import { ";
     // collect all String types used
     QSet<QString> usedTypes;
+    // A block with a nested-object field is emitted as a literal that names the
+    // nested String class too, so the import list has to reach those as well.
+    std::function<void(const QString&)> addWithNested = [&](const QString& name) {
+        if (name.isEmpty() || isDataType(name, file)) return;
+        if (usedTypes.contains(name + "String")) return;
+        usedTypes.insert(name + "String");
+        for (const AttrSet& as : file.attrSets) {
+            if (as.name.compare(name, Qt::CaseInsensitive) != 0) continue;
+            for (const Field& f : as.fields)
+                if (isAttrSetType(f.type, file)) addWithNested(f.type.trimmed());
+        }
+    };
+
     auto collectUsedTypes = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
             if (step.attrSetName.isEmpty()) continue;
             const QString effectiveName = isCollectionType(step.attrSetName, file)
                 ? collectionElementType(step.attrSetName, file)
                 : step.attrSetName;
-            if (!effectiveName.isEmpty() && !isDataType(effectiveName, file))
-                usedTypes.insert(effectiveName + "String");
+            addWithNested(effectiveName);
         }
     };
     collectUsedTypes(file.backgroundSteps);
     collectUsedTypes(file.cleanupSteps);
     for (const Scenario& sc : file.scenarios) collectUsedTypes(sc.steps);
-    for (const NamedBlock& nb : file.namedBlocks) {
-        if (!nb.examples.attrSetName.isEmpty() && !isDataType(nb.examples.attrSetName, file))
-            usedTypes.insert(nb.examples.attrSetName + "String");
-    }
+    for (const NamedBlock& nb : file.namedBlocks)
+        addWithNested(nb.examples.attrSetName);
 
     QStringList typeList = usedTypes.values();
     std::sort(typeList.begin(), typeList.end());

@@ -83,13 +83,6 @@ Given shopping cart : ShoppingCart
 | ShippingAddress   | BillingAddress   | Items      |
 | =AShippingAddress | =ABillingAddress | =EmptyCart |
 
-
-
-
-
-
-
-
 Define EmptyCart 
 | Name | Price | Quantity | TotalPrice |
 
@@ -115,6 +108,22 @@ Then shopping cart is : ShoppingCart
 | Items        | Shipping | Discount | TotalPrice |
 | =TwoItemCart | $5       | $4       | $81        |
 
+BusinessRule Total Cart Price 
+Description How to Apply Discount and Shipping 
+Examples: CartInput
+| Total for Items | Shipping | Discount | Total Price | Notes                                       |
+| $110            | $5       | $11      | $104        | Discount applied before shipping calculated |
+| $80             | $5       | $4       | $81         |                                             |
+
+Attributes CartInput
+| Attribute       | DataType |
+| Total for Items | Dollar   |
+| Shipping        | Dollar   |
+| Discount        | Dollar   |
+| Total Price     | Dollar   |
+| Notes           | String   |
+
+
 Scenario Cost of Empty OrderItemCollection
 Given item collection : OrderItemCollection 
 | Price | Quantity | TotalPrice |
@@ -130,12 +139,12 @@ Attributes Pricing
 
 BusinessRule Shipping_Cost 
 Description How much to charge for shipping 
-Examples: Shipping
+Examples: ShippingInput
 | Total Price | Shipping Cost | Notes                |
 | $99.99      | $5.00         | Less than $100       |
 | $100.00     | $0            | Free if $100 or more |
 
-Attributes Shipping
+Attributes ShippingInput
 | Attribute     | DataType |
 | Total Price   | Dollar   |
 | Shipping Cost | Dollar   |
@@ -143,14 +152,14 @@ Attributes Shipping
 
 BusinessRule Discount 
 Description how much discount to give
-Examples: Discounting
+Examples: DiscountInput
 | Total Price | Discount | Notes |
 | $24.99      | 0        |       |
 | $25.00      | 5        |       |
 | $99.99      | 5        |       |
 | $100.00     | 10       |       |
 
-Attributes Discounting
+Attributes DiscountInput
 | Attribute   | DataType   |
 | Total Price | Dollar     |
 | Discount    | Percentage |
