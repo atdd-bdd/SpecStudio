@@ -1,4 +1,5 @@
 #include "AppController.h"
+#include "../ToolPath.h"
 #include "MainWindow.h"
 #include "../model/Solution.h"
 #include "../model/Project.h"
@@ -763,14 +764,22 @@ void AppController::onPull()
 static QString autoDetectConverter()
 {
     const QString appDir = QCoreApplication::applicationDirPath();
-    // Production: converter deployed next to SpecStudio.exe
-    const QString prod = appDir + "/SpecTableConverter.exe";
+    const QString exe    = toolpath::exeName("SpecTableConverter");
+
+    // Production: converter deployed next to SpecStudio
+    const QString prod = appDir + "/" + exe;
     if (QFile::exists(prod)) return prod;
-    // Development: Visual Studio build layout  build/src/Debug -> build/converter/Debug
-    const QString devDebug   = appDir + "/../../converter/Debug/SpecTableConverter.exe";
-    const QString devRelease = appDir + "/../../converter/Release/SpecTableConverter.exe";
-    if (QFile::exists(devDebug))   return QFileInfo(devDebug).absoluteFilePath();
-    if (QFile::exists(devRelease)) return QFileInfo(devRelease).absoluteFilePath();
+
+    // Development. Visual Studio nests by configuration
+    // (build/src/Debug -> build/converter/Debug); single-config generators such
+    // as Ninja and Makefiles do not (build/src -> build/converter), which is
+    // what Linux and macOS builds use.
+    for (const QString& rel : { QStringLiteral("/../../converter/Debug/"),
+                                QStringLiteral("/../../converter/Release/"),
+                                QStringLiteral("/../converter/") }) {
+        const QString candidate = appDir + rel + exe;
+        if (QFile::exists(candidate)) return QFileInfo(candidate).absoluteFilePath();
+    }
     return {};
 }
 

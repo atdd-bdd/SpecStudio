@@ -1,4 +1,5 @@
 #include "GitClient.h"
+#include "../ToolPath.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -24,8 +25,8 @@ void GitClient::applyCredentialEnv(QProcess& proc, const QString& username, cons
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
 
     // Point git at our own askpass helper (a sibling executable of
-    // SpecStudio.exe) so it never needs an interactive terminal.
-    const QString askpassPath = QCoreApplication::applicationDirPath() + "/SpecStudioAskPass.exe";
+    // SpecStudio) so it never needs an interactive terminal.
+    const QString askpassPath = toolpath::siblingTool("SpecStudioAskPass");
     env.insert("GIT_ASKPASS", askpassPath);
     env.insert("SPECSTUDIO_GIT_USERNAME", username);
     env.insert("SPECSTUDIO_GIT_PASSWORD", password);
