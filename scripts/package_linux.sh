@@ -173,6 +173,12 @@ echo "Building AppImage..."
 export PATH="$QT_DIR/bin:$PATH"
 export QMAKE="$QT_DIR/bin/qmake6"
 [[ -x "$QMAKE" ]] || export QMAKE="$QT_DIR/bin/qmake"
+
+# linuxdeploy and its Qt plugin are themselves AppImages, so they normally need
+# FUSE to mount. Containers, CI runners and Ubuntu 22.04+ (which dropped
+# libfuse2) often have none, and the failure reads as a bare "dlopen(): error
+# loading libfuse.so.2". Extracting instead is slower but works everywhere.
+export APPIMAGE_EXTRACT_AND_RUN=1
 export OUTPUT="$DIST/SpecStudio-$VERSION-x86_64.AppImage"
 export VERSION
 

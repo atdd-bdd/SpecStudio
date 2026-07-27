@@ -29,12 +29,15 @@ REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 QT_DIR=""
 BUILD_TYPE="Release"
 SKIP_BUILD=0
+ARCHS=""          # empty means: whatever this Mac is
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --qt-dir)     QT_DIR="$2"; shift 2 ;;
         --build-type) BUILD_TYPE="$2"; shift 2 ;;
         --skip-build) SKIP_BUILD=1; shift ;;
+        --universal)  ARCHS="x86_64;arm64"; shift ;;
+        --arch)       ARCHS="$2"; shift 2 ;;
         -h|--help)    sed -n '2,24p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
@@ -71,8 +74,22 @@ mkdir -p "$DIST"
 if [[ $SKIP_BUILD -eq 0 ]]; then
     GEN=()
     command -v ninja >/dev/null 2>&1 && GEN=(-G Ninja)
+
+    # Without CMAKE_OSX_ARCHITECTURES the build targets whichever Mac it runs
+    # on. An arm64 build does not run on an Intel Mac at all -- not even under
+    # Rosetta, which goes the other way -- so a single-arch build silently
+    # excludes half your users. --universal produces one bundle for both, which
+    # Qt's own macOS libraries support since they ship universal.
+    ARCH_ARGS=()
+    if [[ -n "$ARCHS" ]]; then
+        ARCH_ARGS=(-DCMAKE_OSX_ARCHITECTURES="$ARCHS")
+        echo "Architectures: $ARCHS"
+    else
+        echo "Architectures: $(uname -m) only (pass --universal for both)"
+    fi
+
     echo "Configuring..."
-    cmake -S "$REPO" -B "$BUILD_DIR" "${GEN[@]}" \
+    cmake -S "$REPO" -B "$BUILD_DIR" "${GEN[@]}" "${ARCH_ARGS[@]}" \
         -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
         -DQt6_DIR="$QT_DIR/lib/cmake/Qt6"
     echo "Building..."
@@ -147,7 +164,14 @@ Go, Rust, Python, Node, Swift, clang) are not -- install whichever you generate
 for.
 EOF
 
-DMG="$DIST/SpecStudio-$VERSION.dmg"
+# Name the architecture, so an arm64-only build is never mistaken for one that
+# runs everywhere.
+case "$ARCHS" in
+    "x86_64;arm64"|"arm64;x86_64") ARCH_TAG="universal" ;;
+    "")                            ARCH_TAG="$(uname -m)" ;;
+    *)                             ARCH_TAG="${ARCHS//;/-}" ;;
+esac
+DMG="$DIST/SpecStudio-$VERSION-macos-$ARCH_TAG.dmg"
 rm -f "$DMG"
 hdiutil create -volname "SpecStudio $VERSION" -srcfolder "$STAGING" \
                -ov -format UDZO "$DMG"
