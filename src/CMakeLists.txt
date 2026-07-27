@@ -142,3 +142,10 @@ target_link_libraries(SpecStudio PRIVATE
     Qt6::PrintSupport
     Qt6::Network
 )
+
+# One source of truth for the release number: project() in the top-level
+# CMakeLists. main.cpp used to carry its own copy, which is the sort of
+# duplicate that quietly goes stale.
+target_compile_definitions(SpecStudio PRIVATE
+    SPECSTUDIO_VERSION="${PROJECT_VERSION}"
+)

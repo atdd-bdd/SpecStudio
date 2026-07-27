@@ -7,7 +7,10 @@ int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
     app.setApplicationName("SpecStudio");
-    app.setApplicationVersion("0.1.0");
+    // SPECSTUDIO_VERSION comes from project() in the top-level CMakeLists, so
+    // the running application and the packaging scripts can never disagree
+    // about which release this is.
+    app.setApplicationVersion(SPECSTUDIO_VERSION);
     app.setOrganizationName("SpecStudio");
 
     AppSettings settings;
