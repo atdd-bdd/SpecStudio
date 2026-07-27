@@ -88,9 +88,11 @@ Altered so that it is separated into Issues and Future Features
 
   Two consequences worth knowing:
     - It only clears the output folder of the language whose .specconfig is
-      active. Orphans in the other eight stay until you build with each one
-      selected. The 36 Shipping/Discounting orphans in SpecStudioExampleTests
-      went for Java on the first run; the other eight still have theirs.
+      active, so clearing a project takes one build per configuration. Both
+      downstream trees have now had all nine run: SpecStudioExampleTests lost
+      Pricing, Discounting and Shipping in every language (plus SomeTypes,
+      LabelValue and EnumerationValues in Java, which was further out of date),
+      and SpecStudioVariousTests turned out to have orphans only in Java.
     - A dead glue method becomes a compile error instead of staying invisible.
       First run deleted PricingString/PricingTyped -- Pricing is in no spec any
       more -- and Shopping_Cart_glue.java still had Then_result_is taking a
