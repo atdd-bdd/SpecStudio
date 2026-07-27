@@ -1,0 +1,229 @@
+# Build the Linux and macOS distributions and attach them to a GitHub release.
+#
+# Windows is not here on purpose. Its artefacts have to be signed with the
+# Sectigo USB token, which is physical hardware that no runner can reach, and an
+# unsigned .exe published beside signed Linux and Mac builds is worse than one
+# built by hand. Build and sign Windows locally:
+#     .\scripts\package_windows.ps1
+#     .\scripts\sign_windows.ps1
+# then attach the results to the release this workflow creates.
+#
+# Triggers:
+#   push of a v* tag  -> build both, create a draft release, attach artefacts
+#   manual dispatch   -> build both, attach to the run only (no release)
+#
+# The macOS build is signed and notarized only if the Apple secrets are present,
+# so a fork or a first run still produces something. See "Secrets" below.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      qt_version:
+        description: 'Qt version to build against'
+        default: '6.10.0'
+        type: string
+
+permissions:
+  contents: write        # needed to create the release and upload assets
+
+env:
+  QT_VERSION: ${{ inputs.qt_version || '6.10.0' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  linux:
+    name: Linux x86_64
+    # Pinned to the oldest supported distribution on purpose: glibc is only
+    # forward compatible, so an AppImage built on 24.04 will not start on 22.04.
+    # Build low, run high.
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the packaging scripts read git tags for the version
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build \
+            libgl1-mesa-dev libxkbcommon-dev libvulkan-dev \
+            libxcb-cursor0 libxcb-xinerama0 fuse3
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: ''
+          cache: true
+
+      - name: Package
+        # QT_ROOT_DIR is exported by install-qt-action.
+        run: ./scripts/package_linux.sh --qt-dir "$QT_ROOT_DIR"
+
+      - name: Show what was produced
+        run: ls -lh dist/
+
+      - name: Smoke-test the AppImage
+        # Proves the image is self-contained rather than merely present. The
+        # runner has no Qt outside the one we bundled, and no display, so run
+        # the converter (a console tool) under a scrubbed environment. It exits
+        # 1 with usage when given no arguments, which is a real answer.
+        run: |
+          set -euo pipefail
+          appimage="$(ls dist/*.AppImage)"
+          chmod +x "$appimage"
+          "$appimage" --appimage-extract >/dev/null
+          out="$(env -i HOME="$HOME" PATH=/usr/bin:/bin \
+                 squashfs-root/usr/bin/SpecTableConverter 2>&1 || true)"
+          echo "$out"
+          echo "$out" | grep -q 'Usage: SpecTableConverter' \
+            || { echo "::error::bundled converter did not run"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS universal
+    # macos-14 is Apple Silicon. The build is universal regardless, so the
+    # runner architecture does not decide what users get.
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: ''
+          cache: true
+
+      - name: Package (universal)
+        run: ./scripts/package_mac.sh --qt-dir "$QT_ROOT_DIR" --universal
+
+      - name: Confirm the bundle really is universal
+        # A single-architecture build looks identical until an Intel Mac tries
+        # to open it, so check rather than trust the flag.
+        run: |
+          set -euo pipefail
+          app="$(find build-mac -maxdepth 4 -name 'SpecStudio.app' -type d | head -1)"
+          for exe in SpecStudio SpecTableConverter SpecStudioAskPass; do
+            echo "--- $exe"
+            lipo -archs "$app/Contents/MacOS/$exe"
+            lipo -archs "$app/Contents/MacOS/$exe" | grep -q 'x86_64' \
+              && lipo -archs "$app/Contents/MacOS/$exe" | grep -q 'arm64' \
+              || { echo "::error::$exe is not universal"; exit 1; }
+          done
+
+      # --- signing, only when the credentials exist ---------------------------
+      # A fork, or this repository before the Apple account is set up, still
+      # produces a usable (if unsigned) DMG rather than failing the job.
+      - name: Are the Apple secrets configured?
+        id: apple
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          if [ -n "$CERT" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"
+          else echo "ready=false" >> "$GITHUB_OUTPUT"
+               echo "::warning::Apple signing secrets absent - shipping an unsigned DMG."
+          fi
+
+      - name: Import the Developer ID certificate
+        if: steps.apple.outputs.ready == 'true'
+        env:
+          CERT_P12:      ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # A keychain created for this job alone, so nothing outlives the run.
+          keychain="$RUNNER_TEMP/build.keychain"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+              -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Without this, codesign blocks on a GUI prompt that nobody can answer.
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+      - name: Sign and notarize
+        if: steps.apple.outputs.ready == 'true'
+        env:
+          APPLE_ID:   ${{ secrets.APPLE_ID }}
+          TEAM_ID:    ${{ secrets.APPLE_TEAM_ID }}
+          APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool store-credentials specstudio-notary \
+              --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD"
+          app="$(find build-mac -maxdepth 4 -name 'SpecStudio.app' -type d | head -1)"
+          dmg="$(ls dist/*.dmg)"
+          ./scripts/notarize_mac.sh "$app" "$dmg"
+
+      - name: Show what was produced
+        run: ls -lh dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: dist/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  release:
+    name: Draft release
+    needs: [linux, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - run: find artifacts -type f | sort
+
+      - name: Create or update the draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Draft, not published: the Windows artefacts still have to be built
+          # and signed locally and added by hand before this goes out.
+          draft: true
+          generate_release_notes: true
+          files: artifacts/**/*
+          body: |
+            SpecStudio ${{ github.ref_name }}
+
+            Linux and macOS builds are attached, produced by CI.
+
+            **The Windows build is not here yet.** It has to be signed with the
+            Sectigo hardware token, which no CI runner can reach:
+
+                .\scripts\package_windows.ps1
+                .\scripts\sign_windows.ps1
+
+            Attach `SpecStudio-*-setup.exe` and `SpecStudio-*-windows-x64.zip`
+            to this draft, check the notes, then publish.
