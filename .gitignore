@@ -13,3 +13,8 @@ build.log
 # tracked; this one is personal working scratch.
 why and what and to do.txt
 
+
+# Packaging output (scripts/package_*.sh|ps1) and platform build trees.
+dist/
+build-linux/
+build-mac/

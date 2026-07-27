@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# package_mac.sh - build SpecStudio for macOS and package it as a .dmg.
+#
+# Replaces the earlier build_mac_dmg.sh, which shipped a bundle with no code
+# generator in it: SpecStudio locates SpecTableConverter and SpecStudioAskPass
+# beside its own executable, and neither was ever copied into the .app. Build
+# would have reported "No converter found" on every install.
+#
+# Produces, in dist/:
+#   SpecStudio-<version>.dmg
+#
+# macdeployqt puts the Qt frameworks and plugins inside the bundle, so it runs
+# on a Mac with no Qt. Language toolchains are not included.
+#
+# Nothing is signed here. macOS signing is a separate step and a separate
+# certificate: the Sectigo token signs Windows binaries only, and Gatekeeper
+# accepts nothing but an Apple Developer ID Application certificate, followed by
+# notarization. See scripts/notarize_mac.sh.
+#
+#   ./scripts/package_mac.sh
+#   ./scripts/package_mac.sh --qt-dir ~/Qt/6.10.0/macos
+#   ./scripts/package_mac.sh --skip-build
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+QT_DIR=""
+BUILD_TYPE="Release"
+SKIP_BUILD=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --qt-dir)     QT_DIR="$2"; shift 2 ;;
+        --build-type) BUILD_TYPE="$2"; shift 2 ;;
+        --skip-build) SKIP_BUILD=1; shift ;;
+        -h|--help)    sed -n '2,24p' "$0"; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+if [[ -z "$QT_DIR" ]]; then
+    for c in "$HOME/Qt/6.10.0/macos" "/usr/local/Qt/6.10.0/macos" \
+             "/opt/homebrew/opt/qt@6" "/usr/local/opt/qt@6"; do
+        if [[ -f "$c/lib/cmake/Qt6/Qt6Config.cmake" ]]; then QT_DIR="$c"; break; fi
+    done
+fi
+[[ -n "$QT_DIR" ]] || { echo "ERROR: Qt 6 not found. Pass --qt-dir <path>." >&2; exit 1; }
+echo "Qt: $QT_DIR"
+
+MACDEPLOYQT="$QT_DIR/bin/macdeployqt"
+[[ -x "$MACDEPLOYQT" ]] || { echo "ERROR: macdeployqt not found at $MACDEPLOYQT" >&2; exit 1; }
+
+# A release tag if the tree has one, otherwise the project() version in
+# CMakeLists.txt. Never a bare commit hash -- these names are user-facing.
+VERSION="$(git -C "$REPO" describe --tags --abbrev=0 2>/dev/null || true)"
+if [[ -z "$VERSION" ]]; then
+    VERSION="$(grep -o 'project(SpecStudio VERSION [0-9.]*' "$REPO/CMakeLists.txt" | grep -o '[0-9][0-9.]*$')"
+fi
+VERSION="${VERSION:-0.0.0}"
+VERSION="${VERSION#v}"
+echo "SpecStudio $VERSION ($BUILD_TYPE)"
+
+BUILD_DIR="$REPO/build-mac"
+DIST="$REPO/dist"
+STAGING="$BUILD_DIR/dmg-staging"
+mkdir -p "$DIST"
+
+# ---- build -------------------------------------------------------------------
+if [[ $SKIP_BUILD -eq 0 ]]; then
+    GEN=()
+    command -v ninja >/dev/null 2>&1 && GEN=(-G Ninja)
+    echo "Configuring..."
+    cmake -S "$REPO" -B "$BUILD_DIR" "${GEN[@]}" \
+        -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+        -DQt6_DIR="$QT_DIR/lib/cmake/Qt6"
+    echo "Building..."
+    cmake --build "$BUILD_DIR" --parallel
+fi
+
+APP="$(find "$BUILD_DIR" -maxdepth 4 -name 'SpecStudio.app' -type d | head -1)"
+[[ -n "$APP" ]] || { echo "ERROR: SpecStudio.app not found under $BUILD_DIR" >&2; exit 1; }
+echo "Bundle: $APP"
+
+# Helper executables are plain binaries, not bundles, so CMake leaves them
+# outside. Ninja and Makefiles do not nest by configuration; Xcode does.
+find_tool() {  # name subdir
+    for p in "$BUILD_DIR/$2/$1" "$BUILD_DIR/$2/$BUILD_TYPE/$1"; do
+        [[ -x "$p" ]] && { echo "$p"; return 0; }
+    done
+    return 1
+}
+CONVERTER="$(find_tool SpecTableConverter converter)" \
+    || { echo "ERROR: SpecTableConverter not built" >&2; exit 1; }
+ASKPASS="$(find_tool SpecStudioAskPass src)" \
+    || { echo "ERROR: SpecStudioAskPass not built" >&2; exit 1; }
+
+# ---- put the helpers inside the bundle ---------------------------------------
+# Contents/MacOS is what applicationDirPath() returns, so this is the one place
+# they can go and still be found.
+echo "Adding helper executables to the bundle..."
+cp "$CONVERTER" "$ASKPASS" "$APP/Contents/MacOS/"
+
+# ---- deploy Qt ---------------------------------------------------------------
+# -executable= is given for each helper so macdeployqt rewrites their load paths
+# to the frameworks inside the bundle too. Without it they keep absolute
+# references to the build machine's Qt and fail to start anywhere else.
+echo "Running macdeployqt..."
+"$MACDEPLOYQT" "$APP" \
+    -executable="$APP/Contents/MacOS/SpecTableConverter" \
+    -executable="$APP/Contents/MacOS/SpecStudioAskPass" \
+    -verbose=1
+
+# ---- sanity check ------------------------------------------------------------
+# A bundle that still points at the build machine's Qt looks fine here and fails
+# on the user's Mac, so check before shipping rather than after.
+echo "Checking for references outside the bundle..."
+leaked=0
+for exe in "$APP/Contents/MacOS/"*; do
+    [[ -f "$exe" && -x "$exe" ]] || continue
+    while read -r lib; do
+        case "$lib" in
+            /usr/lib/*|/System/*|@rpath/*|@executable_path/*|@loader_path/*|"") ;;
+            *) echo "  $(basename "$exe") -> $lib"; leaked=1 ;;
+        esac
+    done < <(otool -L "$exe" | tail -n +2 | awk '{print $1}')
+done
+if [[ $leaked -eq 1 ]]; then
+    echo "WARNING: the above are absolute paths on this machine and will not" >&2
+    echo "         resolve on another Mac. Check the macdeployqt output." >&2
+fi
+
+# ---- dmg ---------------------------------------------------------------------
+echo "Creating DMG..."
+rm -rf "$STAGING"; mkdir -p "$STAGING"
+cp -R "$APP" "$STAGING/"
+ln -s /Applications "$STAGING/Applications"
+cat > "$STAGING/README-FIRST.txt" <<EOF
+SpecStudio $VERSION
+
+Drag SpecStudio.app to Applications.
+
+The Qt runtime, the code generator and the git credential helper are all inside
+the bundle. The language toolchains used to compile generated tests (JDK, .NET,
+Go, Rust, Python, Node, Swift, clang) are not -- install whichever you generate
+for.
+EOF
+
+DMG="$DIST/SpecStudio-$VERSION.dmg"
+rm -f "$DMG"
+hdiutil create -volname "SpecStudio $VERSION" -srcfolder "$STAGING" \
+               -ov -format UDZO "$DMG"
+
+echo ""
+echo "Done: $DMG"
+echo ""
+echo "Unsigned: macOS will refuse to open it on another machine until it is"
+echo "signed with an Apple Developer ID and notarized. Next step:"
+echo "  ./scripts/notarize_mac.sh \"$APP\" \"$DMG\""
