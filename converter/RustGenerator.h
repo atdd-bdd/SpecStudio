@@ -16,6 +16,7 @@ public:
         QString     tagFilter;
         bool        createProductionClasses = false;
         QString     productionClassesDir;
+        bool        failEveryTest = true;            // end every generated glue stub with a failure
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
@@ -28,6 +29,7 @@ public:
 private:
     QStringList m_extraUses;
     QString     m_tagFilter;
+    bool        m_failEveryTest = true;
 
     static bool    isAttrSetType(const QString& name, const SpectableFile& file);
     static QString rustNestedLiteral(const QString& cellValue, const QString& fieldType,
@@ -65,10 +67,12 @@ private:
         QString paramType;  // "" = void; struct name = &[Struct]; "grid" = &[Vec<String>]
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
-    static QString genStubFn(const GlueSig& sig);
+    static QString genStubFn(const GlueSig& sig,
+                                   bool failEveryTest);
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,
-                                   QStringList& msgs);
+                                   QStringList& msgs,
+                                   bool failEveryTest);
 
     static bool writeFile(const QString& path, const QString& content, QStringList& msgs);
 };

@@ -18,6 +18,7 @@ public:
         bool        createProductionClasses  = false;   // generate production class stubs
         QString     productionClassesDir;               // output folder for production classes
         QString     productionClassesNamespace;         // C# namespace for production classes
+        bool        failEveryTest = true;            // end every generated glue stub with a failure
     };
 
     // Generate all output files; returns list of "SEVERITY:LINE:message" strings
@@ -59,14 +60,17 @@ private:
 
     QStringList m_extraImports;
     QString     m_tagFilter;
+    bool        m_failEveryTest = true;
     QString     m_commonNs;
 
     struct GlueSig { QString method; QString paramType; bool isList; };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
-    static QString genStubMethod(const GlueSig& sig);
+    static QString genStubMethod(const GlueSig& sig,
+                                   bool failEveryTest);
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,
-                                   QStringList& msgs);
+                                   QStringList& msgs,
+                                   bool failEveryTest);
 
     // Helper: write a file and add a message on failure
     static bool writeFile(const QString& path, const QString& content, QStringList& msgs);

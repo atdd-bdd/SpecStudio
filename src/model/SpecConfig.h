@@ -17,8 +17,8 @@ struct SpecConfig
 {
     int     version        = 1;
     QString outputDirectory = "generated";   // relative to this .specconfig file
-    QString language        = "CSharp";      // CSharp | Java (future)
-    QString framework       = "MSTest";      // MSTest | NUnit | xUnit | JUnit | TestNG
+    QString language        = "CSharp";      // see SpecConfig::frameworksFor for the full set
+    QString framework       = "MSTest";      // valid values depend on the language
     QString namespacePrefix;
     bool        overwriteGlue  = false;      // regenerate glue stubs even if they exist
     bool        copySpectable  = true;       // copy the .spectable source file to the output directory
@@ -26,13 +26,15 @@ struct SpecConfig
     QStringList imports;                     // extra import/using statements for all generated files
     QString     tagFilter;                   // boolean $tag expression — only matching blocks generated
 
-    // Production class generation (Java only)
+    // Production class generation (all languages)
     bool    createProductionClasses  = false; // generate production stubs for DataTypes if not present
     QString productionClassesDir;             // output folder for production classes
     QString productionClassesPackage;         // Java package for production classes
 
-    // Java only: insert an initial fail() in every generated test method
-    bool    failEveryTest = false;
+    // End every generated glue stub with a failure, so an unimplemented step
+    // cannot report success. On by default; turning it off is a deliberate
+    // choice to let a fresh scaffold pass green.
+    bool    failEveryTest = true;
 
     // Cross-project type imports — external .spectable files whose types are visible here
     QList<ExternalSpectable> externalSpectables;

@@ -1020,29 +1020,33 @@ QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const Spectable
     return sigs;
 }
 
-QString SwiftGenerator::genStubFn(const GlueSig& sig)
+QString SwiftGenerator::genStubFn(const GlueSig& sig, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    public func " << sig.method << "() {\n";
-        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     } else if (sig.paramType == "docstring") {
         s << "    public func " << sig.method << "(_ value: String) {\n";
         s << "        print(value)\n";
-        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    public func " << sig.method << "(_ values: [[String]]) {\n";
         s << "        for value in values { print(value) }\n";
-        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     } else {
         const QString pt = toTypeName(sig.paramType);
         s << "    public func " << sig.method << "(_ values: [" << pt << "]) {\n";
         s << "        for value in values { print(value) }\n";
-        s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
         s << "    }\n";
     }
     return out;
@@ -1050,7 +1054,8 @@ QString SwiftGenerator::genStubFn(const GlueSig& sig)
 
 bool SwiftGenerator::appendMissingStubs(const QString& gluePath,
                                          const QVector<GlueSig>& sigs,
-                                         QStringList& msgs)
+                                         QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1063,7 +1068,7 @@ bool SwiftGenerator::appendMissingStubs(const QString& gluePath,
     QString stubs;
     for (const GlueSig& sig : sigs) {
         if (!scan.contains(QStringLiteral("func %1(").arg(sig.method)))
-            stubs += "\n" + genStubFn(sig);
+            stubs += "\n" + genStubFn(sig, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1096,7 +1101,7 @@ QString SwiftGenerator::genGlueFile(const SpectableFile& file, const QString& gl
     s << "public class " << glueClass << " {\n";
     s << "    public init() {}\n";
     for (const GlueSig& sig : sigs)
-        s << "\n" << genStubFn(sig);
+        s << "\n" << genStubFn(sig, m_failEveryTest);
     s << "}\n";
 
     return out;
@@ -1271,6 +1276,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
     QStringList msgs;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1377,7 +1383,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
             writeFile(gluePath, genGlueFile(augmented, glueClass), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

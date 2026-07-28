@@ -78,8 +78,9 @@ bool SpecConfig::save(const QString& filePath) const
         o["productionClassesDir"] = productionClassesDir;
     if (!productionClassesPackage.isEmpty())
         o["productionClassesPackage"] = productionClassesPackage;
-    if (failEveryTest)
-        o["failEveryTest"] = true;
+    // Always written: the default is true, so omitting the key when false
+    // would silently re-enable it on the next load.
+    o["failEveryTest"] = failEveryTest;
     if (!externalSpectables.isEmpty()) {
         QJsonArray extArr;
         for (const ExternalSpectable& es : externalSpectables) {

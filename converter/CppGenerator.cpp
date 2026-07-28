@@ -1355,29 +1355,33 @@ QVector<CppGenerator::GlueSig> CppGenerator::collectGlueSigs(const SpectableFile
     return sigs;
 }
 
-QString CppGenerator::genStubMethod(const GlueSig& sig)
+QString CppGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    void " << sig.method << "() {\n";
-        s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
+        if (failEveryTest)
+            s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
         s << "    }\n";
     } else if (sig.paramType == "docstring") {
         s << "    void " << sig.method << "(const std::string& value) {\n";
         s << "        std::cout << value << \"\\n\";\n";
-        s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
+        if (failEveryTest)
+            s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    void " << sig.method << "(const std::vector<std::vector<std::string>>& values) {\n";
         s << "        for (const auto& row : values) { for (const auto& c : row) std::cout << c << \" \"; std::cout << \"\\n\"; }\n";
-        s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
+        if (failEveryTest)
+            s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
         s << "    }\n";
     } else {
         const QString pt = toTypeName(sig.paramType);
         s << "    void " << sig.method << "(const std::vector<" << pt << ">& values) {\n";
         s << "        for (const auto& v : values) { std::cout << v.to_string() << \"\\n\"; }\n";
-        s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
+        if (failEveryTest)
+            s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
         s << "    }\n";
     }
     return out;
@@ -1385,7 +1389,8 @@ QString CppGenerator::genStubMethod(const GlueSig& sig)
 
 bool CppGenerator::appendMissingStubs(const QString& gluePath,
                                        const QVector<GlueSig>& sigs,
-                                       QStringList& msgs)
+                                       QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1398,7 +1403,7 @@ bool CppGenerator::appendMissingStubs(const QString& gluePath,
     QString stubs;
     for (const GlueSig& sig : sigs) {
         if (!scan.contains(QString("void %1(").arg(sig.method)))
-            stubs += "\n" + genStubMethod(sig);
+            stubs += "\n" + genStubMethod(sig, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1439,7 +1444,7 @@ QString CppGenerator::genGlueFile(const SpectableFile& file, const QString& glue
     s << "    static constexpr const char* DNC_STRING = \"?DNC?\";\n\n";
 
     for (const GlueSig& sig : sigs)
-        s << genStubMethod(sig) << "\n";
+        s << genStubMethod(sig, m_failEveryTest) << "\n";
 
     s << "};\n";
     return out;
@@ -1601,6 +1606,7 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
     QStringList msgs;
     m_extraIncludes = opts.extraIncludes;
     m_tagFilter     = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1720,7 +1726,7 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
             writeFile(gluePath, genGlueFile(augmented, glueClass, commonRelPath), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

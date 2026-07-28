@@ -83,10 +83,18 @@ int main(int argc, char* argv[])
         "Java package for generated production classes.", "package", "");
     cli.addOption(prodPkgOpt);
 
+    // On by default: an unimplemented glue stub must not report success.
+    // --fail-every-test is kept as an explicit no-op so existing scripts and
+    // .specconfig-driven invocations keep working.
     QCommandLineOption failEveryTestOpt("fail-every-test",
-        "Java only: insert an initial fail() call in every generated test method, "
-        "so a fresh scaffold starts all-red until each test is implemented.");
+        "End every generated glue stub with a failure so a fresh scaffold is "
+        "all-red until each step is implemented. This is the default.");
     cli.addOption(failEveryTestOpt);
+
+    QCommandLineOption noFailEveryTestOpt("no-fail-every-test",
+        "Generate glue stubs that print their arguments and return, without a "
+        "trailing failure. An unimplemented step will then report success.");
+    cli.addOption(noFailEveryTestOpt);
 
     cli.process(app);
 
@@ -151,7 +159,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
-        opts.failEveryTest            = cli.isSet(failEveryTestOpt);
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {
@@ -165,6 +173,7 @@ int main(int argc, char* argv[])
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         RustGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Python", Qt::CaseInsensitive) == 0) {
@@ -179,6 +188,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         PythonGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Cpp", Qt::CaseInsensitive) == 0
@@ -192,6 +202,7 @@ int main(int argc, char* argv[])
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         CppGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("JavaScript", Qt::CaseInsensitive) == 0
@@ -205,6 +216,7 @@ int main(int argc, char* argv[])
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         JavaScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("TypeScript", Qt::CaseInsensitive) == 0
@@ -218,6 +230,7 @@ int main(int argc, char* argv[])
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         TypeScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
@@ -231,6 +244,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         GoGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Swift", Qt::CaseInsensitive) == 0) {
@@ -243,6 +257,7 @@ int main(int argc, char* argv[])
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         SwiftGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
@@ -259,6 +274,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir        = cli.value(prodDirOpt);
         opts.productionClassesNamespace  = cli.value(prodPkgOpt);
         opts.createProductionClasses     = !opts.productionClassesDir.isEmpty();
+        opts.failEveryTest               = !cli.isSet(noFailEveryTestOpt);
         CSharpGenerator gen;
         genMsgs = gen.generate(file, opts);
     }

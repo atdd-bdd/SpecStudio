@@ -832,7 +832,7 @@ QVector<GoGenerator::GlueSig> GoGenerator::collectGlueSigs(const SpectableFile& 
     return sigs;
 }
 
-QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType)
+QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
@@ -840,23 +840,27 @@ QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType)
 
     if (sig.paramType.isEmpty()) {
         s << recv << sig.method << "(t *testing.T) {\n";
-        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
         s << "}\n";
     } else if (sig.paramType == "docstring") {
         s << recv << sig.method << "(t *testing.T, value string) {\n";
         s << "\t_ = value\n";
-        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
         s << "}\n";
     } else if (sig.paramType == "grid") {
         s << recv << sig.method << "(t *testing.T, values [][]string) {\n";
         s << "\t_ = values\n";
-        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
         s << "}\n";
     } else {
         const QString pt = toExported(sig.paramType);
         s << recv << sig.method << "(t *testing.T, values []" << pt << ") {\n";
         s << "\t_ = values\n";
-        s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        if (failEveryTest)
+            s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
         s << "}\n";
     }
     return out;
@@ -865,7 +869,8 @@ QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType)
 bool GoGenerator::appendMissingStubs(const QString& gluePath,
                                       const QVector<GlueSig>& sigs,
                                       const QString& glueType,
-                                      QStringList& msgs)
+                                      QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -878,7 +883,7 @@ bool GoGenerator::appendMissingStubs(const QString& gluePath,
     QString stubs;
     for (const GlueSig& sig : sigs) {
         if (!scan.contains(QStringLiteral("func (g *%1) %2(").arg(glueType, sig.method)))
-            stubs += "\n" + genStubFn(sig, glueType);
+            stubs += "\n" + genStubFn(sig, glueType, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -924,10 +929,11 @@ QString GoGenerator::genGlueFile(const SpectableFile& file, const QString& specP
             s << "func (g *" << glueType << ") " << sig.method
               << "(t *testing.T, values []common." << pt << ") {\n";
             s << "\t_ = values\n";
-            s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+            if (m_failEveryTest)
+                s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
             s << "}\n";
         } else {
-            s << genStubFn(sig, glueType);
+            s << genStubFn(sig, glueType, m_failEveryTest);
         }
     }
 
@@ -1243,6 +1249,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
     QStringList msgs;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1390,7 +1397,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
             writeFile(gluePath, genGlueFile(augmented, specPkg, glueType), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, glueType, msgs))
+            if (appendMissingStubs(gluePath, sigs, glueType, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

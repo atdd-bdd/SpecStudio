@@ -125,14 +125,16 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     root->addWidget(glueGroup);
 
     // ── Test scaffolding group ─────────────────────────────────────────────────
-    auto* testGroup  = new QGroupBox(tr("Test Scaffolding (Java only)"), inner);
+    auto* testGroup  = new QGroupBox(tr("Test Scaffolding"), inner);
     auto* testLayout = new QVBoxLayout(testGroup);
 
     m_failEveryTest = new QCheckBox(
-        tr("Fail every generated test until implemented"), testGroup);
+        tr("Fail every generated step until implemented"), testGroup);
     auto* testHint = new QLabel(
-        tr("When checked, every generated test method starts with a fail() call, "
-           "so a fresh scaffold is all-red until each test is actually implemented."),
+        tr("When checked, every generated glue stub ends with a failure, so a fresh "
+           "scaffold is all-red until each step is actually implemented. Unchecked, "
+           "a stub prints its arguments and returns — an unimplemented step then "
+           "reports success."),
         testGroup);
     testHint->setWordWrap(true);
     testHint->setStyleSheet("color: gray; font-size: 11px;");
@@ -142,7 +144,7 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     root->addWidget(testGroup);
 
     // ── Production classes group ──────────────────────────────────────────────
-    auto* prodGroup  = new QGroupBox(tr("Production Classes (Java only)"), inner);
+    auto* prodGroup  = new QGroupBox(tr("Production Classes"), inner);
     auto* prodLayout = new QVBoxLayout(prodGroup);
 
     m_createProdClasses = new QCheckBox(

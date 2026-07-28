@@ -16,6 +16,7 @@ public:
         bool        createProductionClasses  = false;
         QString     productionClassesDir;
         QString     productionClassesPackage; // Go package name (default: "domain")
+        bool        failEveryTest = true;            // end every generated glue stub with a failure
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
@@ -23,6 +24,7 @@ public:
 private:
     QStringList m_extraImports;
     QString     m_tagFilter;
+    bool        m_failEveryTest = true;
     QString     m_modulePath;   // go.mod module name; prefixes the common import
 
     static QString goType(const QString& specType);
@@ -67,11 +69,13 @@ private:
         QString paramType; // "" = void, "docstring", "grid", or "{Name}String"
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
-    static QString genStubFn(const GlueSig& sig, const QString& glueType);
+    static QString genStubFn(const GlueSig& sig, const QString& glueType,
+                                   bool failEveryTest);
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,
                                    const QString& glueType,
-                                   QStringList& msgs);
+                                   QStringList& msgs,
+                                   bool failEveryTest);
 
     QString genProductionEntity(const AttrSet& as, const QString& pkg) const;
     QString genProductionCollection(const Collection& col, const QString& pkg) const;

@@ -1010,28 +1010,32 @@ QVector<PythonGenerator::GlueSig> PythonGenerator::collectGlueSigs(const Spectab
 // Stub method generation
 // ---------------------------------------------------------------------------
 
-QString PythonGenerator::genStubMethod(const GlueSig& sig)
+QString PythonGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    def " << sig.method << "(self):\n";
-        s << "        raise NotImplementedError('" << sig.method << "')\n";
+        if (failEveryTest)
+            s << "        raise NotImplementedError('" << sig.method << "')\n";
     } else if (sig.paramType == "docstring") {
         s << "    def " << sig.method << "(self, value: str):\n";
         s << "        print(value)\n";
-        s << "        raise NotImplementedError('" << sig.method << "')\n";
+        if (failEveryTest)
+            s << "        raise NotImplementedError('" << sig.method << "')\n";
     } else if (sig.paramType == "grid") {
         s << "    def " << sig.method << "(self, values: list):\n";
         s << "        for row in values:\n";
         s << "            print(row)\n";
-        s << "        raise NotImplementedError('" << sig.method << "')\n";
+        if (failEveryTest)
+            s << "        raise NotImplementedError('" << sig.method << "')\n";
     } else {
         const QString pt = toTypeName(sig.paramType);
         s << "    def " << sig.method << "(self, values: list):\n";
         s << "        for value in values:\n";
         s << "            print(value)\n";
-        s << "        raise NotImplementedError('" << sig.method << "')\n";
+        if (failEveryTest)
+            s << "        raise NotImplementedError('" << sig.method << "')\n";
     }
     return out;
 }
@@ -1053,7 +1057,7 @@ QString PythonGenerator::genGlueFile(const SpectableFile& file, const QString& g
     s << "    DNC_STRING = '?DNC?'\n\n";
 
     for (const GlueSig& sig : sigs)
-        s << genStubMethod(sig) << "\n";
+        s << genStubMethod(sig, m_failEveryTest) << "\n";
 
     return out;
 }
@@ -1064,7 +1068,8 @@ QString PythonGenerator::genGlueFile(const SpectableFile& file, const QString& g
 
 bool PythonGenerator::appendMissingStubs(const QString& gluePath,
                                           const QVector<GlueSig>& sigs,
-                                          QStringList& msgs)
+                                          QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1078,7 +1083,7 @@ bool PythonGenerator::appendMissingStubs(const QString& gluePath,
     for (const GlueSig& sig : sigs) {
         const QString signature = QString("    def %1(self").arg(sig.method);
         if (!scan.contains(signature))
-            stubs += "\n" + genStubMethod(sig);
+            stubs += "\n" + genStubMethod(sig, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1235,6 +1240,7 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
     QStringList msgs;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1348,7 +1354,7 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
             writeFile(gluePath, genGlueFile(augmented, glueClass), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

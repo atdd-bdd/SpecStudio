@@ -1120,29 +1120,33 @@ QVector<TypeScriptGenerator::GlueSig> TypeScriptGenerator::collectGlueSigs(const
     return sigs;
 }
 
-QString TypeScriptGenerator::genStubMethod(const GlueSig& sig)
+QString TypeScriptGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "\n  " << sig.method << "(): void {\n";
-        s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else if (sig.paramType == "docstring") {
         s << "\n  " << sig.method << "(value: string): void {\n";
         s << "    console.log(value);\n";
-        s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else if (sig.paramType == "grid" || sig.paramType == "list") {
         s << "\n  " << sig.method << "(values: readonly (readonly string[])[]): void {\n";
         s << "    values.forEach((row) => console.log(Array.isArray(row) ? row.join(\", \") : String(row)));\n";
-        s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else {
         // paramType is "{AttrSetName}String" — the glue receives the raw rows.
         s << "\n  " << sig.method << "(values: readonly " << sig.paramType << "[]): void {\n";
         s << "    values.forEach((v) => console.log(v.toString()));\n";
-        s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     }
     return out;
@@ -1150,7 +1154,8 @@ QString TypeScriptGenerator::genStubMethod(const GlueSig& sig)
 
 bool TypeScriptGenerator::appendMissingStubs(const QString& gluePath,
                                               const QVector<GlueSig>& sigs,
-                                              QStringList& msgs)
+                                              QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1164,7 +1169,7 @@ bool TypeScriptGenerator::appendMissingStubs(const QString& gluePath,
     for (const GlueSig& sig : sigs) {
         // Check for "methodName(" in the file
         if (!scan.contains(sig.method + "("))
-            stubs += "\n" + genStubMethod(sig);
+            stubs += "\n" + genStubMethod(sig, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1213,7 +1218,7 @@ QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
     s << "  static DNC_STRING = \"?DNC?\";\n";
 
     for (const GlueSig& sig : sigs)
-        s << genStubMethod(sig) << "\n";
+        s << genStubMethod(sig, m_failEveryTest) << "\n";
 
     s << "}\n";
     return out;
@@ -1316,6 +1321,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
     QStringList msgs;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1441,7 +1447,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
             writeFile(gluePath, genGlueFile(augmented, specName, commonRelPath), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

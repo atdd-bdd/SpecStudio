@@ -1181,7 +1181,7 @@ void AppController::onBuildCurrentFile()
                                      QFileInfo(ed->filePath()).dir().absolutePath());
     if (!cfg.productionClassesPackage.isEmpty())
         args << "--prod-package" << cfg.productionClassesPackage;
-    if (cfg.failEveryTest)              args << "--fail-every-test";
+    if (!cfg.failEveryTest)             args << "--no-fail-every-test";
     // Pass other .spectable files from the same project as context
     if (m_solution) {
         auto* ownerProj = m_solution->projectForFile(ed->filePath());
@@ -1301,7 +1301,7 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                          << resolveProductionDir(cfg, cfgPath, proj->rootPath());
                 if (!cfg.productionClassesPackage.isEmpty())
                     args << "--prod-package" << cfg.productionClassesPackage;
-                if (cfg.failEveryTest)        args << "--fail-every-test";
+                if (!cfg.failEveryTest)       args << "--no-fail-every-test";
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();
@@ -1995,6 +1995,103 @@ void AppController::onFindAll(const QString& term, bool caseSensitive, bool useR
     m_mainWindow->outputPanel()->showFindResultsTab();
 }
 
+namespace {
+
+// Glue file names produced by the nine generators: <Spec>_glue.<ext> for eight
+// of them, <Spec>Glue.swift for Swift. Listed explicitly rather than as
+// "*_glue.*" so a copied .spectable or an editor backup is never rewritten.
+QStringList glueFileFilters()
+{
+    return { "*_glue.java", "*_glue.cs",  "*_glue.py", "*_glue.go",
+             "*_glue.rs",   "*_glue.js",  "*_glue.ts", "*_glue.h",
+             "*_glue.cpp",  "*Glue.swift" };
+}
+
+// A glue method's name is derived from the step's keyword and text, in one of
+// five shapes depending on the language. These mirror toMethodName/toFnName in
+// the generators — keep them in step with converter/*Generator.cpp.
+
+// Java, C#  ->  When_item_added
+QString glueNameSnakeMixed(const QString& kw, const QString& text)
+{
+    QString s = kw + "_" + text;
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+    return s.remove(QRegularExpression("^_+|_+$"));
+}
+
+// Python, Rust, C++  ->  when_item_added
+QString glueNameSnakeLower(const QString& kw, const QString& text)
+{
+    return glueNameSnakeMixed(kw, text).toLower();
+}
+
+// Go  ->  WhenItemAdded
+QString glueNamePascal(const QString& kw, const QString& text)
+{
+    QString s = kw + " " + text;
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), " ");
+    QString result;
+    for (const QString& p : s.split(' ', Qt::SkipEmptyParts))
+        result += p[0].toUpper() + p.mid(1);
+    if (!result.isEmpty() && result[0].isDigit()) result.prepend('_');
+    return result;
+}
+
+// Swift  ->  whenItemAdded (the whole step is lowercased first, so interior
+// capitals in the step text are flattened)
+QString glueNameCamelSwift(const QString& kw, const QString& text)
+{
+    QString combined = (kw + " " + text).toLower();
+    combined.replace(QRegularExpression(R"([^a-z0-9]+)"), " ");
+    const QStringList parts = combined.split(' ', Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return QStringLiteral("step");
+    QString result = parts[0];
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    return result;
+}
+
+// JavaScript, TypeScript  ->  whenItemAdded, but interior capitals survive
+QString glueNameCamelJs(const QString& kw, const QString& text)
+{
+    QString combined = kw + "_" + text;
+    combined.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+    combined.remove(QRegularExpression("^_+|_+$"));
+    const QStringList parts = combined.split('_', Qt::SkipEmptyParts);
+    if (parts.isEmpty()) return combined.toLower();
+    QString result = parts[0].toLower();
+    for (int i = 1; i < parts.size(); ++i)
+        result += parts[i][0].toUpper() + parts[i].mid(1);
+    return result;
+}
+
+// Every (old, new) glue-method pair a step rename could imply. "And" steps are
+// recorded under the keyword they continue, so only the governing keywords are
+// tried.
+QVector<QPair<QString, QString>> glueMethodRenames(const QString& oldText,
+                                                   const QString& newText)
+{
+    using NameFn = QString (*)(const QString&, const QString&);
+    static const QVector<NameFn> shapes = {
+        &glueNameSnakeMixed, &glueNameSnakeLower, &glueNamePascal,
+        &glueNameCamelSwift, &glueNameCamelJs
+    };
+    static const QStringList keywords = { "Given", "When", "Then", "WhenThen" };
+
+    QVector<QPair<QString, QString>> out;
+    for (const QString& kw : keywords) {
+        for (NameFn fn : shapes) {
+            const QPair<QString, QString> pair{ fn(kw, oldText), fn(kw, newText) };
+            if (pair.first.isEmpty() || pair.second.isEmpty()) continue;
+            if (pair.first == pair.second) continue;
+            if (!out.contains(pair)) out.append(pair);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
 void AppController::onRenameStep()
 {
     if (!m_solution || m_solution->projects().isEmpty()) {
@@ -2020,6 +2117,13 @@ void AppController::onRenameStep()
 
     int filesChanged = 0;
     int totalReplaced = 0;
+    int glueFilesChanged = 0;
+    int glueMethodsRenamed = 0;
+
+    // A glue method is named after the step, mangled into an identifier, so the
+    // literal replacement below can never reach it. Rename those separately.
+    const QVector<QPair<QString, QString>> methodRenames =
+        glueMethodRenames(oldText, newText);
 
     for (auto* proj : m_solution->projects()) {
         bool projModified = false;
@@ -2048,6 +2152,44 @@ void AppController::onRenameStep()
                 ed->load(file->absolutePath());
         }
 
+        // Glue lives under the config's outputDirectory, which Project::scanFiles
+        // deliberately skips, so it is not in proj->files() — walk it directly.
+        if (!methodRenames.isEmpty()) {
+            QDirIterator git(proj->rootPath(), glueFileFilters(), QDir::Files,
+                             QDirIterator::Subdirectories);
+            while (git.hasNext()) {
+                const QString gluePath = git.next();
+                QFile gf(gluePath);
+                if (!gf.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+                QString content = QTextStream(&gf).readAll();
+                gf.close();
+
+                int renamedHere = 0;
+                for (const auto& pair : methodRenames) {
+                    const QRegularExpression re(
+                        QStringLiteral("\\b%1\\b").arg(
+                            QRegularExpression::escape(pair.first)));
+                    const int n = content.count(re);
+                    if (n == 0) continue;
+                    content.replace(re, pair.second);
+                    renamedHere += n;
+                }
+                if (renamedHere == 0) continue;
+
+                if (!gf.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+                    continue;
+                QTextStream(&gf) << content;
+                gf.close();
+
+                glueMethodsRenamed += renamedHere;
+                ++glueFilesChanged;
+                projModified = true;
+
+                if (auto* ed = m_mainWindow->editorTabs()->editorForPath(gluePath))
+                    ed->load(gluePath);
+            }
+        }
+
         if (projModified) {
             connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
@@ -2056,9 +2198,14 @@ void AppController::onRenameStep()
         }
     }
 
-    QMessageBox::information(m_mainWindow, tr("Rename Complete"),
-        tr("Replaced %1 occurrence(s) in %2 file(s).")
-            .arg(totalReplaced).arg(filesChanged));
+    QString summary = tr("Replaced %1 occurrence(s) in %2 file(s).")
+                          .arg(totalReplaced).arg(filesChanged);
+    if (glueMethodsRenamed > 0)
+        summary += tr("\n\nRenamed %1 glue method(s) in %2 glue file(s). "
+                      "The generated tests still call the old names until the "
+                      "project is built again.")
+                       .arg(glueMethodsRenamed).arg(glueFilesChanged);
+    QMessageBox::information(m_mainWindow, tr("Rename Complete"), summary);
 }
 
 void AppController::renameSpecTableSymbol(const QString& oldName)
@@ -2141,7 +2288,7 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
 
         for (auto* proj : m_solution->projects()) {
             QDirIterator it(proj->rootPath(),
-                            { "*_glue.cs", "*_glue.java" },
+                            glueFileFilters(),
                             QDir::Files,
                             QDirIterator::Subdirectories);
             while (it.hasNext()) {

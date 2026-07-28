@@ -1399,29 +1399,33 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
     return sigs;
 }
 
-QString RustGenerator::genStubFn(const GlueSig& sig)
+QString RustGenerator::genStubFn(const GlueSig& sig, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    pub fn " << sig.method << "(&mut self) {\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
     } else if (sig.paramType == "docstring") {
         s << "    pub fn " << sig.method << "(&mut self, value: &str) {\n";
         s << "        println!(\"{}\", value);\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<String>]) {\n";
         s << "        for value in values { println!(\"{:?}\", value); }\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
     } else {
         const QString pt = toTypeName(sig.paramType);
         s << "    pub fn " << sig.method << "(&mut self, values: &[" << pt << "]) {\n";
         s << "        for value in values { println!(\"{:?}\", value); }\n";
-        s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
     }
     return out;
@@ -1429,7 +1433,8 @@ QString RustGenerator::genStubFn(const GlueSig& sig)
 
 bool RustGenerator::appendMissingStubs(const QString& gluePath,
                                         const QVector<GlueSig>& sigs,
-                                        QStringList& msgs)
+                                        QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1442,7 +1447,7 @@ bool RustGenerator::appendMissingStubs(const QString& gluePath,
     QString stubs;
     for (const GlueSig& sig : sigs) {
         if (!scan.contains(QStringLiteral("fn %1(").arg(sig.method)))
-            stubs += "\n" + genStubFn(sig);
+            stubs += "\n" + genStubFn(sig, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1481,7 +1486,7 @@ QString RustGenerator::genGlueFile(const SpectableFile& file, const QString& glu
     s << "        Self {}\n";
     s << "    }\n";
     for (const GlueSig& sig : sigs)
-        s << "\n" << genStubFn(sig);
+        s << "\n" << genStubFn(sig, m_failEveryTest);
     s << "}\n";
 
     return out;
@@ -1678,6 +1683,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
     QStringList msgs;
     m_extraUses = opts.extraUses;
     m_tagFilter = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1793,7 +1799,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             writeFile(gluePath, genGlueFile(augmented, glueStruct), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

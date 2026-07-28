@@ -895,11 +895,6 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         s << "import org.junit.Test;\n";
     }
 
-    if (m_failEveryTest) {
-        if (isTestNG)      s << "import static org.testng.Assert.fail;\n";
-        else if (isJUnit5) s << "import static org.junit.jupiter.api.Assertions.fail;\n";
-        else               s << "import static org.junit.Assert.fail;\n";
-    }
 
     // Helper: emit tag annotations before @Test
     auto emitTags = [&](const QStringList& tags) {
@@ -1070,7 +1065,6 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
         emitTags(file.tags + sc.tags);
         s << "    @Test\n";
         s << "    public void " << meth << "() {\n";
-        if (m_failEveryTest) s << "        fail(\"Not yet implemented: " << meth << "\");\n";
         s << "        " << glueClass << " glue = new " << glueClass << "();\n\n";
 
         emitSteps(file.backgroundSteps, "glue");
@@ -1116,8 +1110,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             emitTags(nb.tags);
             s << "    @Test\n";
             s << "    public void " << meth << "() {\n";
-            if (m_failEveryTest) s << "        fail(\"Not yet implemented: " << meth << "\");\n";
-            s << "        " << glueClass << " glue = new " << glueClass << "();\n";
+                s << "        " << glueClass << " glue = new " << glueClass << "();\n";
 
             if (as) {
                 ++objectCounter;
@@ -1338,20 +1331,23 @@ static QString buildAssertEquals(const QString& framework, const QString& expect
     return QString("assertEquals(%1, %2, %3)").arg(messageExpr, expectedExpr, actualExpr);  // JUnit4
 }
 
-QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framework)
+QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framework,
+                                      bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "    public void " << sig.method << "() {\n";
-        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
     }
     if (sig.paramType == "docstring") {
         s << "    public void " << sig.method << "(String value) {\n";
         s << "        System.out.println(value);\n";
-        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
     }
@@ -1362,7 +1358,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framewor
         s << "        for (List<" << boxed << "> value : typedValues) {\n";
         s << "            System.out.println(value);\n";
         s << "        }\n";
-        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
     }
@@ -1409,7 +1406,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framewor
         s << "            " << typedType << " typed = new " << typedType << "(value);\n";
         s << "            System.out.println(typed);\n";
         s << "        }\n";
-        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
         return out;
     }
@@ -1428,7 +1426,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framewor
     s << "        for (" << iterType << " value : values) {\n";
     s << "            System.out.println(value);\n";
     s << "        }\n";
-    s << "        fail(\"Not implemented: " << sig.method << "\");\n";
+    if (failEveryTest)
+        s << "        fail(\"Not implemented: " << sig.method << "\");\n";
     s << "    }\n";
     return out;
 }
@@ -1437,7 +1436,8 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
                                         const QVector<GlueSig>& sigs,
                                         const SpectableFile& file,
                                         QStringList& msgs,
-                                        const QString& framework)
+                                        const QString& framework,
+                                        bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1451,7 +1451,7 @@ bool JavaGenerator::appendMissingStubs(const QString& gluePath,
     for (const GlueSig& sig : sigs) {
         const QString signature = QStringLiteral("public void %1(").arg(sig.method);
         if (!scan.contains(signature))
-            stubs += "\n" + genStubMethod(sig, framework);
+            stubs += "\n" + genStubMethod(sig, framework, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1534,7 +1534,7 @@ QString JavaGenerator::genGlueFile(const SpectableFile& file, const QString& spe
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
     for (const GlueSig& sig : sigs)
-        s << genStubMethod(sig, m_framework) << "\n";
+        s << genStubMethod(sig, m_framework, m_failEveryTest) << "\n";
 
     s << "}\n";
     return out;
@@ -2466,7 +2466,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specPkg, domainPkg, className), msgs);
         } else {
-            if (appendMissingStubs(gluePath, sigs, augmented, msgs, m_framework))
+            if (appendMissingStubs(gluePath, sigs, augmented, msgs, m_framework,
+                                   m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }

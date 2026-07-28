@@ -18,6 +18,7 @@ public:
         bool        createProductionClasses = false;
         QString     productionClassesDir;
         QString     productionClassesPackage;   // reserved
+        bool        failEveryTest = true;            // end every generated glue stub with a failure
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
@@ -25,6 +26,7 @@ public:
 private:
     QStringList m_extraImports;
     QString     m_tagFilter;
+    bool        m_failEveryTest = true;
 
     // Type / identifier helpers
     static QString pythonType(const QString& specType);
@@ -68,10 +70,12 @@ private:
         QString paramType;  // "" = void; "docstring"; struct name; "grid"
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
-    static QString genStubMethod(const GlueSig& sig);
+    static QString genStubMethod(const GlueSig& sig,
+                                   bool failEveryTest);
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,
-                                   QStringList& msgs);
+                                   QStringList& msgs,
+                                   bool failEveryTest);
 
     static bool writeFile(const QString& path, const QString& content, QStringList& msgs);
 };

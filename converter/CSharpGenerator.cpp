@@ -1165,14 +1165,15 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
     return sigs;
 }
 
-QString CSharpGenerator::genStubMethod(const GlueSig& sig)
+QString CSharpGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
 {
     QString out;
     QTextStream s(&out);
     if (sig.paramType.isEmpty()) {
         s << "        public void " << sig.method << "()\n";
         s << "        {\n";
-        s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
         s << "        }\n";
         return out;
     }
@@ -1180,7 +1181,8 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig)
         s << "        public void " << sig.method << "(string value)\n";
         s << "        {\n";
         s << "            Console.WriteLine(value);\n";
-        s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
+        if (failEveryTest)
+            s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
         s << "        }\n";
         return out;
     }
@@ -1200,14 +1202,16 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig)
         s << "                Console.WriteLine(value);\n";
         s << "            }\n";
     }
-    s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
+    if (failEveryTest)
+        s << "            Assert.Fail(\"Not implemented: " << sig.method << "\");\n";
     s << "        }\n";
     return out;
 }
 
 bool CSharpGenerator::appendMissingStubs(const QString& gluePath,
                                           const QVector<GlueSig>& sigs,
-                                          QStringList& msgs)
+                                          QStringList& msgs,
+                                       bool failEveryTest)
 {
     QFile f(gluePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
@@ -1221,7 +1225,7 @@ bool CSharpGenerator::appendMissingStubs(const QString& gluePath,
     for (const GlueSig& sig : sigs) {
         const QString signature = QStringLiteral("public void %1(").arg(sig.method);
         if (!scan.contains(signature))
-            stubs += "\n" + genStubMethod(sig);
+            stubs += "\n" + genStubMethod(sig, failEveryTest);
     }
     if (stubs.isEmpty()) return false;
 
@@ -1266,7 +1270,7 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
     s << "        const string DNCString = \"?DNC?\";\n\n";
 
     for (const GlueSig& sig : sigs)
-        s << genStubMethod(sig) << "\n";
+        s << genStubMethod(sig, m_failEveryTest) << "\n";
 
     s << "    }\n}\n";
     return out;
@@ -1475,6 +1479,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     QStringList msgs;
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
+    m_failEveryTest = opts.failEveryTest;
     m_commonNs     = joinNs(opts.nsPrefix, "common");
 
     // Typed classes name production DataTypes (SimpleText, Dollar, ...) directly,
@@ -1599,7 +1604,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
             writeFile(gluePath, genGlueFile(augmented, ns, className), msgs);
         } else {
             const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-            if (appendMissingStubs(gluePath, sigs, msgs))
+            if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }
