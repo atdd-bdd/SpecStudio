@@ -10,8 +10,11 @@
 build.log
 
 # Scratch notes. The tracked backlogs (To Do.txt, Remaining Work.txt) stay
-# tracked; this one is personal working scratch.
+# tracked; these are personal working scratch.
 why and what and to do.txt
+More to do.txt
+Manual and Auto Things To Do.txt
+n.txt
 
 
 # Packaging output (scripts/package_*.sh|ps1) and platform build trees.
