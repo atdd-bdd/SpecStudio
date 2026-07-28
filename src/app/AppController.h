@@ -112,6 +112,7 @@ private:
     void navigateToLine(const QString& filePath, int line);
     void findReferencesForSymbol(const QString& symbolName);
     void findStepUsages(const QString& keyword, const QString& stepText);
+    void renameStepText(const QString& defaultOld);
     void renameSpecTableSymbol(const QString& symbolName);
     void onSymbolAtCursor(const QString& name);
 

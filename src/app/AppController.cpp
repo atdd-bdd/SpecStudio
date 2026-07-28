@@ -2007,6 +2007,41 @@ QStringList glueFileFilters()
              "*_glue.cpp",  "*Glue.swift" };
 }
 
+// Where a project's glue can be. Every .specconfig names its own
+// outputDirectory, and that folder is frequently not inside the project at all
+// — it usually points into the language's own test tree, in another repository.
+// Searching only the project root therefore finds nothing in the common case.
+QStringList glueSearchRoots(Project* proj)
+{
+    QStringList roots{ proj->rootPath() };
+    QDir rootDir(proj->rootPath());
+    for (const QString& name : rootDir.entryList({ "*.specconfig" }, QDir::Files)) {
+        const SpecConfig cfg = SpecConfig::load(rootDir.absoluteFilePath(name));
+        QString out = cfg.outputDirectory.trimmed();
+        if (out.isEmpty()) continue;
+        if (!QFileInfo(out).isAbsolute()) out = rootDir.absoluteFilePath(out);
+        out = QDir::cleanPath(out);
+        if (!roots.contains(out) && QDir(out).exists()) roots.append(out);
+    }
+    return roots;
+}
+
+// Glue files under any of a project's search roots. A root nested inside
+// another would otherwise be walked twice, so paths are de-duplicated.
+QStringList glueFilesFor(Project* proj)
+{
+    QStringList found;
+    for (const QString& root : glueSearchRoots(proj)) {
+        QDirIterator it(root, glueFileFilters(), QDir::Files,
+                        QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString path = QDir::cleanPath(it.next());
+            if (!found.contains(path)) found.append(path);
+        }
+    }
+    return found;
+}
+
 // A glue method's name is derived from the step's keyword and text, in one of
 // five shapes depending on the language. These mirror toMethodName/toFnName in
 // the generators — keep them in step with converter/*Generator.cpp.
@@ -2094,26 +2129,46 @@ QVector<QPair<QString, QString>> glueMethodRenames(const QString& oldText,
 
 void AppController::onRenameStep()
 {
+    // Edit > Rename Step works on the step the caret is in, the same step the
+    // editor's context menu would offer. A selection wins if there is one, so
+    // renaming part of a step is still possible.
+    QString stepText;
+    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor())) {
+        stepText = ed->textEdit()->textCursor().selectedText().trimmed();
+        if (stepText.isEmpty()) {
+            static const QRegularExpression reStep(
+                R"(^\s*(?:Given|When|Then|And|WhenThen)\s+(.+?)(?:\s*:.*)?$)",
+                QRegularExpression::CaseInsensitiveOption);
+            const auto m = reStep.match(ed->textEdit()->textCursor().block().text());
+            if (m.hasMatch()) stepText = m.captured(1).trimmed();
+        }
+    }
+    if (stepText.isEmpty()) {
+        QMessageBox::information(m_mainWindow, tr("Rename Step"),
+            tr("Put the cursor on a Given/When/Then line, or select the text to "
+               "rename, and try again."));
+        return;
+    }
+    renameStepText(stepText);
+}
+
+void AppController::renameStepText(const QString& oldText)
+{
     if (!m_solution || m_solution->projects().isEmpty()) {
         QMessageBox::information(m_mainWindow, tr("No Project"),
             tr("Open a project first."));
         return;
     }
+    if (oldText.isEmpty()) return;
 
-    QString defaultOld;
-    if (auto* ed = qobject_cast<PlainTextEditor*>(m_mainWindow->currentEditor()))
-        defaultOld = ed->textEdit()->textCursor().selectedText();
-
+    // One prompt, pre-filled with the current text — the same shape as
+    // Rename Symbol. The old name is already known from the caret.
     bool ok;
-    const QString oldText = QInputDialog::getText(
-        m_mainWindow, tr("Rename Step"),
-        tr("Find text:"), QLineEdit::Normal, defaultOld, &ok);
-    if (!ok || oldText.isEmpty()) return;
-
     const QString newText = QInputDialog::getText(
         m_mainWindow, tr("Rename Step"),
-        tr("Replace with:"), QLineEdit::Normal, oldText, &ok);
-    if (!ok) return;
+        tr("Rename step '%1' to:").arg(oldText),
+        QLineEdit::Normal, oldText, &ok);
+    if (!ok || newText.isEmpty() || newText == oldText) return;
 
     int filesChanged = 0;
     int totalReplaced = 0;
@@ -2159,10 +2214,7 @@ void AppController::onRenameStep()
         // Glue lives under the config's outputDirectory, which Project::scanFiles
         // deliberately skips, so it is not in proj->files() — walk it directly.
         if (!methodRenames.isEmpty()) {
-            QDirIterator git(proj->rootPath(), glueFileFilters(), QDir::Files,
-                             QDirIterator::Subdirectories);
-            while (git.hasNext()) {
-                const QString gluePath = git.next();
+            for (const QString& gluePath : glueFilesFor(proj)) {
                 QFile gf(gluePath);
                 if (!gf.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
                 QString content = QTextStream(&gf).readAll();
@@ -2208,14 +2260,12 @@ void AppController::onRenameStep()
     if (glueMethodsRenamed > 0)
         summary += tr("\n\nRenamed %1 glue method(s) in %2 glue file(s).")
                        .arg(glueMethodsRenamed).arg(glueFilesChanged);
+    // Deliberately not rebuilt here: a build can take a while, and it is the
+    // developer's call when to spend that time.
     if (!touched.isEmpty())
-        summary += tr("\n\nRebuilding %n project(s) so the generated tests call "
-                      "the new names.", "", touched.size());
+        summary += tr("\n\nBuild %n project(s) — the generated tests still call "
+                      "the old names.", "", touched.size());
     QMessageBox::information(m_mainWindow, tr("Rename Complete"), summary);
-
-    // The generated tests still call the old names, so regenerate them.
-    if (!touched.isEmpty())
-        doBuildProjects(touched);
 }
 
 void AppController::renameSpecTableSymbol(const QString& oldName)
@@ -2302,12 +2352,7 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
 
         for (auto* proj : m_solution->projects()) {
             bool glueChangedHere = false;
-            QDirIterator it(proj->rootPath(),
-                            glueFileFilters(),
-                            QDir::Files,
-                            QDirIterator::Subdirectories);
-            while (it.hasNext()) {
-                const QString gluePath = it.next();
+            for (const QString& gluePath : glueFilesFor(proj)) {
                 QFile gf(gluePath);
                 if (!gf.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
                 QString content = QTextStream(&gf).readAll();
@@ -2354,14 +2399,11 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
                     .arg(oldName, newName).arg(totalReplaced).arg(filesChanged);
     if (glueFilesChanged > 0)
         msg += tr("\nAlso updated %1 glue file(s).").arg(glueFilesChanged);
+    // Deliberately not rebuilt here — see onRenameStep.
     if (!touched.isEmpty())
-        msg += tr("\n\nRebuilding %n project(s) so the generated tests use the "
-                  "new name.", "", touched.size());
+        msg += tr("\n\nBuild %n project(s) — the generated tests still use the "
+                  "old name.", "", touched.size());
     QMessageBox::information(m_mainWindow, tr("Rename Complete"), msg);
-
-    // The generated tests still carry the old name, so regenerate them.
-    if (!touched.isEmpty())
-        doBuildProjects(touched);
 }
 
 void AppController::onSymbolAtCursor(const QString& name)
@@ -2522,6 +2564,8 @@ void AppController::onOpenFile(const QString& absolutePath)
                 this, &AppController::findReferencesForSymbol, Qt::UniqueConnection);
         connect(ste, &SpecTableEditor::findStepUsagesRequested,
                 this, &AppController::findStepUsages, Qt::UniqueConnection);
+        connect(ste, &SpecTableEditor::renameStepRequested,
+                this, &AppController::renameStepText, Qt::UniqueConnection);
         connect(ste, &SpecTableEditor::renameSymbolRequested,
                 this, &AppController::renameSpecTableSymbol, Qt::UniqueConnection);
 

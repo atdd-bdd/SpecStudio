@@ -194,12 +194,31 @@ Define
     XString/XTyped/bare-name replacements needed no change: generated type
     names are PascalCase in every language, including Python and Rust.
 
-[x] Both rename commands rebuild the projects they touched, so the generated
-    _Test files stop referring to the old names. AppController collects the
-    projects whose .spectable or glue files changed and hands them to
-    doBuildProjects() after the summary dialog — the same path as Build >
-    Project, including clearing the String/Typed classes first. Not exercised
-    through the UI yet, only compiled.
+[x] One context menu on a step line, not two. populateContextMenu had three
+    early returns — no index, no word under the cursor, or a word that is not a
+    known symbol — and everything after them was unreachable in those cases.
+    On a step line the only known symbol is the AttributeSet name after the
+    colon, so right-clicking the step text itself lost Import CSV, Find Step
+    Usages, Insert Table Header, Edit Comment, the row commands and Extract
+    as AttributeSet/Define. The symbol lookup now sets flags instead of
+    returning. This was a longstanding bug, not new: Find Step Usages had it
+    too.
+
+[x] Rename Step asks once, like Rename Symbol: "Rename step 'X' to:",
+    pre-filled, instead of a find box followed by a replace box. It is on the
+    step context menu now, and F2 takes the step from the caret's line, falling
+    back to the selection so renaming a fragment is still possible.
+
+[x] Renames report which projects need building rather than building them.
+    Rebuilding automatically was tried and reverted — a build can take a while
+    and the timing is the developer's call. AppController still collects the
+    touched projects, only to name them in the summary.
+
+[x] Glue is found wherever outputDirectory points. Both renames searched only
+    the project root, but every .specconfig in StandardExamplesTests writes into
+    SpecStudioExampleTests, so the number of glue files either command could
+    reach was zero. glueSearchRoots() now resolves each config's
+    outputDirectory; that reaches all 40 glue files across the nine languages.
 
 [x] Rename Step renames glue methods. It used to miss them entirely — glue
     lives under outputDirectory, which Project::scanFiles skips, and a glue

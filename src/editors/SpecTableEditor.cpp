@@ -1918,19 +1918,28 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         }
     }
 
-    if (!m_index) return;
+    // The symbol commands below need the index and a word under the cursor.
+    // When either is missing, or the word is not a symbol we know, the menu
+    // must still continue on to the step and table sections — these used to
+    // return outright, which is why right-clicking the step text produced a
+    // shorter menu than right-clicking the AttributeSet name after the colon.
+    QString        word;
+    SymbolLocation loc;
+    bool           isKnown = false, isAttrSet = false, isDefine = false;
+    if (m_index) {
+        QTextCursor tc = textEdit()->textCursor();
+        tc.select(QTextCursor::WordUnderCursor);
+        word = tc.selectedText().trimmed();
+        if (!word.isEmpty()) {
+            const SpecTableSymbols& syms = m_index->projectSymbols();
+            loc       = syms.locationFor(word);
+            isKnown   = !loc.filePath.isEmpty();
+            isAttrSet = syms.hasAttributeSet(word);
+            isDefine  = isKnown && syms.defines.contains(word);
+        }
+    }
 
-    QTextCursor tc = textEdit()->textCursor();
-    tc.select(QTextCursor::WordUnderCursor);
-    const QString word = tc.selectedText().trimmed();
-    if (word.isEmpty()) return;
-
-    const SpecTableSymbols& syms = m_index->projectSymbols();
-    const SymbolLocation    loc  = syms.locationFor(word);
-    const bool isKnown   = !loc.filePath.isEmpty();
-    const bool isAttrSet = syms.hasAttributeSet(word);
-
-    if (!isKnown && !isAttrSet) {
+    if (!word.isEmpty() && !isKnown && !isAttrSet) {
         // Suggest creating an AttributeSet when the word is used as one in the current step
         static QRegularExpression reStepAttr(
             R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
@@ -2010,10 +2019,10 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
                 }
             });
         }
-        return;
     }
 
-    menu->addSeparator();
+    if (isKnown || isAttrSet)
+        menu->addSeparator();
 
     if (isAttrSet) {
         auto* act = menu->addAction(tr("Show Attributes: %1").arg(word));
@@ -2024,7 +2033,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         });
     }
 
-    if (isKnown && syms.defines.contains(word)) {
+    if (isDefine) {
         auto* showAct = menu->addAction(tr("Show Define: %1").arg(word));
         connect(showAct, &QAction::triggered, this, [this, word] {
             const auto info = m_index->defineInfo(word);
@@ -2089,6 +2098,10 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
             auto* stepAct = menu->addAction(tr("Find Step Usages: %1 %2...").arg(kw, text));
             connect(stepAct, &QAction::triggered, this, [this, kw, text] {
                 emit findStepUsagesRequested(kw, text);
+            });
+            auto* renameStepAct = menu->addAction(tr("Rename Step: %1...").arg(text));
+            connect(renameStepAct, &QAction::triggered, this, [this, text] {
+                emit renameStepRequested(text);
             });
         }
     }

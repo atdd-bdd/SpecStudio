@@ -30,6 +30,7 @@ signals:
     void goToDefinitionRequested(const QString& filePath, int line);
     void findReferencesRequested(const QString& symbolName);
     void findStepUsagesRequested(const QString& keyword, const QString& stepText);
+    void renameStepRequested(const QString& stepText);
     void renameSymbolRequested(const QString& symbolName);
     void symbolAtCursor(const QString& name);
 

@@ -268,33 +268,37 @@ scenario in the file.
 
 ## Navigating and renaming
 
-Right-click a symbol:
+Right-click anywhere on a line — on a symbol, on the step text, inside a table:
 
 - **Go to Definition**
 - **Find All References**
 - **Show Attributes: X** / **Show Define: X** — peek without leaving your place
 - **Find Step Usages** — every scenario using this step
 - **Rename Symbol: X...**
+- **Rename Step: X...**
+
+The symbol entries appear only when the word under the cursor is one SpecStudio
+knows; the step and table entries appear whenever the line qualifies, wherever
+on it you clicked.
 
 **Rename Symbol** renames an entity, collection or attribute set across every
 `.spectable` file in the solution, commits the change, and updates your glue
 files in all nine languages — replacing `XString`, `XTyped` and the bare name.
 
-**Edit → Rename Step...** (`F2`) is a blunter tool: a literal find-and-replace
-across every file in every project, then a commit. It also renames the
-corresponding glue methods. A glue method is a mangled identifier derived from
-the step — `When_item_added` in Java, `when_item_added` in Python,
-`WhenItemAdded` in Go, `whenItemAdded` in Swift and JavaScript — so the literal
-replacement alone would never reach it. SpecStudio derives the old and new
-names in every shape and renames whole-word matches, then tells you how many it
-changed.
+**Rename Step** — from the context menu or **Edit → Rename Step...** (`F2`) —
+asks once for the new text, pre-filled with the current step. It replaces the
+text across the solution, commits, and renames the corresponding glue methods.
+A glue method is a mangled identifier derived from the step — `When_item_added`
+in Java, `when_item_added` in Python, `WhenItemAdded` in Go, `whenItemAdded` in
+Swift and JavaScript — so replacing the step text alone would never reach it.
+SpecStudio derives the name in every shape and renames whole-word matches, then
+reports how many it changed. `F2` uses the step the caret is on; select text
+first if you want to rename only part of one.
 
-Both commands rebuild the affected projects when they finish, because the
-generated `_Test` files still refer to the old names until they are
-regenerated. The build runs exactly as **Build → Project** would — the
-generated `*String` and `*Typed` classes are cleared and rewritten — and its
-output appears in the Output panel. Your glue and production code is not
-touched.
+Neither command rebuilds anything — a build can take a while, and when to spend
+that time is your call. Both tell you which projects need one, because the
+generated `_Test` files keep referring to the old names until they are
+regenerated. Your glue and production code is never overwritten by that build.
 
 **Edit → Find All Usages...** (`Shift+F12`) searches the whole solution;
 results land in the Output panel, and double-clicking one jumps to it.
