@@ -288,12 +288,40 @@ void AppController::onNewProject()
         }
     }
 
-    // Write a default .specconfig so the project is ready to build
+    // Write a build configuration so the project is ready to translate.
+    //
+    // This used to write a file called ".specconfig" -- no name at all. Two
+    // things went wrong with that. Project::scanFiles skips anything beginning
+    // with a dot, so it never appeared in the Solution Explorer; and it held a
+    // default-constructed SpecConfig, which means C# with MSTest, not what
+    // anyone creating a project here is likely to want. The effect was a
+    // project that looked as though it had no configuration.
+    //
+    // Named after the language, matching the convention the example projects
+    // use (Java.specconfig, CSharp.specconfig, ...), so a project can hold one
+    // per target language and the Configuration menu can tell them apart.
     {
-        SpecConfig cfg;
-        const QString cfgPath = projDir + QDir::separator() + ".specconfig";
-        if (!QFile::exists(cfgPath))
-            cfg.save(cfgPath);
+        const QString cfgPath = projDir + QDir::separator() + "Java.specconfig";
+        if (!QFile::exists(cfgPath)) {
+            SpecConfig cfg;
+            cfg.language        = "Java";
+            cfg.framework       = "JUnit";
+            cfg.namespacePrefix = "spectable";
+
+            // Relative to the .specconfig, and laid out the way a Maven or
+            // Gradle project expects, so the generated tests land somewhere a
+            // Java build already looks.
+            cfg.outputDirectory          = "src/test/java/spectable";
+            cfg.createProductionClasses  = true;
+            cfg.productionClassesDir     = "src/main/java/production";
+            cfg.productionClassesPackage = "production";
+
+            if (!cfg.save(cfgPath))
+                QMessageBox::warning(m_mainWindow, tr("Configuration Not Written"),
+                    tr("Could not write the build configuration:\n%1\n\n"
+                       "The project was created. Add a configuration with "
+                       "File > New File before building.").arg(cfgPath));
+        }
     }
 
     auto* project = new Project(projName, projDir);
@@ -812,6 +840,23 @@ static QString resolveOutputDir(const SpecConfig& cfg, const QString& configFile
     return QDir(base).absoluteFilePath(out);
 }
 
+// Resolve the production-classes directory the same way. It used to be passed
+// to --prod-dir exactly as written, so a relative path resolved against
+// whatever the working directory happened to be rather than against the
+// project -- which meant only absolute paths worked, and a configuration
+// written by hand with a relative one silently scattered files elsewhere.
+static QString resolveProductionDir(const SpecConfig& cfg, const QString& configFilePath,
+                                    const QString& fallbackBase)
+{
+    const QString dir = cfg.productionClassesDir.trimmed();
+    if (dir.isEmpty()) return {};
+    if (QFileInfo(dir).isAbsolute()) return dir;
+
+    const QString base = configFilePath.isEmpty()
+        ? fallbackBase : QFileInfo(configFilePath).dir().absolutePath();
+    return QDir(base).absoluteFilePath(dir);
+}
+
 // Delete the generated *String / *Typed classes from one common folder, and
 // report how many went.
 //
@@ -1131,7 +1176,9 @@ void AppController::onBuildCurrentFile()
         args << "--import" << imp;
     if (!cfg.tagFilter.isEmpty())       args << "--tag-filter" << cfg.tagFilter;
     if (cfg.createProductionClasses && !cfg.productionClassesDir.isEmpty())
-        args << "--prod-dir" << cfg.productionClassesDir;
+        args << "--prod-dir"
+             << resolveProductionDir(cfg, cfgPath,
+                                     QFileInfo(ed->filePath()).dir().absolutePath());
     if (!cfg.productionClassesPackage.isEmpty())
         args << "--prod-package" << cfg.productionClassesPackage;
     if (cfg.failEveryTest)              args << "--fail-every-test";
@@ -1250,7 +1297,8 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                     args << "--import" << imp;
                 if (!cfg.tagFilter.isEmpty()) args << "--tag-filter" << cfg.tagFilter;
                 if (cfg.createProductionClasses && !cfg.productionClassesDir.isEmpty())
-                    args << "--prod-dir" << cfg.productionClassesDir;
+                    args << "--prod-dir"
+                         << resolveProductionDir(cfg, cfgPath, proj->rootPath());
                 if (!cfg.productionClassesPackage.isEmpty())
                     args << "--prod-package" << cfg.productionClassesPackage;
                 if (cfg.failEveryTest)        args << "--fail-every-test";
