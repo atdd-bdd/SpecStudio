@@ -1,0 +1,15 @@
+{
+    "createProductionClasses": true,
+    "framework": "JUnit",
+    "imports": [
+        "import records.*;",
+        "import calculator.*;"
+    ],
+    "language": "Java",
+    "namespace": "spectable",
+    "outputDirectory": "/Users/kenpugh/Projects/StandardExamplesTestsJava/src/test/java/spectable",
+    "overwriteGlue": false,
+    "productionClassesDir": "/Users/kenpugh/Projects/StandardExamplesTestsJava/src/main/java/production",
+    "productionClassesPackage": "production",
+    "version": 1
+}

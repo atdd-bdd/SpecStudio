@@ -1,0 +1,14 @@
+{
+    "createProductionClasses": true,
+    "framework": "JUnit",
+    "imports": [
+        "import java.util.*;"
+    ],
+    "language": "Java",
+    "namespace": "spectable",
+    "outputDirectory": "/Users/kenpugh/Projects/TestProjectJava/src/test/java/spectable",
+    "overwriteGlue": false,
+    "productionClassesDir": "/Users/kenpugh/Projects/TestProjectJava/src/main/java/production",
+    "productionClassesPackage": "production",
+    "version": 1
+}
