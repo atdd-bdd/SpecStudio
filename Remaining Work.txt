@@ -6,29 +6,21 @@ Altered so that it is separated into Issues and Future Features
 
 ## Doing
 
-### Shopping cart: StandardExamplesTests/Shopping Cart.spectable has CatalogItem,
-  OrderItem, a Background Catalog, a working "Add an order item" scenario,
-  and — progress since last check — ShippingAddress/BillingAddress fields
-  are now live on Entity ShoppingCart with an active "A ShoppingCart with
-  Addresses" scenario (no longer commented out). Still open: TotalPrice/
-  Discount/Shipping fields and all total-computation scenarios remain
-  commented out — running-total logic is the only piece left.
-
-### Multiple-shipping-addresses scenario (bigger Define, longer match) —
-  stubbed out as future work inside Shopping Cart.spectable ("If/when
-  Multiple is allowed for attributes..."). Implement using the Collection
-  keyword, not the old (now dead) Multiples column.
 
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
+
+
+
+## Holding:
+
+### Maybe add // as a comment indicator.    
 
 ### Bowling project: bowling.spectable exists at the repo root with rich
   scenarios (roll validation, scoring, frame display, game-complete checks),
   but there's no generated code/glue anywhere yet and it isn't wired to run
   from the IDE. Still need: generate, wire up glue, run for a passing and a
   failing case, then change the spec and re-run.
-
-## Holding: 
 
 ### True Decimal type separation for C++/Go/JavaScript/Rust: all 4 now correctly
   recognize "Scientific" and "Decimal" as distinct keywords (previously
