@@ -289,9 +289,12 @@ replacement alone would never reach it. SpecStudio derives the old and new
 names in every shape and renames whole-word matches, then tells you how many it
 changed.
 
-> **Build after renaming.** The generated `_Test` files still call the old
-> names, so the project will not compile until you rebuild. Nothing is lost —
-> those files are regenerated wholesale.
+Both commands rebuild the affected projects when they finish, because the
+generated `_Test` files still refer to the old names until they are
+regenerated. The build runs exactly as **Build → Project** would — the
+generated `*String` and `*Typed` classes are cleared and rewritten — and its
+output appears in the Output panel. Your glue and production code is not
+touched.
 
 **Edit → Find All Usages...** (`Shift+F12`) searches the whole solution;
 results land in the Output panel, and double-clicking one jumps to it.

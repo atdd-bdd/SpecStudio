@@ -10,11 +10,6 @@ Altered so that it is separated into Issues and Future Features
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
 
-### Rename Step / Rename Symbol still leave the generated *_Test files calling
-  the old names, so a renamed project does not compile until it is built
-  again. The rename dialog now says so, but building it automatically (or
-  renaming in the test files too, since they are regenerated anyway) would be
-  better. Low risk either way — the test files are fully generated.
 
 
 
@@ -198,6 +193,13 @@ Define
     *_glue.{java,cs,py,go,rs,js,ts,h,cpp} and Swift's *Glue.swift. The
     XString/XTyped/bare-name replacements needed no change: generated type
     names are PascalCase in every language, including Python and Rust.
+
+[x] Both rename commands rebuild the projects they touched, so the generated
+    _Test files stop referring to the old names. AppController collects the
+    projects whose .spectable or glue files changed and hands them to
+    doBuildProjects() after the summary dialog — the same path as Build >
+    Project, including clearing the String/Typed classes first. Not exercised
+    through the UI yet, only compiled.
 
 [x] Rename Step renames glue methods. It used to miss them entirely — glue
     lives under outputDirectory, which Project::scanFiles skips, and a glue

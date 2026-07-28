@@ -2125,6 +2125,10 @@ void AppController::onRenameStep()
     const QVector<QPair<QString, QString>> methodRenames =
         glueMethodRenames(oldText, newText);
 
+    // Projects whose sources changed; their generated tests still call the old
+    // names, so they are rebuilt once the rename is done.
+    QList<Project*> touched;
+
     for (auto* proj : m_solution->projects()) {
         bool projModified = false;
         for (auto* file : proj->files()) {
@@ -2191,6 +2195,7 @@ void AppController::onRenameStep()
         }
 
         if (projModified) {
+            touched.append(proj);
             connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
@@ -2201,11 +2206,16 @@ void AppController::onRenameStep()
     QString summary = tr("Replaced %1 occurrence(s) in %2 file(s).")
                           .arg(totalReplaced).arg(filesChanged);
     if (glueMethodsRenamed > 0)
-        summary += tr("\n\nRenamed %1 glue method(s) in %2 glue file(s). "
-                      "The generated tests still call the old names until the "
-                      "project is built again.")
+        summary += tr("\n\nRenamed %1 glue method(s) in %2 glue file(s).")
                        .arg(glueMethodsRenamed).arg(glueFilesChanged);
+    if (!touched.isEmpty())
+        summary += tr("\n\nRebuilding %n project(s) so the generated tests call "
+                      "the new names.", "", touched.size());
     QMessageBox::information(m_mainWindow, tr("Rename Complete"), summary);
+
+    // The generated tests still call the old names, so regenerate them.
+    if (!touched.isEmpty())
+        doBuildProjects(touched);
 }
 
 void AppController::renameSpecTableSymbol(const QString& oldName)
@@ -2236,6 +2246,9 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
         QStringLiteral("\\b%1\\b").arg(QRegularExpression::escape(oldName)));
 
     int filesChanged = 0, totalReplaced = 0;
+    // Projects whose sources changed; their generated tests still refer to the
+    // old name, so they are rebuilt once the rename is done.
+    QList<Project*> touched;
     for (auto* proj : m_solution->projects()) {
         bool projModified = false;
         for (auto* file : proj->files()) {
@@ -2264,6 +2277,7 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
                 pte->suppressNextExternalChange();
         }
         if (projModified) {
+            touched.append(proj);
             connect(gitFor(proj), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
@@ -2287,6 +2301,7 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
         };
 
         for (auto* proj : m_solution->projects()) {
+            bool glueChangedHere = false;
             QDirIterator it(proj->rootPath(),
                             glueFileFilters(),
                             QDir::Files,
@@ -2311,11 +2326,14 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
                 QTextStream(&gf) << content;
                 gf.close();
                 ++glueFilesChanged;
+                glueChangedHere = true;
 
                 if (auto* pte = qobject_cast<PlainTextEditor*>(
                         m_mainWindow->editorForPath(gluePath)))
                     pte->suppressNextExternalChange();
             }
+            if (glueChangedHere && !touched.contains(proj))
+                touched.append(proj);
         }
     }
 
@@ -2336,7 +2354,14 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
                     .arg(oldName, newName).arg(totalReplaced).arg(filesChanged);
     if (glueFilesChanged > 0)
         msg += tr("\nAlso updated %1 glue file(s).").arg(glueFilesChanged);
+    if (!touched.isEmpty())
+        msg += tr("\n\nRebuilding %n project(s) so the generated tests use the "
+                  "new name.", "", touched.size());
     QMessageBox::information(m_mainWindow, tr("Rename Complete"), msg);
+
+    // The generated tests still carry the old name, so regenerate them.
+    if (!touched.isEmpty())
+        doBuildProjects(touched);
 }
 
 void AppController::onSymbolAtCursor(const QString& name)
