@@ -10,6 +10,12 @@ Altered so that it is separated into Issues and Future Features
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
 
+### Rename Step / Rename Symbol still leave the generated *_Test files calling
+  the old names, so a renamed project does not compile until it is built
+  again. The rename dialog now says so, but building it automatically (or
+  renaming in the test files too, since they are regenerated anyway) would be
+  better. Low risk either way — the test files are fully generated.
+
 
 
 ## Holding:
@@ -172,6 +178,37 @@ Define
 
 
 ## --- Done ---
+
+[x] failEveryTest now works in all nine generators, and now controls the glue
+    stub rather than the test method. Every generator already ended each glue
+    stub with a failure (fail / Assert.Fail / raise NotImplementedError /
+    t.Fatal / panic! / XCTFail / throw new Error / ADD_FAILURE) but did it
+    unconditionally; the flag now gates it. Java's old behaviour — fail() as
+    the first statement of each generated *test* method — is gone, along with
+    the fail import it needed. Default is ON: SpecConfig::failEveryTest went
+    from false to true, and since save() only ever wrote the key when true,
+    every .specconfig on disk keeps today's behaviour. The CLI gained
+    --no-fail-every-test; --fail-every-test is kept as an explicit no-op.
+    Verified by generating Shopping Cart in all nine: 11-12 failures with the
+    default, 0 with the flag off. Watch out for GoGenerator::genGlueFile, which
+    keeps its own inline copy of the stub body instead of calling genStubFn.
+
+[x] Rename Symbol updates glue in all nine languages, not just Java and C#.
+    The glob is now glueFileFilters() in AppController.cpp, covering
+    *_glue.{java,cs,py,go,rs,js,ts,h,cpp} and Swift's *Glue.swift. The
+    XString/XTyped/bare-name replacements needed no change: generated type
+    names are PascalCase in every language, including Python and Rust.
+
+[x] Rename Step renames glue methods. It used to miss them entirely — glue
+    lives under outputDirectory, which Project::scanFiles skips, and a glue
+    method is a mangled identifier that a literal replacement of the step text
+    could not match anyway. AppController now derives the old and new method
+    names in all five shapes the generators produce — When_item_added (Java,
+    C#), when_item_added (Python, Rust, C++), WhenItemAdded (Go), whenItemAdded
+    lowercased-first (Swift) and whenItemAdded case-preserving (JS, TS) — and
+    renames whole-word matches in every glue file. "And" steps are covered
+    because the parser records them under the keyword they continue. The five
+    shapes were checked against real generated glue for all nine languages.
 
 [x] "Uses" named comment (SpecTable v3.3.a): recognized as an optional, non-executable
     documentation line — `Uses <Comment>` — anywhere Description/Details/Constraint/Notes are
