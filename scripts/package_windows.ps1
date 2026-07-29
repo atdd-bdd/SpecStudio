@@ -16,17 +16,41 @@
 #   .\scripts\package_windows.ps1
 #   .\scripts\package_windows.ps1 -QtDir C:\Qt\6.10.0\msvc2022_64 -BuildType Release
 #   .\scripts\package_windows.ps1 -SkipBuild        # package what is already built
+#
+# ---- signing a release needs two phases --------------------------------------
+#
+# The zip and the installer are both built *from the staged folder*, so a plain
+# "package, then sign" run signs the loose staged executables and the installer
+# wrapper while leaving the copies embedded in the zip and the installer
+# unsigned. A user who installs then has an unsigned SpecStudio.exe on disk.
+#
+# So for anything that ships, stage and package separately, signing in between:
+#
+#   .\scripts\package_windows.ps1 -StageOnly        # build + stage, no zip/installer
+#   .\scripts\sign_windows.ps1                      # sign the staged .exe files
+#   .\scripts\package_windows.ps1 -PackageOnly      # zip + installer from signed files
+#   .\scripts\sign_windows.ps1 dist\SpecStudio-<version>-setup.exe
+#
+# -PackageOnly deliberately does not re-stage: re-staging would overwrite the
+# executables that were just signed. It reports whether what it is about to
+# package is signed.
 
 [CmdletBinding()]
 param(
     [string] $QtDir     = 'C:\Qt\6.10.0\msvc2022_64',
     [string] $BuildType = 'Release',
     [string] $CMake     = 'C:\Qt\Tools\CMake_64\bin\cmake.exe',
-    [switch] $SkipBuild
+    [switch] $SkipBuild,
+    [switch] $StageOnly,
+    [switch] $PackageOnly
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+
+if ($StageOnly -and $PackageOnly) {
+    throw '-StageOnly and -PackageOnly are the two halves of one release; pass one or neither.'
+}
 
 function Need-Path($path, $what) {
     if (-not (Test-Path $path)) { throw "$what not found: $path" }
@@ -100,6 +124,74 @@ $buildDir = Join-Path $repo 'build'
 $distRoot = Join-Path $repo 'dist'
 $stage    = Join-Path $distRoot "SpecStudio-$version-windows-x64"
 
+# A function rather than inline code, because packaging has to run either at the
+# end of a full run or on its own under -PackageOnly. One definition means the
+# two phases cannot drift apart.
+function Invoke-Package {
+    $zip = "$stage.zip"
+    if (Test-Path $zip) { Remove-Item $zip -Force }
+    Write-Host 'Zipping...'
+    Compress-Archive -Path "$stage\*" -DestinationPath $zip
+
+    $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+    if (-not (Test-Path $iscc)) {
+        $c = Get-Command iscc -ErrorAction SilentlyContinue
+        if ($c) { $iscc = $c.Source }
+    }
+    if (Test-Path $iscc) {
+        Write-Host 'Building installer...'
+        Invoke-Native $iscc @("/DAppVersion=$version", "/DStageDir=$stage",
+                              "/DOutDir=$distRoot",
+                              (Join-Path $PSScriptRoot 'specstudio.iss')) -What 'Inno Setup'
+    } else {
+        Write-Host 'Inno Setup not found - skipping installer, zip only.' -ForegroundColor Yellow
+        Write-Host '  Get it from https://jrsoftware.org/isdl.php' -ForegroundColor Yellow
+    }
+}
+
+function Write-ArtifactSummary {
+    Write-Host ''
+    Write-Host 'Done. Artifacts in dist\:' -ForegroundColor Green
+    Get-ChildItem $distRoot | Where-Object { $_.Name -like "*$version*" } |
+        ForEach-Object { "  {0}" -f $_.Name }
+}
+
+# Whether the staged executables carry a valid signature. Reported rather than
+# enforced -- packaging unsigned binaries is legitimate for a test build, it
+# just must not happen silently when the point was to ship signed ones.
+function Test-StagedSignatures {
+    $exes = @(Get-ChildItem $stage -Recurse -Include '*.exe' -File)
+    if ($exes.Count -eq 0) { return $false }
+    $unsigned = @($exes | Where-Object {
+        (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid'
+    })
+    if ($unsigned.Count -eq 0) {
+        Write-Host "All $($exes.Count) staged executable(s) are signed." -ForegroundColor Green
+        return $true
+    }
+    Write-Host 'Staged executables without a valid signature:' -ForegroundColor Yellow
+    $unsigned | ForEach-Object { Write-Host "  $($_.Name)" -ForegroundColor Yellow }
+    return $false
+}
+
+# ---- package only ------------------------------------------------------------
+# Stops well before staging, so the signed executables in $stage survive.
+if ($PackageOnly) {
+    if (-not (Test-Path $stage)) {
+        throw "Nothing staged at $stage. Run with -StageOnly first."
+    }
+    Write-Host "Packaging the existing staged folder: $stage"
+    if (-not (Test-StagedSignatures)) {
+        Write-Host 'The zip and installer will carry them unsigned.' -ForegroundColor Yellow
+        Write-Host 'Run .\scripts\sign_windows.ps1 first if this is a release.' -ForegroundColor Yellow
+    }
+    Invoke-Package
+    Write-ArtifactSummary
+    Write-Host ''
+    Write-Host "Now sign the installer: .\scripts\sign_windows.ps1 dist\SpecStudio-$version-setup.exe" -ForegroundColor Yellow
+    exit 0
+}
+
 # ---- build -------------------------------------------------------------------
 if (-not $SkipBuild) {
     # SpecStudio.exe cannot be relinked while it is running.
@@ -151,8 +243,17 @@ Invoke-Native $windeployqt @('--release', '--no-translations', '--no-plugins',
                              (Join-Path $stage 'SpecTableConverter.exe')) `
                            -What 'windeployqt (converter)'
 
-Copy-Item (Join-Path $repo 'README.md') $stage -ErrorAction SilentlyContinue
-Copy-Item (Join-Path $repo 'SpecStudio User Guide.md') $stage -ErrorAction SilentlyContinue
+# Named explicitly and checked, not copied with -ErrorAction SilentlyContinue:
+# this used to reference 'SpecStudio User Guide.md', and when that file was
+# renamed the copy failed in silence and the distribution shipped without a
+# guide. A missing document should stop the build, not disappear from it.
+foreach ($doc in @('README.md', 'User Guide.md', 'spectable syntax v3.3a.md')) {
+    $src = Join-Path $repo $doc
+    if (-not (Test-Path -LiteralPath $src)) {
+        throw "Document not found: $doc. Update the list in package_windows.ps1 if it was renamed."
+    }
+    Copy-Item -LiteralPath $src -Destination $stage
+}
 
 # The MSVC runtime is the one thing not bundled: redistributing it as loose DLLs
 # is allowed but fragile, and the installer below pulls it in properly. Say so
@@ -174,31 +275,36 @@ Python, Node, Swift, a C++ compiler) are not included -- install whichever you
 generate for.
 "@ | Set-Content (Join-Path $stage 'README-FIRST.txt') -Encoding utf8
 
-# ---- zip ---------------------------------------------------------------------
-$zip = "$stage.zip"
-if (Test-Path $zip) { Remove-Item $zip -Force }
-Write-Host 'Zipping...'
-Compress-Archive -Path "$stage\*" -DestinationPath $zip
-
-# ---- installer ---------------------------------------------------------------
-$iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-if (-not (Test-Path $iscc)) {
-    $c = Get-Command iscc -ErrorAction SilentlyContinue
-    if ($c) { $iscc = $c.Source }
+# ---- zip + installer ---------------------------------------------------------
+if ($StageOnly) {
+    Write-Host ''
+    Write-Host "Staged, not packaged: $stage" -ForegroundColor Green
+    Write-Host ''
+    Write-Host 'Next, to ship signed binaries inside the zip and installer:' -ForegroundColor Cyan
+    # The staged folder is named explicitly rather than relying on the no-argument
+    # form, which would also sign a stale installer left over in dist\ from an
+    # earlier run -- wasted PIN prompts on a file that step 2 then overwrites.
+    Write-Host "  1. .\scripts\sign_windows.ps1 dist\SpecStudio-$version-windows-x64\*.exe"
+    Write-Host '  2. .\scripts\package_windows.ps1 -PackageOnly'
+    Write-Host "  3. .\scripts\sign_windows.ps1 dist\SpecStudio-$version-setup.exe"
+    exit 0
 }
-if (Test-Path $iscc) {
-    Write-Host 'Building installer...'
-    Invoke-Native $iscc @("/DAppVersion=$version", "/DStageDir=$stage",
-                          "/DOutDir=$distRoot",
-                          (Join-Path $PSScriptRoot 'specstudio.iss')) -What 'Inno Setup'
+
+# A full run stages straight from build\, so these are normally unsigned; check
+# rather than assume, in case the build output was signed in place.
+$stagedWasSigned = @(Get-ChildItem $stage -Recurse -Include '*.exe' -File |
+                     Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }
+                    ).Count -eq 0
+
+Invoke-Package
+Write-ArtifactSummary
+
+Write-Host ''
+if ($stagedWasSigned) {
+    Write-Host 'The zip and installer contain signed executables.' -ForegroundColor Green
+    Write-Host "Still to do: .\scripts\sign_windows.ps1 dist\SpecStudio-$version-setup.exe" -ForegroundColor Yellow
 } else {
-    Write-Host 'Inno Setup not found - skipping installer, zip only.' -ForegroundColor Yellow
-    Write-Host '  Get it from https://jrsoftware.org/isdl.php' -ForegroundColor Yellow
+    Write-Host 'Unsigned. To sign: .\scripts\sign_windows.ps1' -ForegroundColor Yellow
+    Write-Host 'For a release, use -StageOnly / -PackageOnly so the signatures end up' -ForegroundColor Yellow
+    Write-Host 'inside the zip and installer too - see the header of this script.' -ForegroundColor Yellow
 }
-
-Write-Host ''
-Write-Host 'Done. Artifacts in dist\:' -ForegroundColor Green
-Get-ChildItem $distRoot | Where-Object { $_.Name -like "*$version*" } |
-    ForEach-Object { "  {0}" -f $_.Name }
-Write-Host ''
-Write-Host 'Unsigned. To sign: .\scripts\sign_windows.ps1' -ForegroundColor Yellow

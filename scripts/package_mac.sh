@@ -148,11 +148,36 @@ if [[ $leaked -eq 1 ]]; then
     echo "         resolve on another Mac. Check the macdeployqt output." >&2
 fi
 
+# ---- documents ---------------------------------------------------------------
+# Named explicitly and checked. The Windows script carried the same copy with
+# `-ErrorAction SilentlyContinue` while naming a guide that had been renamed: the
+# copy failed in silence and the distribution shipped without it. A missing
+# document must stop the build, not quietly drop out of it.
+#
+# These go loose in the DMG next to the app, so they are visible the moment the
+# volume mounts. Inside the bundle they would be invisible without Show Package
+# Contents, and would be thrown away by dragging the app to Applications.
+DOCS=("README.md" "User Guide.md" "spectable syntax v3.3a.md")
+
+copy_docs() {  # dest-dir
+    local dest="$1" doc
+    mkdir -p "$dest"
+    for doc in "${DOCS[@]}"; do
+        if [[ ! -f "$REPO/$doc" ]]; then
+            echo "ERROR: document not found: $doc" >&2
+            echo "       Update DOCS in $(basename "$0") if it was renamed." >&2
+            exit 1
+        fi
+        cp "$REPO/$doc" "$dest/"
+    done
+}
+
 # ---- dmg ---------------------------------------------------------------------
 echo "Creating DMG..."
 rm -rf "$STAGING"; mkdir -p "$STAGING"
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
+copy_docs "$STAGING"
 cat > "$STAGING/README-FIRST.txt" <<EOF
 SpecStudio $VERSION
 
@@ -162,6 +187,10 @@ The Qt runtime, the code generator and the git credential helper are all inside
 the bundle. The language toolchains used to compile generated tests (JDK, .NET,
 Go, Rust, Python, Node, Swift, clang) are not -- install whichever you generate
 for.
+
+The documents beside this file stay on the disk image, so copy them out if you
+want them: start with "User Guide.md"; "spectable syntax v3.3a.md" is the
+language reference.
 EOF
 
 # Name the architecture, so an arm64-only build is never mistaken for one that

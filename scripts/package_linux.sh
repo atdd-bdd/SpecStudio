@@ -84,6 +84,27 @@ for f in "$SPECSTUDIO" "$CONVERTER" "$ASKPASS"; do
     [[ -x "$f" ]] || { echo "ERROR: missing $f -- build first" >&2; exit 1; }
 done
 
+# ---- documents ---------------------------------------------------------------
+# The list is named explicitly and every file is checked. It used to be a single
+# `cp "$REPO/README.md" ... 2>/dev/null || true`, and the Windows script had the
+# same shape while naming a guide that had since been renamed: the copy failed in
+# silence and the distribution shipped without it. A missing document must stop
+# the build, not quietly drop out of it.
+DOCS=("README.md" "User Guide.md" "spectable syntax v3.3a.md")
+
+copy_docs() {  # dest-dir
+    local dest="$1" doc
+    mkdir -p "$dest"
+    for doc in "${DOCS[@]}"; do
+        if [[ ! -f "$REPO/$doc" ]]; then
+            echo "ERROR: document not found: $doc" >&2
+            echo "       Update DOCS in $(basename "$0") if it was renamed." >&2
+            exit 1
+        fi
+        cp "$REPO/$doc" "$dest/"
+    done
+}
+
 # ---- AppDir ------------------------------------------------------------------
 # All three executables go in usr/bin together: SpecStudio finds the converter
 # and the askpass helper next to itself, through applicationDirPath().
@@ -92,6 +113,10 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
          "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 cp "$SPECSTUDIO" "$CONVERTER" "$ASKPASS" "$APPDIR/usr/bin/"
+
+# An AppImage is one file, so these are only reachable by extracting it
+# (--appimage-extract). usr/share/doc is where a user would look for them.
+copy_docs "$APPDIR/usr/share/doc/specstudio"
 
 DESKTOP="$APPDIR/usr/share/applications/specstudio.desktop"
 cat > "$DESKTOP" <<EOF
@@ -128,13 +153,16 @@ fi
 TARDIR="$BUILD_DIR/SpecStudio-$VERSION-linux-x86_64"
 rm -rf "$TARDIR"; mkdir -p "$TARDIR"
 cp "$SPECSTUDIO" "$CONVERTER" "$ASKPASS" "$TARDIR/"
-cp "$REPO/README.md" "$TARDIR/" 2>/dev/null || true
+copy_docs "$TARDIR"
 cat > "$TARDIR/README-FIRST.txt" <<EOF
 SpecStudio $VERSION
 
-This tarball contains the three executables only; it expects Qt 6 to be
-installed on the system. For a self-contained build use the .AppImage, which
-carries the Qt runtime with it.
+This tarball contains the three executables and the documentation; it expects
+Qt 6 to be installed on the system. For a self-contained build use the
+.AppImage, which carries the Qt runtime with it.
+
+Start with "User Guide.md"; "spectable syntax v3.3a.md" is the language
+reference.
 
 Keep the three files together -- SpecStudio looks for SpecTableConverter and
 SpecStudioAskPass beside itself.

@@ -48,6 +48,40 @@ tag; tagging alone leaves the running application reporting the old number.
 
 ---
 
+## Documents that ship
+
+All three platforms carry the same three, plus a generated `README-FIRST.txt`:
+
+| Document | |
+|---|---|
+| `README.md` | what SpecStudio is and where the format comes from |
+| `User Guide.md` | using the IDE |
+| `spectable syntax v3.3a.md` | the language reference |
+
+Where they land differs, because what a user can actually open differs:
+
+| Package | Location |
+|---|---|
+| Windows folder, zip, installer | beside the executables |
+| Linux tarball | beside the executables |
+| Linux AppImage | `usr/share/doc/specstudio` — one file, so only reachable via `--appimage-extract` |
+| macOS DMG | loose in the image next to the app, visible on mount |
+
+They are **not** put inside `SpecStudio.app`: dragging the app to Applications
+would leave them behind, and inside a bundle they need Show Package Contents.
+
+**Renaming a document breaks the build, deliberately.** Each script names the
+files in one list — `DOCS` in the shell scripts, the `foreach` in
+`package_windows.ps1` — and stops with the missing name if one is absent. This is
+a reaction to the previous behaviour: `package_windows.ps1` copied
+`SpecStudio User Guide.md` with `-ErrorAction SilentlyContinue`, and
+`package_linux.sh` used `cp … 2>/dev/null || true`. When that guide was renamed,
+the Windows copy failed in silence and the 0.9.0 packages shipped the superseded
+guide, which still claimed tests generate in "C#, Java, or Rust". A rename should
+cost one edit to a list, not a silently incomplete release.
+
+---
+
 ## Windows x64
 
 This is the one that has been run end to end.
@@ -181,8 +215,35 @@ only.**
 Signing is a separate step from building everywhere, on purpose. The key lives
 on hardware and needs a PIN, so it cannot run unattended; and keeping it
 separate means the build stays reproducible and you sign exactly the bytes you
-built. Always package first, then sign — re-running a packaging script
-overwrites the files and silently discards the signatures.
+built. Never re-run a packaging script after signing without re-signing — it
+overwrites the files and discards the signatures.
+
+### A release needs two phases
+
+Signing *after* packaging is not enough, and the gap is easy to miss. The zip and
+the installer are both built **from the staged folder**, so a single
+package-then-sign pass signs the loose staged executables and the installer
+wrapper while the copies *embedded in* the zip and the installer stay unsigned.
+Install from it and `SpecStudio.exe` on disk is unsigned — the signature on the
+installer says nothing about what it unpacked.
+
+So stage and package separately, signing in between:
+
+```powershell
+.\scripts\package_windows.ps1 -StageOnly      # build + stage, no zip/installer
+.\scripts\sign_windows.ps1                    # sign the staged .exe files
+.\scripts\package_windows.ps1 -PackageOnly    # zip + installer from signed files
+.\scripts\sign_windows.ps1 dist\SpecStudio-0.9.0-setup.exe
+```
+
+`-PackageOnly` deliberately does **not** re-stage — re-staging would overwrite
+the executables just signed — and it reports whether what it is about to package
+is actually signed, so this cannot fail quietly. `-StageOnly` and `-PackageOnly`
+are mutually exclusive.
+
+A plain `.\scripts\package_windows.ps1` still does everything in one pass; it is
+fine for a test build, and it now tells you to use the two-phase flow for a
+release.
 
 ### Windows — Sectigo token
 
@@ -194,10 +255,47 @@ token rather than a `.pfx` file.
 2. `.\scripts\sign_windows.ps1 -ListCerts` to confirm the certificate is visible.
 3. `.\scripts\sign_windows.ps1`
 
-It signs every `.exe` and non-Qt `.dll` in `dist\`, including the installer —
-SpecStudio launches the converter and askpass helper as child processes, and an
-unsigned child undermines the parent. Qt's own DLLs already carry The Qt
-Company's signature and are skipped.
+It signs every `.exe` in `dist\` — `SpecStudio.exe`, `SpecTableConverter.exe`,
+`SpecStudioAskPass.exe` and the installer. All four, not just the launcher:
+SpecStudio starts the converter and askpass helper as child processes, and an
+unsigned child undermines the signature on the parent. The installer is signed
+so SmartScreen sees a signed download.
+
+**DLLs are not signed.** Every DLL that ships came from Qt, not from this build;
+The Qt Company's signature is the accurate provenance, and re-signing another
+party's binary with this certificate would assert authorship we do not have.
+
+To sign a single file, pass it positionally:
+
+```powershell
+.\scripts\sign_windows.ps1 dist\SpecStudio-0.9.0-setup.exe
+```
+
+#### Choosing the certificate
+
+The no-argument form is correct on a machine with one valid certificate — it
+picks the single *unexpired* code-signing certificate in the store. Use
+`-Thumbprint` or `-SubjectName` only when there is more than one.
+
+Two traps, both of which report the same unhelpful signtool message, *No
+certificates were found that met all the given criteria*:
+
+- signtool's `/n` matches a substring of the subject **as rendered**, and a CN
+  containing a comma renders quoted — `CN="Ken Pugh, Inc."`. Passing the full DN
+  `CN=Ken Pugh, Inc.` therefore cannot match.
+- This store still holds an **expired 2022 certificate with the same CN**, so
+  even the bare name matches two certificates.
+
+`sign_windows.ps1` sidesteps both. `-SubjectName` is resolved against the
+certificate store — expired certificates excluded, ambiguity reported with the
+candidates listed — and signing is always done by thumbprint, so signtool is
+never left to disambiguate. It accepts the CN value or a full DN, quoted or not.
+
+`-Thumbprint` is validated before use: a hash copied from the Windows
+certificate dialog carries an invisible U+200E mark and spaces between byte
+pairs, both of which signtool rejects as *Invalid SHA1 hash format*. Those are
+stripped, and anything that is not 40 hex digits is refused with an explanation
+rather than passed through.
 
 The PIN is never a parameter and is never written anywhere. If you are prompted
 per file rather than once per session, enable **Enable single logon** in the
@@ -314,8 +412,15 @@ random password, and deleted with the runner.
 
 **Linux and macOS are unverified.** The scripts are syntax-checked (`bash -n`)
 and written carefully, but have never been run — there is no Linux or Mac
-machine in the development environment. Expect the first real execution to
-surface something. The likeliest candidates:
+machine in the development environment. CI (`.github/workflows/release.yml`,
+`ubuntu-22.04` and `macos-14`) is where they are first exercised for real.
+
+The `copy_docs` helper added to both is the exception: it was extracted from the
+scripts and run directly, covering the success path — including the two document
+names containing spaces — and the missing-document path, which exits 1 with the
+offending name. The surrounding scripts remain unrun.
+
+Expect the first real execution to surface something. The likeliest candidates:
 
 - the `linuxdeploy` download URL, which points at a `continuous` release that
   can move;
@@ -332,4 +437,6 @@ native executable into a terminating error under `$ErrorActionPreference =
 `git describe` on a repository with no tags killed it again. Both now run
 through helpers that judge tools by exit code alone. The signing script gets the
 same treatment, so one chatty `signtool` line cannot leave half the files
-signed.
+signed. Redirected stderr also has to be unwrapped before it is printed: `2>&1`
+wraps each line in an `ErrorRecord` that can render as the bare type name
+`System.Management.Automation.RemoteException`, hiding the reason a sign failed.
