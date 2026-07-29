@@ -187,6 +187,51 @@ The text after `:` names the attribute set describing the table's shape.
 reads better when a table has one row and many columns. `CompareOnly` limits
 equality to the columns actually shown.
 
+### Docstrings — a block of text as a step's argument
+
+Some steps take a paragraph rather than a table. Put `"""` on its own line
+directly under the step, and again to close:
+
+```
+Scenario Define with a String
+Given this string
+"""
+This is
+a multiline
+string
+"""
+Then should be equal to string
+=EQUAL_STRING
+```
+
+The step's glue method receives the whole block as one string, so this is how
+you hand a step an email body, a JSON payload, a rendered report.
+
+Three rules the parser enforces:
+
+- The step must be **bare** — no `: AttributeSet` and no table under it. A step
+  cannot take both a table and a docstring.
+- `"""` must be alone on its line. The opening `"""` sets the indentation:
+  that much leading whitespace is stripped from every line inside, so you can
+  indent the block to match the surrounding text without it appearing in the
+  value.
+- Only inside `Scenario`, `Background` or `Cleanup`.
+
+A `Define` can hold one too, which is how the same text is reused as an
+expectation:
+
+```
+Define EQUAL_STRING =
+"""
+This is
+a multiline
+string
+"""
+```
+
+**Edit String...** (`Ctrl+Shift+Q`) opens the block in a proper text box rather
+than making you edit it inside the specification.
+
 ### BusinessRule and Calculation — a rule stated by example
 
 ```
@@ -217,6 +262,59 @@ and reads better for pure arithmetic. A step can invoke one with
 
 `Description`, `Details`, `Constraint` and `Uses` are named comments — prose
 that travels with the block and is carried into the generated code.
+
+---
+
+## Tags
+
+Tags label a block so it can be selected later — to run only the smoke tests, or
+to keep unfinished work out of the build. There are two kinds, and the
+difference matters.
+
+**`@Tag` reaches the generated tests.** It becomes whatever the target
+framework uses to categorise a test — a JUnit 5 `@Tag("smoke")`, for instance.
+Use it when your test runner will do the selecting.
+
+**`$Tag` never leaves SpecStudio.** It exists only so the generator can decide
+whether to emit the block at all. Nothing about it appears in the output.
+
+```
+@smoke @checkout
+$wip
+Scenario Add items
+Given item collection is : OrderItemCollection
+| Name | Price | Quantity | ItemTotal |
+```
+
+Several tags go on one line or on separate lines, and they apply to whatever
+block comes next — `Scenario`, `BusinessRule`, `Calculation`, `DataType`, or the
+`Specification` line itself, where they apply to everything in the file.
+
+> **Tags must sit immediately above their block.** A blank line between the tag
+> and the block discards it, silently. This is deliberate — it is what stops a
+> stray tag at the top of a file from attaching itself to the first scenario
+> that happens to follow — but it does mean a tag separated by whitespace does
+> nothing at all.
+
+### Filtering what gets generated
+
+Set `tagFilter` in the `.specconfig` to a boolean expression over the `$` tags.
+Only matching blocks are generated; an empty filter generates everything.
+
+```
+smoke                          only blocks tagged $smoke
+NOT wip                        everything except unfinished work
+smoke AND NOT wip
+(smoke OR regression) AND NOT draft
+```
+
+`AND`, `OR`, `NOT` and the tag names are all case-insensitive, and parentheses
+group as you would expect.
+
+Filtering happens at generation time, so a filtered-out scenario produces no
+test and no glue stub. That is the point — `$wip` on a half-written scenario
+keeps it in the specification, where the conversation about it continues,
+without breaking the build.
 
 ---
 
