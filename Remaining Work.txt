@@ -10,6 +10,16 @@ Altered so that it is separated into Issues and Future Features
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
 
+### A rename commits unconditionally, even when the project has no git
+  repository. Both onRenameStep and renameSpecTableSymbol call
+  gitFor(proj)->commitAll(...) for every modified project. Seen in
+  Documents/Test1Solution, which has no .git anywhere: the commit simply fails
+  into the Output panel, so nothing is lost, but the user is shown a git error
+  for an operation they never asked for. Check that the project is a repository
+  first — and consider whether sharingMode "sharedFiles" should be committing
+  at all, since that mode otherwise hides the Git menu. The same question
+  applies to the commitAll on File > Save.
+
 
 
 
