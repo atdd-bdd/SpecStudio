@@ -45,6 +45,7 @@ public:
     QString     currentBranch();
     QStringList status();
     void        setRepoPath(const QString& path) { m_repoPath = path; }
+    QString     repoPath() const { return m_repoPath; }
 
     // Shared helper for callers that need to run a raw `git` QProcess before a
     // repo (and therefore a GitClient) exists yet — e.g. the initial `git

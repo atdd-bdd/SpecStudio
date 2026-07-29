@@ -478,10 +478,7 @@ void AppController::onSave()
         if (m_solution && m_solution->sharingMode() == Solution::SharingMode::GitHub) {
             Project* proj = m_solution->projectForFile(ed->filePath());
             if (proj) {
-                connect(gitFor(proj), &GitClient::outputReady,
-                        m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                        Qt::UniqueConnection);
-                gitFor(proj)->commitAll(tr("Auto-save"));
+                autoCommit(proj, tr("Auto-save"));
             }
         }
     }
@@ -518,8 +515,13 @@ void AppController::onSaveAll()
     // Every project in the solution shares one repo — commit once, not once per
     // project. Shared-Files solutions make no git calls at all.
     if (m_solution) {
+        // One repo per solution, so this commits once rather than once per
+        // project — hence not autoCommit(), which is per-project. Same two
+        // guards: Shared-Files makes no git calls, and a solution whose
+        // 'git init' never succeeded has nothing to commit to.
         if (!m_solution->projects().isEmpty() &&
-            m_solution->sharingMode() == Solution::SharingMode::GitHub) {
+            m_solution->sharingMode() == Solution::SharingMode::GitHub &&
+            QDir(m_solution->git()->repoPath() + "/.git").exists()) {
             connect(m_solution->git(), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
@@ -1074,6 +1076,30 @@ void AppController::showConflictDialog(Project* proj, GitClient* git, const QStr
     // Reload any modified files
     proj->scanFiles();
     m_treeModel->refresh();
+}
+
+// Commit that happens as a side effect of an edit — a save, a file operation,
+// a rename — rather than because the user asked for one.
+//
+// Two ways there is no repository to commit to: a Shared-Files solution, which
+// makes no git calls at all, and a solution whose 'git init' failed or was
+// never run. Both used to reach git anyway and put its error in the Output
+// panel, reporting a failure for something the user never requested.
+//
+// Deliberately silent: there is nothing for the user to do about either case.
+void AppController::autoCommit(Project* proj, const QString& message)
+{
+    if (!proj || !m_solution) return;
+    if (m_solution->sharingMode() != Solution::SharingMode::GitHub) return;
+
+    GitClient* git = gitFor(proj);
+    if (!git) return;
+    if (!QDir(git->repoPath() + "/.git").exists()) return;
+
+    connect(git, &GitClient::outputReady,
+            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
+            Qt::UniqueConnection);
+    git->commitAll(message);
 }
 
 GitClient* AppController::gitFor(Project* proj) const
@@ -1648,10 +1674,7 @@ void AppController::onRenameFile(const QString& absolutePath)
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
-            connect(gitFor(proj), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            gitFor(proj)->commitAll(tr("Rename %1 to %2").arg(fi.fileName(), newName));
+            autoCommit(proj, tr("Rename %1 to %2").arg(fi.fileName(), newName));
         }
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1693,10 +1716,7 @@ void AppController::onMoveFile(const QString& absolutePath)
 
     for (auto* proj : m_solution->projects()) {
         proj->scanFiles();
-        connect(gitFor(proj), &GitClient::outputReady,
-                m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                Qt::UniqueConnection);
-        gitFor(proj)->commitAll(tr("Move %1").arg(fileName));
+        autoCommit(proj, tr("Move %1").arg(fileName));
     }
     m_treeModel->refresh();
     m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1794,10 +1814,7 @@ void AppController::onDeleteFile(const QString& absolutePath)
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
-            connect(gitFor(proj), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            gitFor(proj)->commitAll(tr("Delete %1").arg(name));
+            autoCommit(proj, tr("Delete %1").arg(name));
         }
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -1842,10 +1859,8 @@ void AppController::onPasteFile(const QString& targetProjectRoot)
     if (m_solution) {
         for (auto* proj : m_solution->projects()) {
             proj->scanFiles();
-            connect(gitFor(proj), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            gitFor(proj)->commitAll(tr("Add %1 (copied from %2)").arg(newName.trimmed(), srcInfo.fileName()));
+            autoCommit(proj,
+                       tr("Add %1 (copied from %2)").arg(newName.trimmed(), srcInfo.fileName()));
         }
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
@@ -2248,10 +2263,7 @@ void AppController::renameStepText(const QString& oldText)
 
         if (projModified) {
             touched.append(proj);
-            connect(gitFor(proj), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            gitFor(proj)->commitAll(tr("Rename: %1 → %2").arg(oldText, newText));
+            autoCommit(proj, tr("Rename: %1 → %2").arg(oldText, newText));
         }
     }
 
@@ -2328,10 +2340,7 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
         }
         if (projModified) {
             touched.append(proj);
-            connect(gitFor(proj), &GitClient::outputReady,
-                    m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-                    Qt::UniqueConnection);
-            gitFor(proj)->commitAll(tr("Rename: %1 → %2").arg(oldName, newName));
+            autoCommit(proj, tr("Rename: %1 → %2").arg(oldName, newName));
         }
     }
 

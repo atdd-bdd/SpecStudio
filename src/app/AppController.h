@@ -97,6 +97,9 @@ private:
     // Returns the GitClient to use for a project's git actions: the solution's
     // one shared client, or the project's own if it isn't part of a solution.
     GitClient* gitFor(Project* proj) const;
+    // Side-effect commit; a no-op for Shared-Files solutions and for projects
+    // with no repository.
+    void       autoCommit(Project* proj, const QString& message);
     // Applies the chosen sharing mode to a freshly-constructed Solution (before
     // it's been saved, or just after). For useGitHub == false: SharedFiles mode,
     // no git calls at all. For true: ensures git is installed, inits the repo,
