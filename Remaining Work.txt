@@ -10,15 +10,6 @@ Altered so that it is separated into Issues and Future Features
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
 
-### A rename commits unconditionally, even when the project has no git
-  repository. Both onRenameStep and renameSpecTableSymbol call
-  gitFor(proj)->commitAll(...) for every modified project. Seen in
-  Documents/Test1Solution, which has no .git anywhere: the commit simply fails
-  into the Output panel, so nothing is lost, but the user is shown a git error
-  for an operation they never asked for. Check that the project is a repository
-  first — and consider whether sharingMode "sharedFiles" should be committing
-  at all, since that mode otherwise hides the Git menu. The same question
-  applies to the commitAll on File > Save.
 
 
 
@@ -203,6 +194,19 @@ Define
     *_glue.{java,cs,py,go,rs,js,ts,h,cpp} and Swift's *Glue.swift. The
     XString/XTyped/bare-name replacements needed no change: generated type
     names are PascalCase in every language, including Python and Rust.
+
+[x] Side-effect commits stop when there is nothing to commit to. A rename in
+    Documents/Test1Solution — shared by file system, no .git anywhere — put a
+    git error in the Output panel for an operation the user never asked for.
+    AppController::autoCommit() now declines when the solution does not share
+    through GitHub, or when the repository does not exist, silently in both
+    cases. Seven call sites route through it: Save, Rename File, Move File,
+    Delete File, Copy/Paste File, Rename Step, Rename Symbol — only the first
+    was guarded before, so the file operations had the bug too. Save All keeps
+    its own commit (one repo per solution, so it commits once) but gained the
+    missing-repository check. The Share Changes flow and commitAndPush are
+    untouched: those are the user asking for a commit, and must still report
+    failure.
 
 [x] One context menu on a step line, not two. populateContextMenu had three
     early returns — no index, no word under the cursor, or a word that is not a
