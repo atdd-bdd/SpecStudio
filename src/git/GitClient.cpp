@@ -31,14 +31,21 @@ void GitClient::applyCredentialEnv(QProcess& proc, const QString& username, cons
     env.insert("SPECSTUDIO_GIT_USERNAME", username);
     env.insert("SPECSTUDIO_GIT_PASSWORD", password);
 
-    // Disable any machine-wide credential helper (e.g. Git Credential Manager,
-    // which Git for Windows installs by default) for just this invocation, so
-    // it can't intercept the prompt before our askpass helper runs and pop up
-    // its own UI or use its own cached credentials.
-    env.insert("GIT_CONFIG_COUNT", "1");
-    env.insert("GIT_CONFIG_KEY_0", "credential.helper");
-    env.insert("GIT_CONFIG_VALUE_0", "");
-
+    // The machine's own credential helper is deliberately left alone.
+    //
+    // This used to force credential.helper to empty for the duration of the
+    // call, so that Git Credential Manager could not answer before the askpass
+    // helper did. The effect was that a working, properly stored credential was
+    // suppressed in favour of whatever SpecStudio had saved -- and when that
+    // saved value was a GitHub account password rather than a token, every
+    // operation failed with "Password authentication is not supported for Git
+    // operations", while the same push from a terminal succeeded. That is a bad
+    // trade: the platform helper keeps its secret in the OS credential store,
+    // can refresh an expired token, and is what the user has already set up.
+    //
+    // Precedence is now the sensible way round. git consults the credential
+    // helper first and only calls GIT_ASKPASS if the helper has nothing, so a
+    // credential saved in SpecStudio still works as a fallback.
     proc.setProcessEnvironment(env);
 }
 

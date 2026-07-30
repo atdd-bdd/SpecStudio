@@ -19,6 +19,8 @@
 
 namespace {
 
+#ifdef Q_OS_WIN
+
 bool downloadToFile(QWidget* parent, const QUrl& url, const QString& destPath, QString& errorOut)
 {
     QNetworkAccessManager nam;
@@ -84,22 +86,9 @@ bool fetchJson(const QUrl& url, QJsonDocument& docOut, QString& errorOut)
     return true;
 }
 
-} // namespace
-
-bool GitInstaller::isGitInstalled()
+// Download the current Git for Windows release and run its normal installer UI.
+bool installGit(QWidget* parent, const QString& contextLabel)
 {
-    QProcess proc;
-    proc.start("git", {"--version"});
-    if (!proc.waitForFinished(3000))
-        return false;
-    return proc.exitCode() == 0;
-}
-
-bool GitInstaller::ensureGitInstalled(QWidget* parent, const QString& contextLabel)
-{
-    if (isGitInstalled())
-        return true;
-
     const auto reply = QMessageBox::question(parent, QObject::tr("Git Not Found"),
         QObject::tr("Git is required to %1. Would you like to download and install it now?")
             .arg(contextLabel),
@@ -157,11 +146,98 @@ bool GitInstaller::ensureGitInstalled(QWidget* parent, const QString& contextLab
                       &loop, &QEventLoop::quit);
     loop.exec();
     installProc->deleteLater();
+    return GitInstaller::isGitInstalled();
+}
 
-    if (!isGitInstalled()) {
-        QMessageBox::critical(parent, QObject::tr("Cannot Continue"),
-            QObject::tr("Cannot %1 due to git still not being installed.").arg(contextLabel));
+#elif defined(Q_OS_MACOS)
+
+// git arrives with the Xcode Command Line Tools. `xcode-select --install` puts
+// up Apple's own download dialog and returns immediately, so there is nothing to
+// wait on -- the user comes back once it has finished.
+//
+// Note that merely *checking* for git can trigger the same Apple dialog: on a
+// machine without the tools, /usr/bin/git is a stub that prompts. So by the time
+// this runs the user may already have seen it.
+bool installGit(QWidget* parent, const QString& contextLabel)
+{
+    const auto reply = QMessageBox::question(parent, QObject::tr("Git Not Found"),
+        QObject::tr("Git is required to %1.\n\n"
+                    "On macOS git comes with the Xcode Command Line Tools. "
+                    "Would you like to start that installation now?").arg(contextLabel),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    if (reply != QMessageBox::Yes)
         return false;
+
+    QProcess::startDetached("xcode-select", {"--install"});
+    QMessageBox::information(parent, QObject::tr("Finish in the Installer"),
+        QObject::tr("Apple's installer is starting in a separate window.\n\n"
+                    "When it has finished, try again — SpecStudio does not "
+                    "control that installation and cannot tell when it is done."));
+    return false;   // not installed *yet*; the caller must not proceed
+}
+
+#else
+
+// Linux: never download a binary. git belongs to the distribution's package
+// manager, installing it needs root, and a GUI application quietly invoking
+// sudo is not something to do. Name the package manager if it can be identified
+// and show the exact command, which the user can run themselves.
+bool installGit(QWidget* parent, const QString& contextLabel)
+{
+    struct Manager { const char* probe; const char* command; };
+    static const Manager managers[] = {
+        { "apt-get", "sudo apt install git" },
+        { "dnf",     "sudo dnf install git" },
+        { "pacman",  "sudo pacman -S git"   },
+        { "zypper",  "sudo zypper install git" },
+        { "apk",     "sudo apk add git"     },
+    };
+
+    QString command;
+    for (const Manager& m : managers) {
+        QProcess which;
+        which.start("which", { QString::fromLatin1(m.probe) });
+        which.waitForFinished(2000);
+        if (which.exitCode() == 0) { command = QString::fromLatin1(m.command); break; }
     }
-    return true;
+    if (command.isEmpty())
+        command = QObject::tr("(install git using your distribution's package manager)");
+
+    QMessageBox::information(parent, QObject::tr("Git Not Found"),
+        QObject::tr("Git is required to %1, and is not installed.\n\n"
+                    "Install it with:\n\n    %2\n\n"
+                    "then try again.").arg(contextLabel, command));
+    return false;
+}
+
+#endif
+
+} // namespace
+
+bool GitInstaller::isGitInstalled()
+{
+    QProcess proc;
+    proc.start("git", {"--version"});
+    if (!proc.waitForFinished(3000))
+        return false;
+    return proc.exitCode() == 0;
+}
+
+bool GitInstaller::ensureGitInstalled(QWidget* parent, const QString& contextLabel)
+{
+    if (isGitInstalled())
+        return true;
+
+    // How git is obtained differs completely per platform, so installGit() above
+    // is compiled per platform rather than branched at run time. Windows is the
+    // only one SpecStudio installs itself: there is a single official installer,
+    // and it needs no elevation the user has not already granted. macOS defers to
+    // Apple's Command Line Tools installer, and Linux to the distribution's
+    // package manager, because on both the alternative is downloading a binary
+    // from the internet and running it with root, which is not this program's
+    // business.
+    //
+    // This used to be unconditional: every platform fetched the Git for Windows
+    // release and tried to execute a .exe.
+    return installGit(parent, contextLabel);
 }

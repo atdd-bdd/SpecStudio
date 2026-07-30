@@ -82,6 +82,8 @@ set(SOURCES
     editors/SpecConfigEditor.h
     editors/SpecConfigEditor.cpp
 
+    git/SecretStore.h
+    git/SecretStore.cpp
     git/GitStatusCache.h
     git/GitStatusCache.cpp
 
@@ -144,6 +146,13 @@ target_link_libraries(SpecStudio PRIVATE
     Qt6::PrintSupport
     Qt6::Network
 )
+
+# SecretStore talks to the Windows Credential Manager directly (CredWriteW and
+# friends). macOS and Linux shell out to `security` and `secret-tool`, so they
+# need nothing extra linked.
+if(WIN32)
+    target_link_libraries(SpecStudio PRIVATE Advapi32)
+endif()
 
 # One source of truth for the release number: project() in the top-level
 # CMakeLists. main.cpp used to carry its own copy, which is the sort of
