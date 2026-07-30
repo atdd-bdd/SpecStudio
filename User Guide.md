@@ -734,6 +734,8 @@ block's *name* still selects a word, as it does everywhere else.
 ## Related documents
 
 - `spectable syntax v3.3a.md` — the language reference
+- `Configuration Guide.md` — every `.specconfig` field, keeping specifications in
+  a different repository from the generated code, and the JSON support
 - `Building Distributions.md` — packaging and signing SpecStudio itself
 - `Remaining Work.txt` — the project backlog
 - `archive/` — superseded syntax revisions, design notes and earlier backlogs,

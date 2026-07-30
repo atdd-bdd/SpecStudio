@@ -157,7 +157,7 @@ fi
 # These go loose in the DMG next to the app, so they are visible the moment the
 # volume mounts. Inside the bundle they would be invisible without Show Package
 # Contents, and would be thrown away by dragging the app to Applications.
-DOCS=("README.md" "User Guide.md" "spectable syntax v3.3a.md")
+DOCS=("README.md" "User Guide.md" "Configuration Guide.md" "spectable syntax v3.3a.md")
 
 copy_docs() {  # dest-dir
     local dest="$1" doc
