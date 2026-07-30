@@ -32,6 +32,9 @@ public:
     bool        pullRebase(const QString& remote = "origin", const QString& branch = {});
     bool        isRebaseInProgress() const;
     QString     diff(const QString& relativeFilePath = {});
+    // What the newest commit changed in this file, i.e. it against its parent.
+    QString     diffLastCommit(const QString& relativeFilePath = {});
+    bool        hasUncommittedChanges(const QString& relativeFilePath);
     // Shows what's different for a currently-conflicted path — a plain
     // `git diff` on an unmerged file during an in-progress rebase/merge
     // renders git's own combined view of both sides' changes.

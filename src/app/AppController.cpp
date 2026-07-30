@@ -726,15 +726,31 @@ void AppController::onDiffCurrentFile()
         return;
     }
 
-    const QString diffText = gitFor(ownerProject)->diff(relPath);
+    GitClient*    git      = gitFor(ownerProject);
     const QString title    = QFileInfo(filePath).fileName();
+    const QString diffText = git->diffLastCommit(relPath);
 
     if (diffText.trimmed().isEmpty()) {
+        // Saving commits, so "nothing here" almost always means the newest
+        // commit was about some other file rather than that nothing changed.
+        // Say which, instead of leaving a blank pane to interpret.
         m_mainWindow->outputPanel()->showDiff(
-            tr("(no changes vs HEAD)"), title);
-    } else {
-        m_mainWindow->outputPanel()->showDiff(diffText, title);
+            git->hasUncommittedChanges(relPath)
+                ? tr("The most recent commit did not change this file.\n"
+                     "It does have unsaved or uncommitted changes - save it to commit them.")
+                : tr("The most recent commit did not change this file."),
+            title);
+        return;
     }
+
+    // The patch shown is what the last commit did. If the file has moved on
+    // since, that is worth knowing before reading it as current.
+    QString text = diffText;
+    if (git->hasUncommittedChanges(relPath))
+        text = tr("--- changes in the most recent commit ---\n"
+                  "(this file has since changed again and is not yet committed)\n\n")
+             + text;
+    m_mainWindow->outputPanel()->showDiff(text, title);
 }
 
 void AppController::onPull()

@@ -34,23 +34,19 @@ void RepositorySettingsDialog::buildUi()
     // operation with a message that named neither the cause nor the fix.
     m_token  = new QLineEdit(this);
     m_token->setEchoMode(QLineEdit::Password);
-    m_token->setPlaceholderText(tr("usually not needed - see below"));
+    m_token->setPlaceholderText(tr("usually not needed"));
     form->addRow(tr("Remote URL:"), m_url);
     form->addRow(tr("Branch:"),     m_branch);
     form->addRow(tr("User name:"),  m_user);
     form->addRow(tr("Access token:"), m_token);
     layout->addLayout(form);
 
+    // One line. The full story -- when a token is needed, which host to get it
+    // from, what scope, and the SSO trap -- is in Git Setup.md, which ships.
     auto* note = new QLabel(
-        tr("Leave the token empty unless you need it. Signing in for push and "
-           "pull is your system's git credential helper's job: it asks you once, "
-           "in a browser, and renews itself.\n\n"
-           "A personal access token is needed only to let SpecStudio create a "
-           "repository for you through the GitHub API, or on a machine with no "
-           "credential helper. Get one from the same host as the repository, and "
-           "give it the 'repo' scope.\n\n"
-           "It is kept in %1, never in a settings file. See \"Git Setup.md\".")
-            .arg(SecretStore::backendName()), this);
+        tr("Usually left empty: your git credential helper signs you in. "
+           "Stored in %1. See \"Git Setup.md\".").arg(SecretStore::backendName()),
+        this);
     note->setWordWrap(true);
     layout->addWidget(note);
 

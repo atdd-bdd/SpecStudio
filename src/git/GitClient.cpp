@@ -307,6 +307,35 @@ QString GitClient::diff(const QString& relativeFilePath)
     return runGit(args);
 }
 
+// What the newest commit changed in this file -- that commit against the one
+// before it.
+//
+// `git show` rather than `git diff HEAD~1 HEAD`, because it is also correct for
+// the very first commit in a repository, where HEAD~1 does not exist and the
+// diff form fails outright. --format= drops the commit header, leaving the patch.
+//
+// This is the useful view here because saving auto-commits: by the time anyone
+// asks, the working tree matches HEAD and a plain `git diff` shows nothing at all.
+QString GitClient::diffLastCommit(const QString& relativeFilePath)
+{
+    QStringList args = {"show", "--format=", "HEAD"};
+    if (!relativeFilePath.isEmpty())
+        args << "--" << relativeFilePath;
+    return runGit(args);
+}
+
+// Whether the file differs from HEAD right now, so the caller can say that the
+// patch it is showing is not the whole story.
+bool GitClient::hasUncommittedChanges(const QString& relativeFilePath)
+{
+    QStringList args = {"diff", "--quiet", "HEAD"};
+    if (!relativeFilePath.isEmpty())
+        args << "--" << relativeFilePath;
+    bool ok = false;
+    runGit(args, &ok);
+    return !ok;     // exit 1 means it differs
+}
+
 QString GitClient::conflictDiff(const QString& relativeFilePath)
 {
     return runGit({"diff", "--", relativeFilePath});
