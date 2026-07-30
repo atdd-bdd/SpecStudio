@@ -390,6 +390,21 @@ void PlainTextEditor::copy()      { m_edit->copy(); }
 void PlainTextEditor::paste()     { m_edit->paste(); }
 void PlainTextEditor::undo()      { m_edit->undo(); }
 void PlainTextEditor::redo()      { m_edit->redo(); }
+// One edit block, so Ctrl+Z undoes the whole replacement rather than unpicking
+// it line by line. setPlainText would be shorter and wrong: it clears the undo
+// stack, which would make a revert irreversible.
+bool PlainTextEditor::replaceAllText(const QString& text)
+{
+    QTextCursor c(m_edit->document());
+    c.beginEditBlock();
+    c.select(QTextCursor::Document);
+    c.insertText(text);
+    c.endEditBlock();
+    // insertText marks the document modified, which reaches setDirty through the
+    // modificationChanged connection made in the constructor.
+    return true;
+}
+
 void PlainTextEditor::selectAll() { m_edit->selectAll(); }
 
 void PlainTextEditor::goToLine(int n)

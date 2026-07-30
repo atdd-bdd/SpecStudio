@@ -43,6 +43,7 @@ public slots:
     void onDiffCurrentFile();          // against the previous version
     void onDiffTwoVersionsBack();
     void onDiffChooseVersion();
+    void onRevertToVersion(const QString& commit, const QString& relativeFilePath);
     void onBuildCurrentFile();
     void onBuildProject();
     void onBuildSolution();

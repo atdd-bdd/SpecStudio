@@ -1,4 +1,9 @@
 #include "OutputPanel.h"
+#include <QWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPushButton>
 
 #include <QApplication>
 #include <QClipboard>
@@ -101,9 +106,36 @@ OutputPanel::OutputPanel(QWidget* parent)
             });
     addCopySupport(m_findList);
 
-    m_diffView = new QTextEdit(m_tabs);
+    // The diff tab is a container, not a bare view: it carries a Revert button
+    // above the patch. The button is enabled only while a specific earlier
+    // version is on show, so it always has something definite to revert to.
+    m_diffPage = new QWidget(m_tabs);
+    auto* diffLayout = new QVBoxLayout(m_diffPage);
+    diffLayout->setContentsMargins(0, 0, 0, 0);
+    diffLayout->setSpacing(2);
+
+    auto* diffBar = new QHBoxLayout();
+    diffBar->setContentsMargins(4, 2, 4, 0);
+    m_revertButton = new QPushButton(tr("Revert to This Version"), m_diffPage);
+    m_revertButton->setEnabled(false);
+    m_revertButton->setToolTip(
+        tr("Load this version into the editor. Nothing is written to disk or "
+           "committed until you save, and Undo puts it back."));
+    m_revertLabel = new QLabel(m_diffPage);
+    m_revertLabel->setEnabled(false);
+    diffBar->addWidget(m_revertButton);
+    diffBar->addWidget(m_revertLabel, 1);
+    diffLayout->addLayout(diffBar);
+
+    m_diffView = new QTextEdit(m_diffPage);
     m_diffView->setReadOnly(true);
     m_diffView->setFontFamily("Courier New");
+    diffLayout->addWidget(m_diffView, 1);
+
+    connect(m_revertButton, &QPushButton::clicked, this, [this] {
+        if (!m_revertCommit.isEmpty() && !m_revertRelPath.isEmpty())
+            emit revertRequested(m_revertCommit, m_revertRelPath);
+    });
 
     m_coverageTable = new QTableWidget(0, 7, m_tabs);
     m_coverageTable->setHorizontalHeaderLabels({
@@ -121,7 +153,7 @@ OutputPanel::OutputPanel(QWidget* parent)
     m_tabs->addTab(m_buildOut,       tr("Build"));
     m_tabs->addTab(m_analysisTree,   tr("Analysis"));
     m_tabs->addTab(m_findList,       tr("Find Results"));
-    m_tabs->addTab(m_diffView,       tr("Diff"));
+    m_tabs->addTab(m_diffPage,       tr("Diff"));
     m_tabs->addTab(m_coverageTable,  tr("Coverage"));
 
     setWidget(m_tabs);
@@ -229,10 +261,19 @@ void OutputPanel::showFindResultsTab()
     m_tabs->setCurrentWidget(m_findList);
 }
 
-void OutputPanel::showDiff(const QString& diffText, const QString& title)
+void OutputPanel::showDiff(const QString& diffText, const QString& title,
+                            const QString& revertCommit, const QString& revertRelPath,
+                            const QString& revertLabel)
 {
+    // Set on every call, so a plain diff clears a revert target left by an
+    // earlier one and the button can never act on a version no longer shown.
+    m_revertCommit  = revertCommit;
+    m_revertRelPath = revertRelPath;
+    m_revertButton->setEnabled(!revertCommit.isEmpty() && !revertRelPath.isEmpty());
+    m_revertLabel->setText(revertLabel);
+
     m_diffView->clear();
-    m_tabs->setTabText(m_tabs->indexOf(m_diffView),
+    m_tabs->setTabText(m_tabs->indexOf(m_diffPage),
                        title.isEmpty() ? tr("Diff") : tr("Diff – %1").arg(title));
 
     QTextCursor c(m_diffView->document());
@@ -260,7 +301,7 @@ void OutputPanel::showDiff(const QString& diffText, const QString& title)
 void OutputPanel::showDiffTab()
 {
     show();
-    m_tabs->setCurrentWidget(m_diffView);
+    m_tabs->setCurrentWidget(m_diffPage);
 }
 
 void OutputPanel::setCoverageData(const QList<CoverageEntry>& entries)

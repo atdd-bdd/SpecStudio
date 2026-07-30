@@ -44,6 +44,8 @@ public:
     QList<FileVersion> fileVersions(const QString& relativeFilePath, int limit = 50);
     // The file as it is now, against how it was at `commit`.
     QString     diffAgainst(const QString& commit, const QString& relativeFilePath = {});
+    // The file's whole content as of that commit.
+    QString     fileAtVersion(const QString& commit, const QString& relativeFilePath);
     // Shows what's different for a currently-conflicted path — a plain
     // `git diff` on an unmerged file during an in-progress rebase/merge
     // renders git's own combined view of both sides' changes.

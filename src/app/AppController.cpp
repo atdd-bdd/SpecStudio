@@ -104,6 +104,9 @@ AppController::AppController(MainWindow* mainWindow, QObject* parent)
             this, [this](const QString& filePath, int line) {
                 navigateToLine(filePath, line);
             });
+
+    connect(mainWindow->outputPanel(), &OutputPanel::revertRequested,
+            this, &AppController::onRevertToVersion);
 }
 
 AppController::~AppController()
@@ -163,10 +166,23 @@ void AppController::loadSolution(const QString& sspecPath)
             const QStringList conflicts = git->conflictedFiles();
             if (!conflicts.isEmpty()) {
                 showConflictDialog(sol->projects().first(), git, sol->rootPath(), conflicts);
+            } else if (git->hasUncommittedChanges()) {
+                // The common cause, and nothing to do with the network:
+                // `git pull --rebase` refuses to run over a modified tracked
+                // file ("cannot pull with rebase: You have unstaged changes").
+                // Saying "you may be offline" here sends people to check their
+                // connection when the fix is to save.
+                QMessageBox::warning(m_mainWindow, tr("Could Not Get Latest"),
+                    tr("This solution has changes that are not committed yet, and "
+                       "others' changes cannot be merged on top of them.\n\n"
+                       "Save your work (File > Save All), then use "
+                       "Git > Get Others' Changes."));
             } else {
                 QMessageBox::warning(m_mainWindow, tr("Could Not Get Latest"),
                     tr("Could not get everyone else's changes (you may be offline).\n"
-                       "Your local copy may not be up to date."));
+                       "Your local copy may not be up to date.\n\n"
+                       "The Output panel shows what git reported."));
+                m_mainWindow->outputPanel()->showBuildTab();
             }
         } else {
             for (auto* proj : sol->projects()) proj->scanFiles();
@@ -774,12 +790,85 @@ void AppController::showVersionDiff(GitClient* git, const QString& relPath,
     const QString header   = tr("--- against %1  (%2) ---\n\n")
                                  .arg(date, subject.isEmpty() ? tr("no message") : subject);
 
+    const QString revertLabel = tr("reverting to %1").arg(date);
+
     if (diffText.trimmed().isEmpty()) {
+        // Identical, so there is nothing to revert to -- no button.
         m_mainWindow->outputPanel()->showDiff(
             header + tr("This file is identical to that version."), title);
         return;
     }
-    m_mainWindow->outputPanel()->showDiff(header + diffText, title);
+    m_mainWindow->outputPanel()->showDiff(header + diffText, title,
+                                          commit, relPath, revertLabel);
+}
+
+// Put an earlier version of a file in front of the user, unsaved.
+//
+// Deliberately not `git checkout <sha> -- <file>`, which writes to disk at once
+// and would destroy unsaved editor content without asking. Loading it into the
+// buffer commits to nothing: closing without saving abandons it, one Undo puts
+// it back, and saving turns it into an ordinary commit with the history between
+// still intact.
+void AppController::onRevertToVersion(const QString& commit, const QString& relativeFilePath)
+{
+    if (!m_solution || commit.isEmpty() || relativeFilePath.isEmpty()) return;
+
+    auto* ed = m_mainWindow->currentEditor();
+    if (!ed) {
+        QMessageBox::information(m_mainWindow, tr("No File"),
+            tr("Open the file first."));
+        return;
+    }
+
+    Project* ownerProject = nullptr;
+    for (auto* proj : m_solution->projects())
+        if (ed->filePath().startsWith(proj->rootPath())) { ownerProject = proj; break; }
+    if (!ownerProject) return;
+
+    GitClient* git = gitFor(ownerProject);
+    if (!git) return;
+
+    // The diff on show must belong to the file in front of the user. Reverting
+    // one file's history into another's editor would be a silent disaster.
+    const QString expected = QDir(git->repoPath()).relativeFilePath(ed->filePath());
+    if (QDir::cleanPath(expected) != QDir::cleanPath(relativeFilePath)) {
+        QMessageBox::information(m_mainWindow, tr("Different File"),
+            tr("That comparison is for %1, but %2 is open.\n"
+               "Open the other file and compare again before reverting.")
+                .arg(QFileInfo(relativeFilePath).fileName(),
+                     QFileInfo(ed->filePath()).fileName()));
+        return;
+    }
+
+    // Unsaved edits exist nowhere in git, so losing them is unrecoverable in a
+    // way that reverting a committed version is not. Ask.
+    if (ed->isDirty()) {
+        const auto answer = QMessageBox::question(m_mainWindow, tr("Unsaved Changes"),
+            tr("%1 has unsaved changes that are not in the repository.\n\n"
+               "Replace them with the earlier version?")
+                .arg(QFileInfo(ed->filePath()).fileName()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return;
+    }
+
+    const QString content = git->fileAtVersion(commit, relativeFilePath);
+    if (content.isEmpty()) {
+        QMessageBox::warning(m_mainWindow, tr("Cannot Read That Version"),
+            tr("Could not read %1 as it was at that commit.")
+                .arg(QFileInfo(relativeFilePath).fileName()));
+        return;
+    }
+
+    if (!ed->replaceAllText(content)) {
+        QMessageBox::information(m_mainWindow, tr("Cannot Revert Here"),
+            tr("This editor does not support replacing its contents."));
+        return;
+    }
+
+    m_mainWindow->outputPanel()->appendBuildOutput(
+        tr("Loaded the earlier version of %1 into the editor. "
+           "It is unsaved - save to keep it, or undo to go back.\n")
+            .arg(QFileInfo(relativeFilePath).fileName()));
 }
 
 void AppController::onDiffCurrentFile()      { diffAgainstVersionsBack(1); }

@@ -343,6 +343,16 @@ QString GitClient::diffAgainst(const QString& commit, const QString& relativeFil
     return runGit(args);
 }
 
+// The file's full content as of `commit`. `git show <sha>:<path>` rather than
+// reverse-applying a patch: the patch holds only the changed hunks, and what a
+// revert needs is the whole file.
+QString GitClient::fileAtVersion(const QString& commit, const QString& relativeFilePath)
+{
+    bool ok = false;
+    const QString out = runGit({ "show", commit + QLatin1Char(':') + relativeFilePath }, &ok);
+    return ok ? out : QString();
+}
+
 // Whether the file differs from HEAD right now, so the caller can say that the
 // patch it is showing is not the whole story.
 bool GitClient::hasUncommittedChanges(const QString& relativeFilePath)

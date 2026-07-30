@@ -6,6 +6,8 @@
 
 class QTabWidget;
 class QTextEdit;
+class QPushButton;
+class QLabel;
 class QListWidget;
 class QTableWidget;
 class QTreeWidget;
@@ -31,7 +33,11 @@ public:
     void appendBuildOutput(const QString& text);
     void setDiagnostics(const QList<Diagnostic>& diagnostics);
     void setFindResults(const QList<Diagnostic>& results, const QString& term);
-    void showDiff(const QString& diffText, const QString& title);
+    // revertCommit/revertRelPath enable the Revert button; omit them for a
+    // diff with nothing specific to revert to.
+    void showDiff(const QString& diffText, const QString& title,
+                  const QString& revertCommit = {}, const QString& revertRelPath = {},
+                  const QString& revertLabel = {});
     void setCoverageData(const QList<CoverageEntry>& entries);
     void clearBuildOutput();
 
@@ -45,13 +51,19 @@ public:
 
 signals:
     void diagnosticActivated(const QString& filePath, int line);
+    void revertRequested(const QString& commit, const QString& relativeFilePath);
 
 private:
     QTabWidget*   m_tabs          = nullptr;
     QTextEdit*    m_buildOut      = nullptr;
     QTreeWidget*  m_analysisTree  = nullptr;
     QListWidget*  m_findList      = nullptr;
+    QWidget*      m_diffPage      = nullptr;
     QTextEdit*    m_diffView      = nullptr;
+    QPushButton*  m_revertButton  = nullptr;
+    QLabel*       m_revertLabel   = nullptr;
+    QString       m_revertCommit;
+    QString       m_revertRelPath;
     QTableWidget* m_coverageTable = nullptr;
 
     QList<Diagnostic> m_diagnostics;
