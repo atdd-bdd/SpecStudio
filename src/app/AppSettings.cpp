@@ -1,14 +1,59 @@
 #include "AppSettings.h"
+#include "../git/SecretStore.h"
 
 #include <QApplication>
 #include <QCryptographicHash>
 #include <QStandardPaths>
 
+namespace {
+// A fixed account name, deliberately not the git username. SecretStore is keyed
+// by (service, account); using the username would orphan the stored secret the
+// moment someone edited it. The username is not a secret and stays in the INI.
+const char* const kCredentialAccount = "credential";
+} // namespace
+
 AppSettings::AppSettings()
     : m_settings(QSettings::IniFormat,
                  QSettings::UserScope,
                  "SpecStudio", "SpecStudio")
-{}
+{
+    migrateSecretsOutOfIni();
+}
+
+// Older builds wrote git passwords straight into SpecStudio.ini, in clear, where
+// anything running as the user could read them. Move any that are still there
+// into the OS credential store and delete the plain-text copy. Runs on every
+// start; after the first it finds nothing and costs one pass over two groups.
+void AppSettings::migrateSecretsOutOfIni()
+{
+    int moved = 0, failed = 0;
+    for (const char* group : { "Projects", "Solutions" }) {
+        m_settings.beginGroup(QString::fromLatin1(group));
+        const QStringList entries = m_settings.childGroups();
+        for (const QString& hash : entries) {
+            const QString key = hash + "/gitPassword";
+            const QString legacy = m_settings.value(key).toString();
+            if (legacy.isEmpty()) {
+                // Remove an empty leftover too, so the key stops reappearing.
+                if (m_settings.contains(key)) m_settings.remove(key);
+                continue;
+            }
+            const QString service = QString::fromLatin1(group) + QLatin1Char('/') + hash;
+            if (SecretStore::store(service, QString::fromLatin1(kCredentialAccount), legacy)) {
+                m_settings.remove(key);
+                ++moved;
+            } else {
+                // Leave it alone rather than lose it. Better a plain-text secret
+                // the user still has than a deleted one they cannot recover.
+                ++failed;
+            }
+        }
+        m_settings.endGroup();
+    }
+    if (moved || failed)
+        qInfo("AppSettings: moved %d git secret(s) into %s; %d could not be moved",
+              moved, qPrintable(SecretStore::backendName()), failed);
+}
 
 QString AppSettings::projectKey(const QString& projectRoot)
 {
@@ -70,12 +115,15 @@ void AppSettings::setGitUser(const QString& projectRoot, const QString& user)
 
 QString AppSettings::gitPassword(const QString& projectRoot) const
 {
-    return m_settings.value(projectKey(projectRoot) + "/gitPassword").toString();
+    return SecretStore::retrieve(projectKey(projectRoot), kCredentialAccount);
 }
 
 void AppSettings::setGitPassword(const QString& projectRoot, const QString& password)
 {
-    m_settings.setValue(projectKey(projectRoot) + "/gitPassword", password);
+    if (password.isEmpty())
+        SecretStore::remove(projectKey(projectRoot), kCredentialAccount);
+    else
+        SecretStore::store(projectKey(projectRoot), kCredentialAccount, password);
 }
 
 // ---- Git settings (per-solution — every project in a solution shares one repo) ----
@@ -112,12 +160,15 @@ void AppSettings::setSolutionGitUser(const QString& solutionRoot, const QString&
 
 QString AppSettings::solutionGitPassword(const QString& solutionRoot) const
 {
-    return m_settings.value(solutionKey(solutionRoot) + "/gitPassword").toString();
+    return SecretStore::retrieve(solutionKey(solutionRoot), kCredentialAccount);
 }
 
 void AppSettings::setSolutionGitPassword(const QString& solutionRoot, const QString& password)
 {
-    m_settings.setValue(solutionKey(solutionRoot) + "/gitPassword", password);
+    if (password.isEmpty())
+        SecretStore::remove(solutionKey(solutionRoot), kCredentialAccount);
+    else
+        SecretStore::store(solutionKey(solutionRoot), kCredentialAccount, password);
 }
 
 QString AppSettings::lastGitHubHost() const

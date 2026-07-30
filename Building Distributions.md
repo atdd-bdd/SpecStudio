@@ -50,13 +50,14 @@ tag; tagging alone leaves the running application reporting the old number.
 
 ## Documents that ship
 
-All three platforms carry the same four, plus a generated `README-FIRST.txt`:
+All three platforms carry the same five, plus a generated `README-FIRST.txt`:
 
 | Document | |
 |---|---|
 | `README.md` | what SpecStudio is and where the format comes from |
 | `User Guide.md` | using the IDE |
 | `Configuration Guide.md` | `.specconfig` fields, generating into a separate repository, JSON |
+| `Git Setup.md` | one-time GitHub sign-in setup, per platform |
 | `spectable syntax v3.3a.md` | the language reference |
 
 Where they land differs, because what a user can actually open differs:

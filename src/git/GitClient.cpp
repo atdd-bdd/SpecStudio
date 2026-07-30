@@ -69,8 +69,77 @@ QString GitClient::runGit(const QStringList& args, bool* ok)
     if (!errOut.isEmpty()) emit outputReady(errOut);
 
     bool success = (proc.exitCode() == 0);
+    if (!success)
+        explainAuthFailure(errOut + out);
     if (ok) *ok = success;
     return out;
+}
+
+// git's own message for a rejected credential says what happened but not what to
+// do about it, and the most common cause on a fresh machine -- no credential
+// helper configured, so nothing can answer the prompt -- is invisible in it.
+// Say the useful part instead of leaving the user with "Authentication failed".
+void GitClient::explainAuthFailure(const QString& output)
+{
+    static const QStringList markers = {
+        QStringLiteral("Authentication failed"),
+        QStringLiteral("could not read Username"),
+        QStringLiteral("could not read Password"),
+        QStringLiteral("Invalid username or token"),
+        QStringLiteral("Password authentication is not supported"),
+        QStringLiteral("terminal prompts disabled"),
+    };
+    bool looksLikeAuth = false;
+    for (const QString& m : markers)
+        if (output.contains(m, Qt::CaseInsensitive)) { looksLikeAuth = true; break; }
+    if (!looksLikeAuth)
+        return;
+
+    // Ask git what helper is configured. Deliberately a bare QProcess with no
+    // credential environment: this must report the machine's real configuration,
+    // not one temporarily overridden for a single call.
+    QProcess cfg;
+    cfg.setWorkingDirectory(m_repoPath);
+    cfg.start("git", {"config", "--get", "credential.helper"});
+    cfg.waitForFinished(5000);
+    const QString helper = QString::fromUtf8(cfg.readAllStandardOutput()).trimmed();
+
+    QString advice;
+    if (helper.isEmpty()) {
+        advice = tr(
+            "No git credential helper is configured, so nothing can supply your "
+            "sign-in details.\n");
+#if defined(Q_OS_WIN)
+        advice += tr(
+            "Git for Windows includes Git Credential Manager. Enable it with:\n"
+            "    git config --global credential.helper manager\n"
+            "then try again -- a browser window will open for you to sign in once.");
+#elif defined(Q_OS_MACOS)
+        advice += tr(
+            "Install Git Credential Manager (brew install --cask git-credential-manager),\n"
+            "or use the Keychain with:\n"
+            "    git config --global credential.helper osxkeychain");
+#else
+        advice += tr(
+            "Install Git Credential Manager, or on a desktop with a keyring:\n"
+            "    git config --global credential.helper libsecret");
+#endif
+    } else if (output.contains(QStringLiteral("Password authentication is not supported"),
+                               Qt::CaseInsensitive)
+            || output.contains(QStringLiteral("Invalid username or token"), Qt::CaseInsensitive)) {
+        advice = tr(
+            "GitHub stopped accepting account passwords for git in August 2021, so a "
+            "password saved here can never work.\n"
+            "The '%1' helper is configured; clear the saved entry and let it sign you "
+            "in again, or replace the password with a personal access token.").arg(helper);
+    } else {
+        advice = tr(
+            "The '%1' credential helper is configured but its stored sign-in was "
+            "rejected -- it may have expired or been revoked.\n"
+            "Clear the saved entry for this host and try again.").arg(helper);
+    }
+
+    emit outputReady(QStringLiteral("\n") + advice + QStringLiteral("\n"));
 }
 
 bool GitClient::addRemote(const QString& name, const QString& url)

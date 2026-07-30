@@ -108,6 +108,10 @@ public:
     static QString osDefaultEditor(const QString& ext);
 
 private:
+    // One-time move of any clear-text git password left in the INI by an
+    // older build into the OS credential store.
+    void migrateSecretsOutOfIni();
+
     static QString projectKey(const QString& projectRoot);
     static QString solutionKey(const QString& solutionRoot);
 

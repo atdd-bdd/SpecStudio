@@ -90,7 +90,7 @@ done
 # same shape while naming a guide that had since been renamed: the copy failed in
 # silence and the distribution shipped without it. A missing document must stop
 # the build, not quietly drop out of it.
-DOCS=("README.md" "User Guide.md" "Configuration Guide.md" "spectable syntax v3.3a.md")
+DOCS=("README.md" "User Guide.md" "Configuration Guide.md" "Git Setup.md" "spectable syntax v3.3a.md")
 
 copy_docs() {  # dest-dir
     local dest="$1" doc

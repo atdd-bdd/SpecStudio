@@ -248,7 +248,7 @@ Invoke-Native $windeployqt @('--release', '--no-translations', '--no-plugins',
 # renamed the copy failed in silence and the distribution shipped without a
 # guide. A missing document should stop the build, not disappear from it.
 foreach ($doc in @('README.md', 'User Guide.md', 'Configuration Guide.md',
-                    'spectable syntax v3.3a.md')) {
+                    'Git Setup.md', 'spectable syntax v3.3a.md')) {
     $src = Join-Path $repo $doc
     if (-not (Test-Path -LiteralPath $src)) {
         throw "Document not found: $doc. Update the list in package_windows.ps1 if it was renamed."

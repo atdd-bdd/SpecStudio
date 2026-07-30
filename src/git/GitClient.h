@@ -49,8 +49,9 @@ public:
 
     // Shared helper for callers that need to run a raw `git` QProcess before a
     // repo (and therefore a GitClient) exists yet — e.g. the initial `git
-    // clone`. Applies the same GIT_ASKPASS + credential-helper-disabling setup
-    // that runGit() applies internally for every GitClient-mediated call.
+    // clone`. Applies the same GIT_ASKPASS setup that runGit() applies
+    // internally for every GitClient-mediated call. The machine's own credential
+    // helper is left in place and answers first.
     static void applyCredentialEnv(QProcess& proc, const QString& username, const QString& password);
 
 signals:
@@ -59,6 +60,10 @@ signals:
 
 private:
     QString runGit(const QStringList& args, bool* ok = nullptr);
+
+    // Turn a rejected credential into advice the user can act on, rather than
+    // leaving them with git's "Authentication failed".
+    void explainAuthFailure(const QString& output);
 
     QString m_repoPath;
     QString m_username;
