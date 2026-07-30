@@ -699,58 +699,123 @@ void AppController::promptShareOnExit()
         shareChanges();
 }
 
-void AppController::onDiffCurrentFile()
+// Resolve what a diff command should act on: the repository holding the current
+// file, the path git knows it by, and a title for the pane.
+bool AppController::resolveDiffTarget(GitClient** gitOut, QString* relPathOut, QString* titleOut)
 {
     auto* ed = m_mainWindow->currentEditor();
     if (!ed || !m_solution) {
         QMessageBox::information(m_mainWindow, tr("No File"), tr("Open a file first."));
-        return;
+        return false;
     }
 
     const QString filePath = ed->filePath();
     Project* ownerProject  = nullptr;
-    QString  relPath;
-
-    for (auto* proj : m_solution->projects()) {
-        const QString root = proj->rootPath();
-        if (filePath.startsWith(root)) {
-            ownerProject = proj;
-            relPath = QDir(root).relativeFilePath(filePath);
-            break;
-        }
-    }
+    for (auto* proj : m_solution->projects())
+        if (filePath.startsWith(proj->rootPath())) { ownerProject = proj; break; }
 
     if (!ownerProject) {
         QMessageBox::information(m_mainWindow, tr("Not in Project"),
             tr("The current file is not part of any project."));
-        return;
+        return false;
     }
 
-    GitClient*    git      = gitFor(ownerProject);
-    const QString title    = QFileInfo(filePath).fileName();
-    const QString diffText = git->diffLastCommit(relPath);
+    GitClient* git = gitFor(ownerProject);
+    if (!git || !QDir(git->repoPath() + "/.git").exists()) {
+        QMessageBox::information(m_mainWindow, tr("No Repository"),
+            tr("This solution has no git repository, so there are no earlier "
+               "versions to compare against."));
+        return false;
+    }
 
-    if (diffText.trimmed().isEmpty()) {
-        // Saving commits, so "nothing here" almost always means the newest
-        // commit was about some other file rather than that nothing changed.
-        // Say which, instead of leaving a blank pane to interpret.
+    // Relative to the repository, not to the project. In GitHub sharing mode one
+    // repository covers the whole solution, so a path relative to the project
+    // folder names nothing git knows about: asking about
+    // "AccountWithdrawal.spectable" when the repository holds
+    // "TestProject/AccountWithdrawal.spectable" matched no file at all and
+    // returned an empty diff, which read as "nothing changed".
+    *gitOut     = git;
+    *relPathOut = QDir(git->repoPath()).relativeFilePath(filePath);
+    *titleOut   = QFileInfo(filePath).fileName();
+    return true;
+}
+
+// Compare the file as it is now against how it was `stepsBack` versions ago,
+// counting only commits that actually touched this file. One step back is the
+// state before the most recent change to it.
+void AppController::diffAgainstVersionsBack(int stepsBack)
+{
+    GitClient* git = nullptr;
+    QString relPath, title;
+    if (!resolveDiffTarget(&git, &relPath, &title)) return;
+
+    const QList<GitClient::FileVersion> versions = git->fileVersions(relPath, stepsBack + 1);
+    if (versions.size() <= stepsBack) {
         m_mainWindow->outputPanel()->showDiff(
-            git->hasUncommittedChanges(relPath)
-                ? tr("The most recent commit did not change this file.\n"
-                     "It does have unsaved or uncommitted changes - save it to commit them.")
-                : tr("The most recent commit did not change this file."),
+            versions.isEmpty()
+                ? tr("This file has no history in the repository yet.")
+                : tr("This file only has %n version(s) in the repository, so there is "
+                     "nothing that far back.", "", int(versions.size())),
             title);
         return;
     }
 
-    // The patch shown is what the last commit did. If the file has moved on
-    // since, that is worth knowing before reading it as current.
-    QString text = diffText;
-    if (git->hasUncommittedChanges(relPath))
-        text = tr("--- changes in the most recent commit ---\n"
-                  "(this file has since changed again and is not yet committed)\n\n")
-             + text;
-    m_mainWindow->outputPanel()->showDiff(text, title);
+    const GitClient::FileVersion& v = versions[stepsBack];
+    showVersionDiff(git, relPath, title, v.commit, v.date, v.subject);
+}
+
+// Takes the version's fields rather than a GitClient::FileVersion so that
+// AppController.h can keep its forward declaration of GitClient.
+void AppController::showVersionDiff(GitClient* git, const QString& relPath,
+                                     const QString& title, const QString& commit,
+                                     const QString& date, const QString& subject)
+{
+    const QString diffText = git->diffAgainst(commit, relPath);
+    const QString header   = tr("--- against %1  (%2) ---\n\n")
+                                 .arg(date, subject.isEmpty() ? tr("no message") : subject);
+
+    if (diffText.trimmed().isEmpty()) {
+        m_mainWindow->outputPanel()->showDiff(
+            header + tr("This file is identical to that version."), title);
+        return;
+    }
+    m_mainWindow->outputPanel()->showDiff(header + diffText, title);
+}
+
+void AppController::onDiffCurrentFile()      { diffAgainstVersionsBack(1); }
+void AppController::onDiffTwoVersionsBack()  { diffAgainstVersionsBack(2); }
+
+// Pick any earlier version of this file by date and message.
+void AppController::onDiffChooseVersion()
+{
+    GitClient* git = nullptr;
+    QString relPath, title;
+    if (!resolveDiffTarget(&git, &relPath, &title)) return;
+
+    const QList<GitClient::FileVersion> versions = git->fileVersions(relPath, 100);
+    if (versions.isEmpty()) {
+        m_mainWindow->outputPanel()->showDiff(
+            tr("This file has no history in the repository yet."), title);
+        return;
+    }
+
+    QStringList labels;
+    labels.reserve(versions.size());
+    for (const GitClient::FileVersion& v : versions)
+        labels << QStringLiteral("%1   %2").arg(
+            v.date, v.subject.isEmpty() ? tr("(no message)") : v.subject);
+
+    bool ok = false;
+    const QString chosen = QInputDialog::getItem(
+        m_mainWindow, tr("Compare With Version"),
+        tr("Compare %1 with which earlier version?").arg(title),
+        labels, 0, false, &ok);
+    if (!ok || chosen.isEmpty()) return;
+
+    const int index = labels.indexOf(chosen);
+    if (index < 0) return;
+    const GitClient::FileVersion& v = versions[index];
+    showVersionDiff(git, relPath, title, v.commit, v.date, v.subject);
 }
 
 void AppController::onPull()

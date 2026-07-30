@@ -32,9 +32,18 @@ public:
     bool        pullRebase(const QString& remote = "origin", const QString& branch = {});
     bool        isRebaseInProgress() const;
     QString     diff(const QString& relativeFilePath = {});
-    // What the newest commit changed in this file, i.e. it against its parent.
-    QString     diffLastCommit(const QString& relativeFilePath = {});
     bool        hasUncommittedChanges(const QString& relativeFilePath);
+
+    // One past version of a file, for choosing what to compare against.
+    struct FileVersion {
+        QString commit;   // full sha
+        QString date;     // ISO, as git formatted it
+        QString subject;  // commit message, first line
+    };
+    // Commits that touched this file, newest first. Follows renames.
+    QList<FileVersion> fileVersions(const QString& relativeFilePath, int limit = 50);
+    // The file as it is now, against how it was at `commit`.
+    QString     diffAgainst(const QString& commit, const QString& relativeFilePath = {});
     // Shows what's different for a currently-conflicted path — a plain
     // `git diff` on an unmerged file during an in-progress rebase/merge
     // renders git's own combined view of both sides' changes.

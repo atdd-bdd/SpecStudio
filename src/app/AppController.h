@@ -40,7 +40,9 @@ public slots:
     void onShareWithGit();
     void onCommitAndPush();
     void onPull();
-    void onDiffCurrentFile();
+    void onDiffCurrentFile();          // against the previous version
+    void onDiffTwoVersionsBack();
+    void onDiffChooseVersion();
     void onBuildCurrentFile();
     void onBuildProject();
     void onBuildSolution();
@@ -96,6 +98,12 @@ private:
     // Returns the GitClient to use for a project's git actions: the solution's
     // one shared client, or the project's own if it isn't part of a solution.
     GitClient* gitFor(Project* proj) const;
+
+    // Diffing the current file against its own earlier versions.
+    bool resolveDiffTarget(GitClient** gitOut, QString* relPathOut, QString* titleOut);
+    void diffAgainstVersionsBack(int stepsBack);
+    void showVersionDiff(GitClient* git, const QString& relPath, const QString& title,
+                         const QString& commit, const QString& date, const QString& subject);
     // Side-effect commit; a no-op for Shared-Files solutions and for projects
     // with no repository.
     void       autoCommit(Project* proj, const QString& message);

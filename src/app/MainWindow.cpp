@@ -274,7 +274,7 @@ void MainWindow::setupMenuBar()
 
     // Carries the Ctrl+D shortcut app-wide regardless of which Git-menu
     // variant is currently showing.
-    m_actDiffCurrentFile = new QAction(tr("Diff Current File"), this);
+    m_actDiffCurrentFile = new QAction(tr("Against Previous Version"), this);
     m_actDiffCurrentFile->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
     addAction(m_actDiffCurrentFile);
     connect(m_actDiffCurrentFile, &QAction::triggered, m_controller, &AppController::onDiffCurrentFile);
@@ -301,6 +301,20 @@ void MainWindow::setupMenuBar()
     auto* actAnalyzeSolution = analyzeMenu->addAction(tr("Solution"), QKeySequence(Qt::SHIFT | Qt::Key_F7));
 
     connect(actAnalyzeSolution, &QAction::triggered, m_controller, &AppController::onAnalyzeSolution);
+
+    // Comparing a file with its own earlier versions belongs here rather than
+    // under Git: it is reading your own work, not exchanging it with anyone. It
+    // also stays available in shared-file-system solutions, where the Git menu
+    // is reduced to a single item but a local repository may well exist.
+    analyzeMenu->addSeparator();
+    auto* diffMenu = analyzeMenu->addMenu(tr("Diff Current File"));
+    diffMenu->addAction(m_actDiffCurrentFile);
+    auto* actDiffTwoBack = diffMenu->addAction(tr("Against Two Versions Back"));
+    diffMenu->addSeparator();
+    auto* actDiffChoose  = diffMenu->addAction(tr("Choose Version..."));
+
+    connect(actDiffTwoBack, &QAction::triggered, m_controller, &AppController::onDiffTwoVersionsBack);
+    connect(actDiffChoose,  &QAction::triggered, m_controller, &AppController::onDiffChooseVersion);
 }
 
 void MainWindow::setupDocks()
@@ -416,8 +430,6 @@ void MainWindow::populateGitMenu()
     // and left the user to work out what to do next.
     auto* actCommitPush = m_gitMenu->addAction(tr("Commit and Push..."));
     auto* actGetLatest  = m_gitMenu->addAction(tr("Get Others' Changes"));
-    m_gitMenu->addSeparator();
-    m_gitMenu->addAction(m_actDiffCurrentFile);
     m_gitMenu->addSeparator();
     auto* actRepoSettings = m_gitMenu->addAction(tr("Repository Settings..."));
 

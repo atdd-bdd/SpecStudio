@@ -307,18 +307,37 @@ QString GitClient::diff(const QString& relativeFilePath)
     return runGit(args);
 }
 
-// What the newest commit changed in this file -- that commit against the one
-// before it.
+// The commits that actually touched this file, newest first.
 //
-// `git show` rather than `git diff HEAD~1 HEAD`, because it is also correct for
-// the very first commit in a repository, where HEAD~1 does not exist and the
-// diff form fails outright. --format= drops the commit header, leaving the patch.
-//
-// This is the useful view here because saving auto-commits: by the time anyone
-// asks, the working tree matches HEAD and a plain `git diff` shows nothing at all.
-QString GitClient::diffLastCommit(const QString& relativeFilePath)
+// The file's own history rather than the repository's, because the newest commit
+// overall is very often about something else entirely -- and "the previous
+// version of this file" is what someone comparing versions means. --follow keeps
+// the history across renames, which matters here since renaming a file is one of
+// the things SpecStudio commits for you.
+QList<GitClient::FileVersion> GitClient::fileVersions(const QString& relativeFilePath, int limit)
 {
-    QStringList args = {"show", "--format=", "HEAD"};
+    QStringList args = { "log", QStringLiteral("--max-count=%1").arg(limit),
+                         "--follow", "--date=iso",
+                         // Unit separator between fields: safe in a commit subject,
+                         // unlike any punctuation someone might actually type.
+                         "--format=%H\x1f%ad\x1f%s" };
+    if (!relativeFilePath.isEmpty())
+        args << "--" << relativeFilePath;
+
+    QList<FileVersion> out;
+    const QString text = runGit(args);
+    for (const QString& line : text.split('\n', Qt::SkipEmptyParts)) {
+        const QStringList parts = line.split(QChar(0x1f));
+        if (parts.size() < 3) continue;
+        out.append({ parts[0].trimmed(), parts[1].trimmed(), parts.mid(2).join(QChar(0x1f)).trimmed() });
+    }
+    return out;
+}
+
+// This file as it is now against how it was at `commit`.
+QString GitClient::diffAgainst(const QString& commit, const QString& relativeFilePath)
+{
+    QStringList args = { "diff", commit };
     if (!relativeFilePath.isEmpty())
         args << "--" << relativeFilePath;
     return runGit(args);
