@@ -865,6 +865,16 @@ void AppController::onRevertToVersion(const QString& commit, const QString& rela
         return;
     }
 
+    // The patch on screen compared the old version with what the editor held a
+    // moment ago. The editor now holds the old version, so it describes neither
+    // side and must not be left there to be read as current.
+    m_mainWindow->outputPanel()->clearDiff(
+        tr("Reverted %1 to an earlier version.\n\n"
+           "It is unsaved - save to keep it, or undo to go back.\n"
+           "The earlier comparison no longer applies; compare again to see where "
+           "the file now stands.")
+            .arg(QFileInfo(relativeFilePath).fileName()));
+
     m_mainWindow->outputPanel()->appendBuildOutput(
         tr("Loaded the earlier version of %1 into the editor. "
            "It is unsaved - save to keep it, or undo to go back.\n")

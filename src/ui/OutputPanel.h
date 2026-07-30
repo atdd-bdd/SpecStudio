@@ -45,6 +45,9 @@ public:
     void showAnalysisTab();
     void showFindResultsTab();
     void showDiffTab();
+    // Discard the displayed comparison and disable Revert. `reason` is shown in
+    // place of the patch, so an empty pane never looks like a failure.
+    void clearDiff(const QString& reason = {});
     void showCoverageTab();
 
     void setOutputFont(const QFont& font);

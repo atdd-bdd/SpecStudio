@@ -298,6 +298,25 @@ void OutputPanel::showDiff(const QString& diffText, const QString& title,
     showDiffTab();
 }
 
+// Drop a comparison that has stopped being true.
+//
+// A patch describes two specific states. The moment the editor holds something
+// else -- which is exactly what Revert does -- it describes neither, and leaving
+// it on screen invites reading a stale difference as the current one. The button
+// goes with it: there is no longer a displayed version for it to act on.
+void OutputPanel::clearDiff(const QString& reason)
+{
+    m_diffView->clear();
+    if (!reason.isEmpty())
+        m_diffView->setPlainText(reason);
+
+    m_revertCommit.clear();
+    m_revertRelPath.clear();
+    m_revertButton->setEnabled(false);
+    m_revertLabel->clear();
+    m_tabs->setTabText(m_tabs->indexOf(m_diffPage), tr("Diff"));
+}
+
 void OutputPanel::showDiffTab()
 {
     show();
