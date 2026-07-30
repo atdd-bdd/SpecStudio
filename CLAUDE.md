@@ -23,7 +23,7 @@ $env:PATH += ";C:\Qt\6.10.0\msvc2022_64\bin"
 
 ## Project Overview
 
-SpecStudio is a cross-platform IDE (Qt 6 / C++17 / CMake) for teams collaborating on specifications. The UI is modeled after Visual Studio. The original specification lives in `To Do.txt`.
+SpecStudio™ is a cross-platform IDE (Qt 6 / C++17 / CMake) for teams collaborating on specifications. The UI is modeled after Visual Studio. The original specification lives in `archive/To Do.txt`.
 
 ## Technology Stack
 

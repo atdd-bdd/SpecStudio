@@ -175,6 +175,30 @@ Define
 
 ## --- Done ---
 
+[x] Select a whole block with the mouse, ready for cut/copy: double-click the
+    block's KEYWORD, or triple-click any line inside a block. Bound to the
+    keyword rather than the whole header line so that double-clicking the
+    block's name still selects a word, as it does everywhere else. The selection
+    runs from the header through the last non-blank line and takes the line
+    break, so Ctrl+X lifts whole lines out and Ctrl+V puts them back as whole
+    lines; blank lines between blocks stay put as separators. Two things had to
+    be right. Blocks end at the next block keyword, NOT by indentation —
+    LineNumberEdit::foldEnd uses indentation, which finds every block empty in
+    real specs because they are written flush left (a Scenario and its steps
+    share column 0). And a """ docstring can hold anything, including text with
+    a leading keyword: include.spectable has Insert "string.txt" inside one, so
+    scanning has to step over docstring interiors or that Scenario ends at its
+    own docstring. Qt delivers no triple-click event — the third click arrives
+    as an ordinary MouseButtonPress — so it is recognised from the time and line
+    of the preceding double-click, within QApplication::doubleClickInterval().
+    The range rules live in editors/SpecTableBlocks.{h,cpp} as free functions
+    over a QStringList precisely so they can be tested without a widget; 17
+    assertions pass against the real include.spectable and Calculator.spectable
+    plus synthetic edge cases (line above the first block, one-line block, last
+    block to EOF, unterminated docstring) and the keyword column range, where an
+    off-by-one would silently break word selection on the block name. The
+    gestures themselves were NOT tested — no GUI automation on this machine.
+
 [x] failEveryTest now works in all nine generators, and now controls the glue
     stub rather than the test method. Every generator already ended each glue
     stub with a failure (fail / Assert.Fail / raise NotImplementedError /

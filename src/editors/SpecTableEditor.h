@@ -63,8 +63,19 @@ private:
     void importCsv();
     static QVector<QStringList> parseCsvFile(const QString& filePath);
 
+    // Whole-block selection, for cut and copy. Returns false when the line is
+    // not inside a block, so the caller can fall back to Qt's own behaviour.
+    bool selectBlockAtLine(int line);
+    QStringList documentLines() const;
+
     SpecTableIndex* m_index          = nullptr;
     QString         m_projectRoot;
     QString         m_solutionRoot;
     QStringList     m_staticKeywords;
+
+    // Qt has no triple-click event: the third click of a triple arrives as an
+    // ordinary MouseButtonPress, so recognising it means remembering when and
+    // where the double-click happened.
+    qint64          m_lastDblClickMs   = 0;
+    int             m_lastDblClickLine = -1;
 };

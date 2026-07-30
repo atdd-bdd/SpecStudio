@@ -77,6 +77,8 @@ set(SOURCES
     editors/syntax/SpecTableHighlighter.cpp
     editors/SpecTableEditor.h
     editors/SpecTableEditor.cpp
+    editors/SpecTableBlocks.h
+    editors/SpecTableBlocks.cpp
     editors/SpecConfigEditor.h
     editors/SpecConfigEditor.cpp
 

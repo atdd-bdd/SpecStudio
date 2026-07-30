@@ -1,4 +1,5 @@
 #include "SpecTableEditor.h"
+#include "SpecTableBlocks.h"
 #include "syntax/SpecTableHighlighter.h"
 #include "../analyzer/SpecTableIndex.h"
 #include "../ui/dialogs/AttributeTableDialog.h"
@@ -7,7 +8,9 @@
 #include "../ui/dialogs/ScenarioSimulatorDialog.h"
 
 #include <QApplication>
+#include <QDateTime>
 #include <QDialog>
+#include <QMouseEvent>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -121,8 +124,80 @@ void SpecTableEditor::fixTrailingContinuations()
 // Event filter — intercept Tab key for table cell navigation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Whole-block selection
+// ---------------------------------------------------------------------------
+
+QStringList SpecTableEditor::documentLines() const
+{
+    const QTextDocument* doc = textEdit()->document();
+    QStringList lines;
+    lines.reserve(doc->blockCount());
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
+        lines << b.text();
+    return lines;
+}
+
+bool SpecTableEditor::selectBlockAtLine(int line)
+{
+    int first = -1, last = -1;
+    if (!SpecTableBlocks::rangeForLine(documentLines(), line, &first, &last))
+        return false;
+
+    QTextDocument* doc   = textEdit()->document();
+    QTextBlock     lastB = doc->findBlockByNumber(last);
+    if (!lastB.isValid()) return false;
+
+    QTextCursor cur(doc->findBlockByNumber(first));
+    cur.movePosition(QTextCursor::StartOfBlock);
+    cur.setPosition(lastB.position() + lastB.length() - 1, QTextCursor::KeepAnchor);
+    // Take the line break too, so Cut lifts out whole lines and Paste puts them
+    // back as whole lines instead of joining onto whatever precedes the cursor.
+    if (lastB.next().isValid())
+        cur.movePosition(QTextCursor::NextCharacter, QTextCursor::KeepAnchor);
+
+    textEdit()->setTextCursor(cur);
+    return true;
+}
+
 bool SpecTableEditor::eventFilter(QObject* obj, QEvent* event)
 {
+    // Double-click a block's keyword, or triple-click any line in a block, to
+    // select the whole block ready for cut or copy.
+    if (obj == textEdit()->viewport()
+        && (event->type() == QEvent::MouseButtonDblClick
+            || event->type() == QEvent::MouseButtonPress))
+    {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() == Qt::LeftButton && me->modifiers() == Qt::NoModifier) {
+            const QTextCursor at   = textEdit()->cursorForPosition(me->position().toPoint());
+            const int         line = at.blockNumber();
+
+            if (event->type() == QEvent::MouseButtonDblClick) {
+                // Recorded whether or not this double-click is consumed: a third
+                // click may follow on a non-header line, and that is a triple.
+                m_lastDblClickMs   = QDateTime::currentMSecsSinceEpoch();
+                m_lastDblClickLine = line;
+                // Only on the keyword itself. Everywhere else -- the block's
+                // name, a step, a table cell -- double-click keeps selecting a
+                // word, which is what it is for.
+                int kwStart = 0, kwEnd = 0;
+                const int col = at.positionInBlock();
+                if (SpecTableBlocks::blockKeywordRange(documentLines(), line, &kwStart, &kwEnd)
+                    && col >= kwStart && col < kwEnd
+                    && selectBlockAtLine(line))
+                    return true;
+            } else if (line == m_lastDblClickLine
+                       && QDateTime::currentMSecsSinceEpoch() - m_lastDblClickMs
+                              <= QApplication::doubleClickInterval()) {
+                m_lastDblClickMs   = 0;
+                m_lastDblClickLine = -1;
+                if (selectBlockAtLine(line))
+                    return true;
+            }
+        }
+    }
+
     if (obj == textEdit() && event->type() == QEvent::KeyPress) {
         auto* ke = static_cast<QKeyEvent*>(event);
         if (ke->key() == Qt::Key_Tab && !(ke->modifiers() & Qt::ShiftModifier)

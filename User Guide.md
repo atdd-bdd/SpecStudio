@@ -1,4 +1,4 @@
-# SpecStudio User Guide
+# SpecStudio™ User Guide
 
 SpecStudio is an IDE for writing specifications as tables and turning them into
 runnable tests. You write a `.spectable` file describing what the software
@@ -257,11 +257,86 @@ and reads better for pure arithmetic. A step can invoke one with
 |---|---|
 | `ScenarioGroup` | Group related scenarios |
 | `DomainTerm` | Define vocabulary |
-| `Import` | Pull in another `.spectable` |
-| `Insert` | Insert content from another file |
+| `Import` | Make another `.spectable`'s `Attributes` and `Define` blocks visible |
+| `Insert` | Splice another file's contents in — see below |
 
 `Description`, `Details`, `Constraint` and `Uses` are named comments — prose
 that travels with the block and is carried into the generated code.
+
+### Insert — pull a file's contents in
+
+`Insert` splices another file's contents into the specification at the point it
+appears, before anything is generated. The file name may be written
+`Insert "name"`, `Insert 'name'` or `Insert <name>` — all three currently resolve
+relative to the folder holding the `.spectable` file.
+
+`Import` is the other one, and they are not alike: `Import` makes another file's
+`Attributes` and `Define` blocks *visible by reference*. `Insert` copies text in.
+
+Where it goes changes what it means. There are three positions.
+
+**A CSV as a step's table.** Put `Insert` where the table would go, under a step
+that names an `Attributes` set:
+
+```
+Scenario An include of CSV file
+Given a table : CSVContents
+Insert "TestFolder/TableExample.csv"
+```
+
+The CSV becomes the step's table. Quoted fields survive — `a,"b,c",d` is three
+values, not four. The column names are checked against the `Attributes` set, so
+mistakes are caught rather than silently generating the wrong test:
+
+```
+ERROR:3:Table is missing column 'B' and 'B' has no default value
+WARNING:3:Table has column 'Z' which doesn't match any field on 'CSVContents' — it will be ignored
+```
+
+**Any file inside a docstring.** Between `"""` lines, `Insert` is replaced by the
+file's contents:
+
+```
+Given a string include
+"""
+Insert "string.txt"
+"""
+```
+
+A `.csv` or `.tsv` here is still converted to a table; anything else is inserted
+as literal text. Leading whitespace up to the column of the opening `"""` is
+stripped, as it is for text typed inline.
+
+**A whole `.spectable` at the top level.** The inserted file's declarations —
+`Entity`, `Attributes`, `Scenario`, `BusinessRule` and the rest — are spliced in
+and parsed as though typed in place:
+
+```
+Specification Host
+Insert "shared_entities.spectable"
+```
+
+Two things to know about this form:
+
+- **The inserted file's `Specification` line is dropped only if the host file has
+  one of its own.** If the host has no `Specification`, the inserted one is used,
+  and it names the generated test class — `Insert "part.spectable"` into a file
+  with no `Specification` produces `Inserted_Part_Test`, not something named after
+  the host. Give the host its own `Specification` and this stops being a surprise.
+- **The same file is spliced only once.** A second `Insert` of it is skipped,
+  which is also what stops two files that insert each other from looping.
+
+**`Insert` in a position that is not one of those three does nothing, and says
+nothing.** It is treated as a comment keyword, so there is no warning and no
+error. The one to watch for is a CSV at the top level:
+
+```
+Specification Host
+Insert "data.csv"        <- silently ignored; a CSV needs a step or a docstring
+```
+
+A file named by an `Insert` that *is* in a working position but cannot be opened
+does report `WARNING: Cannot insert file:`, and Analyze lists it.
 
 ---
 
@@ -610,6 +685,29 @@ as text.
 | Analyze Solution | `Shift+F7` |
 | Diff Current File | `Ctrl+D` |
 
+**Mouse, in a `.spectable` editor**
+
+| Action | Gesture |
+|---|---|
+| Select a word | Double-click it |
+| **Select a whole block** | **Double-click the block's keyword, or triple-click any line in it** |
+| Context menu for what is under the pointer | Right-click |
+
+Selecting a whole block is meant for cut and copy: the selection runs from the
+header line through the block's last non-blank line and includes the line break,
+so `Ctrl+X` lifts the block out cleanly and `Ctrl+V` puts it back as whole lines.
+Blank lines between blocks are left where they are, as separators.
+
+A block ends at the next block keyword, not by indentation — specifications are
+normally written flush left, so the steps and tables under a `Scenario` share its
+column. Text inside a `"""` docstring is part of the block that owns it even when
+it contains something that looks like a keyword, which is what makes
+`Insert "file.txt"` inside a docstring safe to select across.
+
+The double-click is bound to the **keyword only** — the `Scenario` in
+`Scenario Add two numbers`, not the whole header line. Double-clicking the
+block's *name* still selects a word, as it does everywhere else.
+
 ---
 
 ## A first pass, end to end
@@ -635,5 +733,8 @@ as text.
 
 ## Related documents
 
+- `spectable syntax v3.3a.md` — the language reference
 - `Building Distributions.md` — packaging and signing SpecStudio itself
-- `To Do.txt`, `Remaining Work.txt` — project backlog
+- `Remaining Work.txt` — the project backlog
+- `archive/` — superseded syntax revisions, design notes and earlier backlogs,
+  kept for history. Nothing there is current.

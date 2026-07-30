@@ -1,4 +1,4 @@
-# SpecStudio
+# SpecStudio™
 
 An IDE for writing specifications as tables, and turning them into runnable
 tests in nine languages.

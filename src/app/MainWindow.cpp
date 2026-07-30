@@ -27,7 +27,15 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("SpecStudio");
+    // fromUtf8 because the ™ below is a UTF-8 byte sequence in this file, the same
+    // way the em dashes in the dialog strings elsewhere are; saying so explicitly
+    // does not depend on what the compiler assumes the execution charset is.
+    //
+    // Display text only. The "SpecStudio" strings in AppSettings and main.cpp are
+    // the QSettings organisation and application names; marking those would move
+    // the INI into a differently named folder and orphan every existing setting --
+    // window geometry, recent solutions, per-project git configuration.
+    setWindowTitle(QString::fromUtf8("SpecStudio™"));
     resize(1280, 800);
 
     // Docks and central widget must exist before AppController touches them

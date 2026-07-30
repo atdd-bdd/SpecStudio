@@ -1,4 +1,4 @@
-# Building SpecStudio Distributions
+# Building SpecStudio™ Distributions
 
 How to produce an installable SpecStudio for Windows, Linux and macOS, and how
 to sign each one.
