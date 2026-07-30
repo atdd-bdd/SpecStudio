@@ -28,7 +28,6 @@ public:
     bool        commitAndPush(const QString& message,
                               const QString& remote,
                               const QString& branch);
-    bool        fetch(const QString& remote = "origin");
     bool        pull(const QString& remote = "origin", const QString& branch = {});
     bool        pullRebase(const QString& remote = "origin", const QString& branch = {});
     bool        isRebaseInProgress() const;

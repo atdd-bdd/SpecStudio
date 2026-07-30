@@ -411,8 +411,10 @@ void MainWindow::populateGitMenu()
     }
 
     // No solution open, or solution is in GitHub mode: full menu.
+    // No separate Fetch. "Get Others' Changes" pulls, and Share Changes fetches
+    // before it commits, so a bare fetch only ever updated remote-tracking refs
+    // and left the user to work out what to do next.
     auto* actCommitPush = m_gitMenu->addAction(tr("Commit and Push..."));
-    auto* actFetch      = m_gitMenu->addAction(tr("Fetch"));
     auto* actGetLatest  = m_gitMenu->addAction(tr("Get Others' Changes"));
     m_gitMenu->addSeparator();
     m_gitMenu->addAction(m_actDiffCurrentFile);
@@ -420,7 +422,6 @@ void MainWindow::populateGitMenu()
     auto* actRepoSettings = m_gitMenu->addAction(tr("Repository Settings..."));
 
     connect(actCommitPush,   &QAction::triggered, m_controller, &AppController::onCommitAndPush);
-    connect(actFetch,        &QAction::triggered, m_controller, &AppController::onFetch);
     connect(actGetLatest,    &QAction::triggered, m_controller, &AppController::onPull);
     connect(actRepoSettings, &QAction::triggered, m_controller, &AppController::onRepositorySettings);
 }

@@ -205,13 +205,6 @@ bool GitClient::commitAndPush(const QString& message,
     return ok;
 }
 
-bool GitClient::fetch(const QString& remote)
-{
-    bool ok = false;
-    runGit({"fetch", remote}, &ok);
-    return ok;
-}
-
 bool GitClient::pull(const QString& remote, const QString& branch)
 {
     bool ok = false;

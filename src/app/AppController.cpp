@@ -699,21 +699,6 @@ void AppController::promptShareOnExit()
         shareChanges();
 }
 
-void AppController::onFetch()
-{
-    if (!m_solution || m_solution->projects().isEmpty() ||
-        m_solution->sharingMode() != Solution::SharingMode::GitHub) return;
-
-    m_mainWindow->outputPanel()->showBuildTab();
-    m_mainWindow->outputPanel()->appendBuildOutput(tr("--- Fetch ---"));
-
-    GitClient* git = gitFor(m_solution->projects().first());
-    connect(git, &GitClient::outputReady,
-            m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
-            Qt::UniqueConnection);
-    git->fetch();
-}
-
 void AppController::onDiffCurrentFile()
 {
     auto* ed = m_mainWindow->currentEditor();

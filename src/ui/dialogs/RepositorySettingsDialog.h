@@ -27,5 +27,5 @@ private:
     QLineEdit* m_url    = nullptr;
     QLineEdit* m_branch = nullptr;
     QLineEdit* m_user   = nullptr;
-    QLineEdit* m_pass   = nullptr;
+    QLineEdit* m_token  = nullptr;
 };

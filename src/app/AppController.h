@@ -39,7 +39,6 @@ public slots:
     void onRepositorySettings();
     void onShareWithGit();
     void onCommitAndPush();
-    void onFetch();
     void onPull();
     void onDiffCurrentFile();
     void onBuildCurrentFile();
