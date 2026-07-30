@@ -7,6 +7,41 @@ Altered so that it is separated into Issues and Future Features
 ## Doing
 
 
+### BUG: TableHelper.java is overwritten by each spec, so only the last one's
+  grid converters survive. A step whose table is a bare grid typed by a name --
+  "Given rolls are : Pins" with a row of values and no header -- generates
+  glue that calls TableHelper.toListListPins(values). genTableHelperClass
+  (JavaGenerator.cpp:1289) builds the class from collectGlueSigs() for the file
+  being generated and writes common/TableHelper.java, replacing whatever was
+  there. Every spec in a project shares one output folder, so the last spec
+  generated that has any grid table wins and all the earlier ones lose their
+  converters.
+
+  Demonstrated: generate bowling.spectable alone and TableHelper has
+  toListListPins and toListListBoolean. Generate "Tables and Strings.spectable"
+  into the same folder and TableHelper has only toListListString and
+  toListListInteger -- the other two are gone, and Bowling_glue no longer
+  compiles. This is why the VariousTests Java suite currently fails to build:
+  bowling wants toListListPins/toListListBoolean and Formatted Dollar wants
+  toListListDollar/toListListFormattedDollar.
+
+  Note toListListBoolean is a BUILT-IN type, so this is not only about
+  user-declared DataTypes -- any grid type other than the last spec's is lost.
+  Passing every other spec as --context does not help: context blocks are
+  skipped when collecting glue signatures.
+
+  Fix: accumulate across the whole generation run rather than per file, the way
+  the other common/ classes are written per type. Merging into an existing
+  TableHelper would also work but is uglier, since the file would then never
+  shrink when a spec stops using a type.
+
+  Java only -- JavaGenerator is the only generator that emits toListList. Check
+  whether the other eight have the same hole hidden behind different names, or
+  whether they convert grid tables inline. Nothing else exercises a grid table
+  of a non-String/Integer type today, so a silent version of this could exist
+  anywhere.
+
+
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
 
