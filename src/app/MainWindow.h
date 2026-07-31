@@ -8,6 +8,7 @@ class AttributeInspectorPanel;
 class BaseEditor;
 class EntityTreePanel;
 class FindReplaceDialog;
+class HelpDialog;
 class Project;
 class QAction;
 class QMenu;
@@ -54,6 +55,8 @@ private:
     void populateRecentMenu();
     void populateConfigMenu();
     void populateAnalyzeMenu();
+    void showHelp();
+    void showAbout();
     void populateGitMenu();
 
     void stubAction(const QString& name);
@@ -68,6 +71,8 @@ private:
     // must keep working) — created once, only conditionally re-inserted into
     // the menu by populateGitMenu().
     QAction*           m_actDiffCurrentFile = nullptr;
+    // Held so Help reopens the same window instead of stacking copies.
+    HelpDialog*        m_helpDialog = nullptr;
     FindReplaceDialog* m_findReplaceDlg  = nullptr;
     SolutionExplorer*  m_solutionExplorer = nullptr;
     QSplitter*         m_splitter        = nullptr;

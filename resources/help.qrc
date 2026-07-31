@@ -1,0 +1,15 @@
+<!--
+  The help text is compiled into the binary rather than read from disk.
+
+  The documents ship beside the executable on Windows and in the Linux tarball,
+  but on macOS they sit loose in the DMG next to SpecStudio.app, deliberately -
+  dragging the app to Applications would otherwise leave them behind. So there is
+  no file path that is reliably there on all three platforms, and a Help menu
+  that works only on some of them is worse than none.
+-->
+<RCC>
+    <qresource prefix="/help">
+        <file alias="User Guide.md">../User Guide.md</file>
+        <file alias="Getting Started.md">../Getting Started.md</file>
+    </qresource>
+</RCC>

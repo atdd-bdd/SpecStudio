@@ -10,6 +10,7 @@
 #include "../ui/AttributeInspectorPanel.h"
 #include "../ui/EntityTreePanel.h"
 #include "../ui/dialogs/FindReplaceDialog.h"
+#include "../ui/dialogs/HelpDialog.h"
 #include "../editors/BaseEditor.h"
 
 #include <QAction>
@@ -305,6 +306,15 @@ void MainWindow::setupMenuBar()
 
     connect(actAnalyzeSolution, &QAction::triggered, m_controller, &AppController::onAnalyzeSolution);
 
+    // ---- Help ----
+    auto* helpMenu = menuBar()->addMenu(tr("&Help"));
+    auto* actHelp  = helpMenu->addAction(tr("Help"), QKeySequence::HelpContents);
+    helpMenu->addSeparator();
+    auto* actAbout = helpMenu->addAction(tr("About SpecStudio"));
+
+    connect(actHelp,  &QAction::triggered, this, &MainWindow::showHelp);
+    connect(actAbout, &QAction::triggered, this, &MainWindow::showAbout);
+
     // Comparing a file with its own earlier versions belongs here rather than
     // under Git: it is reading your own work, not exchanging it with anyone. It
     // also stays available in shared-file-system solutions, where the Git menu
@@ -439,6 +449,30 @@ void MainWindow::populateGitMenu()
     connect(actCommitPush,   &QAction::triggered, m_controller, &AppController::onCommitAndPush);
     connect(actGetLatest,    &QAction::triggered, m_controller, &AppController::onPull);
     connect(actRepoSettings, &QAction::triggered, m_controller, &AppController::onRepositorySettings);
+}
+
+void MainWindow::showHelp()
+{
+    // One window, reopened. Creating a second would leave the first behind it
+    // with its own scroll position and its own search.
+    if (!m_helpDialog)
+        m_helpDialog = new HelpDialog(this);
+    m_helpDialog->raiseAndFocus();
+}
+
+void MainWindow::showAbout()
+{
+    QMessageBox::about(this, tr("About SpecStudio"),
+        tr("<h3>SpecStudio™ %1</h3>"
+           "<p>An IDE for writing specifications as tables and generating "
+           "runnable tests from them, in any of nine languages.</p>"
+           "<p>The specification is the source of truth; the generated tests are "
+           "disposable.</p>"
+           "<p>SpecStudio™ is a trademark of Ken Pugh. The software is open "
+           "source under the MIT Licence; the trademark covers the name and "
+           "branding, not the code.</p>"
+           "<p><small>Built with Qt %2</small></p>")
+            .arg(QStringLiteral(SPECSTUDIO_VERSION), QStringLiteral(QT_VERSION_STR)));
 }
 
 void MainWindow::populateAnalyzeMenu()

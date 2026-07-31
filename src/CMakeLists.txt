@@ -97,6 +97,8 @@ set(SOURCES
     ui/dialogs/NewFileDialog.cpp
     ui/dialogs/FindReplaceDialog.h
     ui/dialogs/FindReplaceDialog.cpp
+    ui/dialogs/HelpDialog.h
+    ui/dialogs/HelpDialog.cpp
     ui/dialogs/ConflictResolutionDialog.h
     ui/dialogs/ConflictResolutionDialog.cpp
     ui/dialogs/GridDialog.h
@@ -135,6 +137,7 @@ set(SOURCES
 
 qt_add_executable(SpecStudio WIN32 MACOSX_BUNDLE
     ${SOURCES}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../resources/help.qrc
 )
 
 target_include_directories(SpecStudio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
