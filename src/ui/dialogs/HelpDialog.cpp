@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QTextBrowser>
 #include <QTextCursor>
 #include <QVBoxLayout>
@@ -85,9 +86,32 @@ void HelpDialog::loadDocument(const QString& resourceName)
         m_view->setPlainText(tr("Could not open %1.").arg(resourceName));
         return;
     }
+    QString markdown = QString::fromUtf8(f.readAll());
+
+    // Drop the table of contents when rendering here.
+    //
+    // Its entries are #heading links. They work on GitHub and in a Markdown
+    // viewer, but QTextBrowser's Markdown reader creates no anchors for
+    // headings, so every one of them is dead in this window -- a list of a
+    // dozen links that do nothing is worse than no list. The file itself keeps
+    // its contents block, because everywhere else the links are fine.
+    const int start = markdown.indexOf(QStringLiteral("**Contents**"));
+    if (start >= 0) {
+        // The block ends at the horizontal rule that closes it.
+        const int rule = markdown.indexOf(QStringLiteral("\n---"), start);
+        if (rule > start)
+            markdown.remove(start, (rule + 4) - start);
+    }
+
+    // The prose links to sections too -- "see [Configuration](#configuration)".
+    // Same problem, so keep the words and drop the link, leaving a sentence that
+    // still reads rather than a link that goes nowhere.
+    static const QRegularExpression sectionLink(QStringLiteral(R"(\[([^\]]+)\]\(#[^)]+\))"));
+    markdown.replace(sectionLink, QStringLiteral("\\1"));
+
     // setMarkdown, not setPlainText: the guide is written as Markdown and its
     // tables are most of what makes it readable.
-    m_view->setMarkdown(QString::fromUtf8(f.readAll()));
+    m_view->setMarkdown(markdown);
     m_view->moveCursor(QTextCursor::Start);
 }
 
