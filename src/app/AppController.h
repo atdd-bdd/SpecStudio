@@ -30,6 +30,7 @@ public slots:
     void onNewProject();
     void onNewFile(const QString& projectRootHint = {});
     void onOpenSolution();
+    void onOpenProjectFolder();
     void onCloneSolution();
     void onSave();
     void onSaveAs();
@@ -99,6 +100,9 @@ private:
     // Returns the GitClient to use for a project's git actions: the solution's
     // one shared client, or the project's own if it isn't part of a solution.
     GitClient* gitFor(Project* proj) const;
+
+    // Repo-relative paths SpecStudio may commit on the user's behalf.
+    QStringList committablePaths(GitClient* git, const QList<Project*>& projects) const;
 
     // Diffing the current file against its own earlier versions.
     bool resolveDiffTarget(GitClient** gitOut, QString* relPathOut, QString* titleOut);

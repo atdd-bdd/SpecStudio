@@ -147,8 +147,11 @@ void MainWindow::setupMenuBar()
     auto* actNewSolution  = fileMenu->addAction(tr("New Solution..."));
     auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
     auto* actNewFile      = fileMenu->addAction(tr("New File..."),     QKeySequence::New);
-    auto* actOpenSolution = fileMenu->addAction(tr("Open Solution/Project..."));
-    auto* actCloneSolution = fileMenu->addAction(tr("Clone an Existing Solution..."));
+    // Two distinct things, so two items. Open Solution takes a .sspec; Open
+    // Project Folder takes a folder and makes one if it has none -- which is
+    // what someone handed an existing checkout actually needs.
+    auto* actOpenSolution = fileMenu->addAction(tr("Open Solution..."));
+    auto* actOpenProjectFolder = fileMenu->addAction(tr("Open Project Folder..."));
     auto* actOpenFile     = fileMenu->addAction(tr("Open File..."), QKeySequence(Qt::CTRL | Qt::Key_O));
     fileMenu->addSeparator();
     m_recentMenu = fileMenu->addMenu(tr("Recent Solutions"));
@@ -168,7 +171,7 @@ void MainWindow::setupMenuBar()
     connect(actNewProject,   &QAction::triggered, m_controller, &AppController::onNewProject);
     connect(actNewFile,      &QAction::triggered, m_controller, [this]{ m_controller->onNewFile(); });
     connect(actOpenSolution, &QAction::triggered, m_controller, &AppController::onOpenSolution);
-    connect(actCloneSolution, &QAction::triggered, m_controller, &AppController::onCloneSolution);
+    connect(actOpenProjectFolder, &QAction::triggered, m_controller, &AppController::onOpenProjectFolder);
     connect(actOpenFile,     &QAction::triggered, m_controller, &AppController::onOpenFileDialog);
     connect(actSave,         &QAction::triggered, m_controller, &AppController::onSave);
     connect(actSaveAs,       &QAction::triggered, m_controller, &AppController::onSaveAs);

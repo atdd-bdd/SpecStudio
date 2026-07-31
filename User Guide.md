@@ -733,6 +733,7 @@ block's *name* still selects a word, as it does everywhere else.
 
 ## Related documents
 
+- `Getting Started.md` — the first hour, if you have not written one before
 - `spectable syntax v3.3a.md` — the language reference
 - `Configuration Guide.md` — every `.specconfig` field, keeping specifications in
   a different repository from the generated code, and the JSON support

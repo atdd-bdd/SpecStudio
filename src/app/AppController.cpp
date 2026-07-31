@@ -407,6 +407,128 @@ void AppController::onOpenSolution()
     loadSolution(path);
 }
 
+// Open a folder that is already a project, or make one of a folder that is not.
+//
+// "Open Solution..." only ever accepted a .sspec file, despite the menu offering
+// to open a project, so a folder someone already had -- a checkout from a
+// colleague, or a code repository they want to start specifying -- could not be
+// opened at all.
+void AppController::onOpenProjectFolder()
+{
+    const QString folder = QFileDialog::getExistingDirectory(
+        m_mainWindow, tr("Open Project Folder"),
+        m_settings->defaultProjectLocation());
+    if (folder.isEmpty()) return;
+
+    QDir dir(folder);
+
+    // Already a SpecStudio project: just open it.
+    const QStringList sspecs = dir.entryList({ "*.sspec" }, QDir::Files, QDir::Name);
+    if (sspecs.size() == 1) {
+        loadSolution(dir.absoluteFilePath(sspecs.first()));
+        return;
+    }
+    if (sspecs.size() > 1) {
+        bool ok = false;
+        const QString chosen = QInputDialog::getItem(
+            m_mainWindow, tr("Choose Solution"),
+            tr("This folder holds more than one solution. Open which?"),
+            sspecs, 0, false, &ok);
+        if (!ok || chosen.isEmpty()) return;
+        loadSolution(dir.absoluteFilePath(chosen));
+        return;
+    }
+
+    // A specs subfolder may hold the solution file instead -- including one left
+    // by an earlier build of this command, which wrongly put it there.
+    {
+        QDir specsDir(dir.absoluteFilePath("specs"));
+        const QStringList nested = specsDir.exists()
+            ? specsDir.entryList({ "*.sspec" }, QDir::Files, QDir::Name) : QStringList();
+        if (nested.size() == 1) {
+            loadSolution(specsDir.absoluteFilePath(nested.first()));
+            return;
+        }
+    }
+
+    // Not one yet. Where the specifications should live depends on what this
+    // folder already is.
+    //
+    // Project::scanFiles walks the whole tree, so making a code repository the
+    // project root fills the Solution Explorer with its source, its build files
+    // and whatever else is checked in -- the specifications become a handful of
+    // files lost among them. A folder of its own avoids that, and costs nothing
+    // when the folder turns out to be empty.
+    const bool hasSpectables = !dir.entryList({ "*.spectable" }, QDir::Files).isEmpty();
+    const QStringList codeMarkers = {
+        "pom.xml", "build.gradle", "build.gradle.kts", "package.json",
+        "Cargo.toml", "go.mod", "CMakeLists.txt", "setup.py", "pyproject.toml",
+        "Package.swift", "*.csproj", "*.sln"
+    };
+    bool looksLikeCode = false;
+    for (const QString& marker : codeMarkers)
+        if (!dir.entryList({ marker }, QDir::Files).isEmpty()) { looksLikeCode = true; break; }
+    if (!looksLikeCode && dir.exists("src")) looksLikeCode = true;
+
+    // The folder opened is always the solution root, so its .sspec sits where it
+    // was opened rather than buried in a subfolder that did not exist a moment
+    // ago. The project may sit below it.
+    const QString solutionRoot = folder;
+    const QString solutionName = dir.dirName();
+    QString projectRoot = folder;
+    QString projectName = dir.dirName();
+
+    if (looksLikeCode && !hasSpectables) {
+        const auto answer = QMessageBox::question(m_mainWindow, tr("Create a specs Folder?"),
+            tr("%1 looks like a code project.\n\n"
+               "Put the specifications in a 'specs' folder inside it? The generated "
+               "tests can still be written into the source tree.\n\n"
+               "Choosing No makes the whole folder the project, and everything in it "
+               "will appear in the Solution Explorer.")
+                .arg(dir.dirName()),
+            QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel, QMessageBox::Yes);
+        if (answer == QMessageBox::Cancel) return;
+        if (answer == QMessageBox::Yes) {
+            projectRoot = dir.absoluteFilePath("specs");
+            // Named for the folder it occupies. Calling it after the repository
+            // would put "Bowling" inside "Bowling" in the Solution Explorer,
+            // which reads as a mistake even when it is not.
+            projectName = QStringLiteral("specs");
+            if (!QDir().mkpath(projectRoot)) {
+                QMessageBox::critical(m_mainWindow, tr("Error"),
+                    tr("Cannot create folder: %1").arg(projectRoot));
+                return;
+            }
+        }
+    }
+
+    auto* sol = new Solution(solutionName, solutionRoot);
+    SharingModeDialog modeDlg(sol->name(), m_mainWindow);
+    const bool useGitHub = (modeDlg.exec() == QDialog::Accepted) && modeDlg.useGitHub();
+    if (!configureNewSolutionSharing(sol, useGitHub)) {
+        delete sol;
+        return;
+    }
+    setSolution(sol);
+
+    auto* project = new Project(projectName, projectRoot);
+    project->scanFiles();
+    m_solution->addProject(project);
+
+    QString error;
+    if (!SolutionSerializer::save(m_solution, error))
+        QMessageBox::warning(m_mainWindow, tr("Save Warning"), error);
+
+    m_mainWindow->outputPanel()->appendBuildOutput(
+        tr("Opened %1. Solution file: %2. Specifications go in %3.\n")
+            .arg(solutionRoot,
+                 QDir(solutionRoot).absoluteFilePath(solutionName + ".sspec"),
+                 projectRoot));
+
+    m_treeModel->refresh();
+    m_mainWindow->solutionExplorer()->treeView()->expandAll();
+}
+
 void AppController::onCloneSolution()
 {
     if (!GitInstaller::ensureGitInstalled(m_mainWindow, tr("clone a solution"))) {
@@ -541,7 +663,11 @@ void AppController::onSaveAll()
             connect(m_solution->git(), &GitClient::outputReady,
                     m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
                     Qt::UniqueConnection);
-            m_solution->git()->commitAll(tr("Auto-save all"));
+            // Scoped for the same reason as autoCommit: the solution root may be
+            // an existing code repository.
+            m_solution->git()->commitPaths(
+                committablePaths(m_solution->git(), m_solution->projects()),
+                tr("Auto-save all"));
             promptAndMaybePush();
         }
         // Re-analyze after saving so diagnostics reflect the saved state
@@ -1252,6 +1378,40 @@ void AppController::showConflictDialog(Project* proj, GitClient* git, const QStr
 // panel, reporting a failure for something the user never requested.
 //
 // Deliberately silent: there is nothing for the user to do about either case.
+// What SpecStudio may commit on the user's behalf: the project folders it owns,
+// plus the solution file. Everything else in the repository is somebody's source
+// code, and saving a specification is not consent to commit it.
+//
+// A path of "." means the project is the repository root, so there is nothing to
+// narrow and the effect is the old behaviour -- correct for a solution created
+// as its own folder.
+QStringList AppController::committablePaths(GitClient* git,
+                                             const QList<Project*>& projects) const
+{
+    if (!git || !m_solution) return {};
+    const QDir repo(git->repoPath());
+
+    QStringList paths;
+    for (const Project* proj : projects) {
+        const QString rel = repo.relativeFilePath(proj->rootPath());
+        if (rel.startsWith(QLatin1String("..")))
+            continue;                       // outside this repository
+        paths << (rel.isEmpty() ? QStringLiteral(".") : rel);
+    }
+    if (paths.contains(QStringLiteral(".")))
+        return { QStringLiteral(".") };     // the whole repo is in scope anyway
+
+    // The .sspec normally sits at the solution root, above the project folders,
+    // so scoping to those alone would mean a change to it -- adding a project,
+    // say -- was never committed.
+    const QString sspec = repo.relativeFilePath(
+        m_solution->rootPath() + QDir::separator() + m_solution->name() + ".sspec");
+    if (!sspec.startsWith(QLatin1String("..")))
+        paths << sspec;
+
+    return paths;
+}
+
 void AppController::autoCommit(Project* proj, const QString& message)
 {
     if (!proj || !m_solution) return;
@@ -1264,7 +1424,7 @@ void AppController::autoCommit(Project* proj, const QString& message)
     connect(git, &GitClient::outputReady,
             m_mainWindow->outputPanel(), &OutputPanel::appendBuildOutput,
             Qt::UniqueConnection);
-    git->commitAll(message);
+    git->commitPaths(committablePaths(git, { proj }), message);
 }
 
 GitClient* AppController::gitFor(Project* proj) const

@@ -157,7 +157,7 @@ fi
 # These go loose in the DMG next to the app, so they are visible the moment the
 # volume mounts. Inside the bundle they would be invisible without Show Package
 # Contents, and would be thrown away by dragging the app to Applications.
-DOCS=("README.md" "User Guide.md" "Configuration Guide.md" "Git Setup.md" "spectable syntax v3.3a.md")
+DOCS=("README.md" "Getting Started.md" "User Guide.md" "Configuration Guide.md" "Git Setup.md" "spectable syntax v3.3a.md")
 
 copy_docs() {  # dest-dir
     local dest="$1" doc
@@ -189,7 +189,7 @@ Go, Rust, Python, Node, Swift, clang) are not -- install whichever you generate
 for.
 
 The documents beside this file stay on the disk image, so copy them out if you
-want them: start with "User Guide.md"; "spectable syntax v3.3a.md" is the
+want them: start with "Getting Started.md"; "spectable syntax v3.3a.md" is the
 language reference.
 EOF
 

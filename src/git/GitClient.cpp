@@ -179,6 +179,29 @@ bool GitClient::hasUncommittedChanges()
     return !ok;  // exit 0 = nothing staged, exit 1 = changes present
 }
 
+// Commit only what is under the given paths, leaving everything else alone --
+// staged or not.
+//
+// Needed because a solution's root can be somebody's existing code repository:
+// open a Gradle or Maven project, put the specifications in a subfolder, and
+// `commitAll`'s `git add -A` would sweep every uncommitted source change into a
+// commit labelled "Auto-save" the first time a .spectable was saved.
+//
+// The pathspec is given to `commit` as well as to `add`, which is what makes the
+// guarantee hold: `git commit -- <paths>` commits those paths from the working
+// tree and leaves anything else that happened to be staged still staged.
+bool GitClient::commitPaths(const QStringList& relativePaths, const QString& message)
+{
+    if (relativePaths.isEmpty()) return false;
+
+    bool ok = false;
+    runGit(QStringList{ "add", "-A", "--" } + relativePaths, &ok);
+    if (!ok) return false;
+
+    runGit(QStringList{ "commit", "-m", message, "--" } + relativePaths, &ok);
+    return ok;
+}
+
 bool GitClient::commitAll(const QString& message)
 {
     bool ok = false;

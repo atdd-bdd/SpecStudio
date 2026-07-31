@@ -25,6 +25,9 @@ public:
 
     bool        hasUncommittedChanges();
     bool        commitAll(const QString& message);
+    // Commit only under these repo-relative paths; anything else, staged or
+    // not, is left untouched.
+    bool        commitPaths(const QStringList& relativePaths, const QString& message);
     bool        commitAndPush(const QString& message,
                               const QString& remote,
                               const QString& branch);
