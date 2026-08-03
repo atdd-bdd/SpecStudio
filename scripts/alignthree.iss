@@ -1,8 +1,8 @@
-; specstudio.iss - Inno Setup script for the SpecStudio installer.
+; alignthree.iss - Inno Setup script for the AlignThree installer.
 ;
 ; Not run directly: scripts\package_windows.ps1 stages the files and passes
 ; AppVersion, StageDir and OutDir in. Compile by hand with
-;   ISCC /DAppVersion=0.1.0 /DStageDir=..\dist\SpecStudio-0.1.0-windows-x64 /DOutDir=..\dist scripts\specstudio.iss
+;   ISCC /DAppVersion=0.1.0 /DStageDir=..\dist\AlignThree-0.1.0-windows-x64 /DOutDir=..\dist scripts\alignthree.iss
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -14,9 +14,9 @@
   #define OutDir "."
 #endif
 
-#define AppName    "SpecStudio"
+#define AppName    "AlignThree"
 #define AppPublisher "Pugh-Killeen Associates"
-#define AppExe     "SpecStudio.exe"
+#define AppExe     "AlignThree.exe"
 
 [Setup]
 AppId={{7F3B2C14-9E5A-4C2D-8B71-6A0E4D3F91C2}
@@ -45,9 +45,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-; The whole staged folder: SpecStudio.exe, SpecTableConverter.exe,
-; SpecStudioAskPass.exe, the Qt DLLs and the Qt plugin subfolders. The three
-; executables must stay in one directory -- SpecStudio finds the other two
+; The whole staged folder: AlignThree.exe, SpecTableConverter.exe,
+; AlignThreeAskPass.exe, the Qt DLLs and the Qt plugin subfolders. The three
+; executables must stay in one directory -- AlignThree finds the other two
 ; through its own applicationDirPath().
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -79,9 +79,9 @@ function InitializeSetup(): Boolean;
 begin
   Result := True;
   if not VCRuntimePresent() then
-    if MsgBox('SpecStudio needs the Microsoft Visual C++ 2015-2022 Redistributable (x64),'
+    if MsgBox('AlignThree needs the Microsoft Visual C++ 2015-2022 Redistributable (x64),'
               + #13#10 + 'which does not appear to be installed.'
-              + #13#10#13#10 + 'Install SpecStudio anyway?'
+              + #13#10#13#10 + 'Install AlignThree anyway?'
               + #13#10 + 'You can get the runtime from https://aka.ms/vs/17/release/vc_redist.x64.exe',
               mbConfirmation, MB_YESNO) = IDNO then
       Result := False;

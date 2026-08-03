@@ -186,7 +186,7 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     convForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
 
     m_converterPath  = new QLineEdit(convGroup);
-    m_converterPath->setPlaceholderText(tr("Leave blank to auto-detect next to SpecStudio.exe"));
+    m_converterPath->setPlaceholderText(tr("Leave blank to auto-detect next to AlignThree.exe"));
     m_browseConverter = new QPushButton(tr("Browse…"), convGroup);
     m_browseConverter->setFixedWidth(90);
     auto* convRow = new QHBoxLayout;

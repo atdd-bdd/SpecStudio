@@ -135,14 +135,14 @@ set(SOURCES
     build/BuildOutputParser.cpp
 )
 
-qt_add_executable(SpecStudio WIN32 MACOSX_BUNDLE
+qt_add_executable(AlignThree WIN32 MACOSX_BUNDLE
     ${SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/../resources/help.qrc
 )
 
-target_include_directories(SpecStudio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(AlignThree PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(SpecStudio PRIVATE
+target_link_libraries(AlignThree PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Gui
@@ -154,12 +154,12 @@ target_link_libraries(SpecStudio PRIVATE
 # friends). macOS and Linux shell out to `security` and `secret-tool`, so they
 # need nothing extra linked.
 if(WIN32)
-    target_link_libraries(SpecStudio PRIVATE Advapi32)
+    target_link_libraries(AlignThree PRIVATE Advapi32)
 endif()
 
 # One source of truth for the release number: project() in the top-level
 # CMakeLists. main.cpp used to carry its own copy, which is the sort of
 # duplicate that quietly goes stale.
-target_compile_definitions(SpecStudio PRIVATE
+target_compile_definitions(AlignThree PRIVATE
     SPECSTUDIO_VERSION="${PROJECT_VERSION}"
 )

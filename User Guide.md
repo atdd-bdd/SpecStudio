@@ -1,8 +1,10 @@
-# SpecStudio™ User Guide
+# AlignThree™ User Guide
 
-SpecStudio is an IDE for writing specifications as tables and turning them into
+*(formerly named SpecStudio)*
+
+AlignThree is an IDE for writing specifications as tables and turning them into
 runnable tests. You write a `.spectable` file describing what the software
-should do; SpecStudio generates the test code and the glue that connects those
+should do; AlignThree generates the test code and the glue that connects those
 tests to your production classes, in any of nine languages.
 
 The specification is the source of truth. The generated tests are disposable —
@@ -89,7 +91,7 @@ By default the Explorer hides generated output — anything inside a config's
 
 Other view controls:
 
-- **View → Refresh** (`F5`) — re-scan the solution after changing files outside SpecStudio
+- **View → Refresh** (`F5`) — re-scan the solution after changing files outside AlignThree
 - **View → Split Editor Right** (`Ctrl+\`) — two files side by side; `Ctrl+Shift+\` closes it
 
 ---
@@ -350,7 +352,7 @@ difference matters.
 framework uses to categorise a test — a JUnit 5 `@Tag("smoke")`, for instance.
 Use it when your test runner will do the selecting.
 
-**`$Tag` never leaves SpecStudio.** It exists only so the generator can decide
+**`$Tag` never leaves AlignThree.** It exists only so the generator can decide
 whether to emit the block at all. Nothing about it appears in the output.
 
 ```
@@ -450,7 +452,7 @@ Right-click anywhere on a line — on a symbol, on the step text, inside a table
 - **Rename Symbol: X...**
 - **Rename Step: X...**
 
-The symbol entries appear only when the word under the cursor is one SpecStudio
+The symbol entries appear only when the word under the cursor is one AlignThree
 knows; the step and table entries appear whenever the line qualifies, wherever
 on it you clicked.
 
@@ -464,7 +466,7 @@ text across the solution, commits, and renames the corresponding glue methods.
 A glue method is a mangled identifier derived from the step — `When_item_added`
 in Java, `when_item_added` in Python, `WhenItemAdded` in Go, `whenItemAdded` in
 Swift and JavaScript — so replacing the step text alone would never reach it.
-SpecStudio derives the name in every shape and renames whole-word matches, then
+AlignThree derives the name in every shape and renames whole-word matches, then
 reports how many it changed. `F2` uses the step the caret is on; select text
 first if you want to rename only part of one.
 
@@ -480,7 +482,7 @@ results land in the Output panel, and double-clicking one jumps to it.
 
 ## Configuration
 
-A `.specconfig` file at the project root tells SpecStudio how to generate code.
+A `.specconfig` file at the project root tells AlignThree how to generate code.
 A project may hold several — one per language — and you pick the active one
 from **Build → Configuration**. Opening a `.specconfig` gives you a form, not
 raw JSON.
@@ -495,7 +497,7 @@ raw JSON.
 | `copySpectable` | Copy the source `.spectable` beside the generated code |
 | `overwriteGlue` | Regenerate glue stubs even when they exist — **off by default, and normally leave it off**, since glue is where your code lives |
 | `tagFilter` | Boolean `$tag` expression; only matching blocks are generated |
-| `converterPath` | Empty means auto-detect next to SpecStudio |
+| `converterPath` | Empty means auto-detect next to AlignThree |
 | `createProductionClasses` | Write production stubs for types that have none |
 | `productionClassesDir` / `productionClassesPackage` | Where those stubs go |
 | `failEveryTest` | End every generated glue stub with a failure, so a step that was never implemented cannot pass silently. **On by default** — turning it off means an unimplemented step reports success |
@@ -549,7 +551,7 @@ production/        stubs for your production classes
 
 **`common/` is fully generated.** Never edit it; every build rewrites it.
 
-**Glue is yours.** SpecStudio creates each glue method once, as a stub, and
+**Glue is yours.** AlignThree creates each glue method once, as a stub, and
 thereafter only *appends* methods that do not exist yet. It never rewrites or
 removes what you wrote. The cost of that safety: glue for a step you deleted
 stays behind until you remove it.
@@ -563,7 +565,7 @@ those lines, at the cost of a scaffold that passes green before anything is
 implemented.
 
 **Production files are yours too, and are never overwritten.** Before writing a
-stub, SpecStudio searches the production folder for a class, struct, enum,
+stub, AlignThree searches the production folder for a class, struct, enum,
 interface, record, protocol or type of that name — anywhere in the folder, not
 just in the file it would have created. If it finds one, it writes nothing and
 logs an INFO line saying where the type already lives. So consolidating several
@@ -623,7 +625,7 @@ project with the message `Auto-save`. Your specification history is complete
 without any effort, and the reason you give at push time is what your teammates
 actually read.
 
-Credentials are stored per project. SpecStudio supplies them to Git through a
+Credentials are stored per project. AlignThree supplies them to Git through a
 helper program rather than embedding them in the remote URL, so tokens do not
 end up in `.git/config` or in the output panel.
 
@@ -642,7 +644,7 @@ end up in `.git/config` or in the output panel.
 | **Fonts** | Editor font |
 
 The **Editors** tab is how `.csv`, `.xlsx` and `.md` files open in a real
-spreadsheet or Markdown editor. Leave an extension blank and SpecStudio edits it
+spreadsheet or Markdown editor. Leave an extension blank and AlignThree edits it
 as text.
 
 ---
@@ -738,7 +740,7 @@ block's *name* still selects a word, as it does everywhere else.
 - `Configuration Guide.md` — every `.specconfig` field, keeping specifications in
   a different repository from the generated code, and the JSON support
 - `Git Setup.md` — the one-time GitHub sign-in setup, for whoever installs it
-- `Building Distributions.md` — packaging and signing SpecStudio itself
+- `Building Distributions.md` — packaging and signing AlignThree itself
 - `Remaining Work.txt` — the project backlog
 - `archive/` — superseded syntax revisions, design notes and earlier backlogs,
   kept for history. Nothing there is current.

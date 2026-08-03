@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# package_mac.sh - build SpecStudio for macOS and package it as a .dmg.
+# package_mac.sh - build AlignThree for macOS and package it as a .dmg.
 #
 # Replaces the earlier build_mac_dmg.sh, which shipped a bundle with no code
-# generator in it: SpecStudio locates SpecTableConverter and SpecStudioAskPass
+# generator in it: AlignThree locates SpecTableConverter and AlignThreeAskPass
 # beside its own executable, and neither was ever copied into the .app. Build
 # would have reported "No converter found" on every install.
 #
 # Produces, in dist/:
-#   SpecStudio-<version>.dmg
+#   AlignThree-<version>.dmg
 #
 # macdeployqt puts the Qt frameworks and plugins inside the bundle, so it runs
 # on a Mac with no Qt. Language toolchains are not included.
@@ -59,11 +59,11 @@ MACDEPLOYQT="$QT_DIR/bin/macdeployqt"
 # CMakeLists.txt. Never a bare commit hash -- these names are user-facing.
 VERSION="$(git -C "$REPO" describe --tags --abbrev=0 2>/dev/null || true)"
 if [[ -z "$VERSION" ]]; then
-    VERSION="$(grep -o 'project(SpecStudio VERSION [0-9.]*' "$REPO/CMakeLists.txt" | grep -o '[0-9][0-9.]*$')"
+    VERSION="$(grep -o 'project(AlignThree VERSION [0-9.]*' "$REPO/CMakeLists.txt" | grep -o '[0-9][0-9.]*$')"
 fi
 VERSION="${VERSION:-0.0.0}"
 VERSION="${VERSION#v}"
-echo "SpecStudio $VERSION ($BUILD_TYPE)"
+echo "AlignThree $VERSION ($BUILD_TYPE)"
 
 BUILD_DIR="$REPO/build-mac"
 DIST="$REPO/dist"
@@ -96,8 +96,8 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
     cmake --build "$BUILD_DIR" --parallel
 fi
 
-APP="$(find "$BUILD_DIR" -maxdepth 4 -name 'SpecStudio.app' -type d | head -1)"
-[[ -n "$APP" ]] || { echo "ERROR: SpecStudio.app not found under $BUILD_DIR" >&2; exit 1; }
+APP="$(find "$BUILD_DIR" -maxdepth 4 -name 'AlignThree.app' -type d | head -1)"
+[[ -n "$APP" ]] || { echo "ERROR: AlignThree.app not found under $BUILD_DIR" >&2; exit 1; }
 echo "Bundle: $APP"
 
 # Helper executables are plain binaries, not bundles, so CMake leaves them
@@ -110,8 +110,8 @@ find_tool() {  # name subdir
 }
 CONVERTER="$(find_tool SpecTableConverter converter)" \
     || { echo "ERROR: SpecTableConverter not built" >&2; exit 1; }
-ASKPASS="$(find_tool SpecStudioAskPass src)" \
-    || { echo "ERROR: SpecStudioAskPass not built" >&2; exit 1; }
+ASKPASS="$(find_tool AlignThreeAskPass src)" \
+    || { echo "ERROR: AlignThreeAskPass not built" >&2; exit 1; }
 
 # ---- put the helpers inside the bundle ---------------------------------------
 # Contents/MacOS is what applicationDirPath() returns, so this is the one place
@@ -126,7 +126,7 @@ cp "$CONVERTER" "$ASKPASS" "$APP/Contents/MacOS/"
 echo "Running macdeployqt..."
 "$MACDEPLOYQT" "$APP" \
     -executable="$APP/Contents/MacOS/SpecTableConverter" \
-    -executable="$APP/Contents/MacOS/SpecStudioAskPass" \
+    -executable="$APP/Contents/MacOS/AlignThreeAskPass" \
     -verbose=1
 
 # ---- sanity check ------------------------------------------------------------
@@ -179,9 +179,9 @@ cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 copy_docs "$STAGING"
 cat > "$STAGING/README-FIRST.txt" <<EOF
-SpecStudio $VERSION
+AlignThree $VERSION
 
-Drag SpecStudio.app to Applications.
+Drag AlignThree.app to Applications.
 
 The Qt runtime, the code generator and the git credential helper are all inside
 the bundle. The language toolchains used to compile generated tests (JDK, .NET,
@@ -200,9 +200,9 @@ case "$ARCHS" in
     "")                            ARCH_TAG="$(uname -m)" ;;
     *)                             ARCH_TAG="${ARCHS//;/-}" ;;
 esac
-DMG="$DIST/SpecStudio-$VERSION-macos-$ARCH_TAG.dmg"
+DMG="$DIST/AlignThree-$VERSION-macos-$ARCH_TAG.dmg"
 rm -f "$DMG"
-hdiutil create -volname "SpecStudio $VERSION" -srcfolder "$STAGING" \
+hdiutil create -volname "AlignThree $VERSION" -srcfolder "$STAGING" \
                -ov -format UDZO "$DMG"
 
 echo ""

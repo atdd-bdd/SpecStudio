@@ -1,4 +1,4 @@
-Remaining Work — SpecStudio / SpecTable
+Remaining Work — AlignThree / SpecTable
 ========================================
 
 Altered so that it is separated into Issues and Future Features 

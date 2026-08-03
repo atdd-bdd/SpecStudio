@@ -32,7 +32,7 @@ GitHubClient::CreateRepoResult GitHubClient::createPrivateRepo(const QString& re
     req.setRawHeader("Accept", "application/vnd.github+json");
     req.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
     req.setRawHeader("Authorization", "Bearer " + m_token.toUtf8());
-    req.setHeader(QNetworkRequest::UserAgentHeader, "SpecStudio");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "AlignThree");
 
     QJsonObject body;
     body["name"]    = repoName;

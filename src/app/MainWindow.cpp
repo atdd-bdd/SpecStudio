@@ -33,10 +33,13 @@ MainWindow::MainWindow(QWidget* parent)
     // does not depend on what the compiler assumes the execution charset is.
     //
     // Display text only. The "SpecStudio" strings in AppSettings and main.cpp are
-    // the QSettings organisation and application names; marking those would move
-    // the INI into a differently named folder and orphan every existing setting --
-    // window geometry, recent solutions, per-project git configuration.
-    setWindowTitle(QString::fromUtf8("SpecStudio™"));
+    // the QSettings organisation and application names, and they deliberately did
+    // not follow the rename to AlignThree: changing them would move the INI into a
+    // differently named folder and orphan every existing setting -- window
+    // geometry, recent solutions, per-project git configuration. Same reasoning
+    // keeps the SecretStore key prefix and the SPECSTUDIO_GIT_* environment
+    // variables as they are. None of those are ever shown to a user.
+    setWindowTitle(QString::fromUtf8("AlignThree™"));
     resize(1280, 800);
 
     // Docks and central widget must exist before AppController touches them
@@ -310,7 +313,7 @@ void MainWindow::setupMenuBar()
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
     auto* actHelp  = helpMenu->addAction(tr("Help"), QKeySequence::HelpContents);
     helpMenu->addSeparator();
-    auto* actAbout = helpMenu->addAction(tr("About SpecStudio"));
+    auto* actAbout = helpMenu->addAction(tr("About AlignThree"));
 
     connect(actHelp,  &QAction::triggered, this, &MainWindow::showHelp);
     connect(actAbout, &QAction::triggered, this, &MainWindow::showAbout);
@@ -462,13 +465,14 @@ void MainWindow::showHelp()
 
 void MainWindow::showAbout()
 {
-    QMessageBox::about(this, tr("About SpecStudio"),
-        tr("<h3>SpecStudio™ %1</h3>"
+    QMessageBox::about(this, tr("About AlignThree"),
+        tr("<h3>AlignThree™ %1</h3>"
+           "<p><small>formerly named SpecStudio</small></p>"
            "<p>An IDE for writing specifications as tables and generating "
            "runnable tests from them, in any of nine languages.</p>"
            "<p>The specification is the source of truth; the generated tests are "
            "disposable.</p>"
-           "<p>SpecStudio™ is a trademark of Ken Pugh. The software is open "
+           "<p>AlignThree™ is a trademark of Ken Pugh. The software is open "
            "source under the MIT Licence; the trademark covers the name and "
            "branding, not the code.</p>"
            "<p><small>Built with Qt %2</small></p>")

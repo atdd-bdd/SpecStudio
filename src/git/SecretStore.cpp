@@ -16,6 +16,13 @@
 namespace {
 
 // One flat key, so the three backends agree on what identifies a secret.
+//
+// Still "SpecStudio:" after the rename to AlignThree, deliberately. This string
+// is the lookup key in the Windows Credential Manager, the macOS Keychain and
+// the Linux Secret Service -- changing it would not rename the stored entries,
+// it would simply stop finding them, and every user would silently lose the git
+// token they had already saved. The key is never shown; the --label passed to
+// secret-tool, which is what a keyring browser displays, does say AlignThree.
 QString targetName(const QString& service, const QString& account)
 {
     return QStringLiteral("SpecStudio:") + service + QLatin1Char(':') + account;
@@ -137,7 +144,7 @@ bool SecretStore::store(const QString& service, const QString& account,
     if (secretToolPresent()) {
         // secret-tool reads the secret from stdin, so it never appears in ps.
         return runTool("secret-tool",
-                       { "store", "--label=SpecStudio",
+                       { "store", "--label=AlignThree",
                          "service", targetName(service, account),
                          "account", account },
                        secret.toUtf8(), nullptr, errorOut);

@@ -1,4 +1,6 @@
-# Getting Started with SpecStudio™
+# Getting Started with AlignThree™
+
+*(formerly named SpecStudio)*
 
 Read this first. It gets you to a working specification without deciding
 anything you would have to undo later.
@@ -11,13 +13,13 @@ changes what you write.
 
 ## 1. Sharing: pick the shared file system
 
-The first thing SpecStudio asks is how your team will share the work — a
+The first thing AlignThree asks is how your team will share the work — a
 **shared file system** or **GitHub**.
 
 **Choose the shared file system**, unless you already use git comfortably.
 
 A shared folder is somewhere you and your team can all reach: a network drive,
-OneDrive, Dropbox, a shared folder on a server. SpecStudio makes no git calls at
+OneDrive, Dropbox, a shared folder on a server. AlignThree makes no git calls at
 all in this mode. Nothing to install, no account, no sign-in, nothing to go
 wrong while you are trying to learn the tool.
 
@@ -33,7 +35,7 @@ Just do not let it be the first thing you fight.
 
 ## 2. Configuration: take the Java default
 
-Create a project and SpecStudio writes a `Java.specconfig` for you: Java, JUnit,
+Create a project and AlignThree writes a `Java.specconfig` for you: Java, JUnit,
 tests into `src/test/java/spectable`, production classes into
 `src/main/java/production`.
 
@@ -149,4 +151,4 @@ report success.
 | `spectable syntax v3.3a.md` | every keyword, with examples |
 | `Configuration Guide.md` | `.specconfig` settings, other languages, specs in a separate repository |
 | `Git Setup.md` | moving to git sharing when you are ready |
-| `README.md` | why SpecStudio works this way, and where the format comes from |
+| `README.md` | why AlignThree works this way, and where the format comes from |

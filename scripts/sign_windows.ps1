@@ -195,8 +195,8 @@ if (-not $VerifyOnly -and -not $Thumbprint -and -not $SubjectName) {
 }
 
 # ---- what to sign ------------------------------------------------------------
-# Every .exe that ships, not just the launcher: SpecStudio starts
-# SpecTableConverter and SpecStudioAskPass as child processes, and an unsigned
+# Every .exe that ships, not just the launcher: AlignThree starts
+# SpecTableConverter and AlignThreeAskPass as child processes, and an unsigned
 # child undermines the signature on the parent. The installer is signed too, so
 # SmartScreen sees a signed download.
 #

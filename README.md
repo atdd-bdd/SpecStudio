@@ -1,11 +1,13 @@
-# SpecStudio™
+# AlignThree™
+
+*(formerly named SpecStudio)*
 
 An IDE for writing specifications as tables, and turning them into runnable
 tests in nine languages.
 
 You write a `.spectable` file describing what the software should do — the
 domain objects, the business rules, the scenarios, each illustrated by a table
-of examples. SpecStudio generates the test code and the glue that connects
+of examples. AlignThree generates the test code and the glue that connects
 those tests to your production classes, for Java, C#, Python, Go, Rust, Swift,
 JavaScript, TypeScript and C++.
 
@@ -25,7 +27,7 @@ Executable specification collapses that into one artefact. The examples the
 team agreed on *are* the test suite, so a specification that has gone stale
 fails the build rather than sitting there misleading the next reader.
 
-SpecStudio takes a particular position on how to do that:
+AlignThree takes a particular position on how to do that:
 
 **Tables, not prose.** Business rules are usually easier to agree on as a table
 of cases than as sentences. A column heading with six rows underneath it makes
@@ -63,7 +65,7 @@ at build time, where mistakes are compile errors rather than surprises at 3am.
 
 ## Where it comes from
 
-SpecStudio is a recombination of three ideas that already worked, none of them
+AlignThree is a recombination of three ideas that already worked, none of them
 new, and each borrowed for a different reason.
 
 ### FIT — the table as the unit of agreement
@@ -149,7 +151,7 @@ can read a `.feature` file aloud in a meeting. SpecTable's tables ask a little
 more of the reader in exchange for being checkable — a real trade, and the wrong
 one if your audience will not read a table.
 
-SpecStudio also edits `.feature` and `.featurex` files, so the two can coexist.
+AlignThree also edits `.feature` and `.featurex` files, so the two can coexist.
 
 ---
 
@@ -216,12 +218,12 @@ $qt6Dir = "C:\Qt\6.10.0\msvc2022_64\lib\cmake\Qt6"
 & $cmake --build build --config Debug
 ```
 
-Three executables are produced and must stay together — SpecStudio finds the
+Three executables are produced and must stay together — AlignThree finds the
 other two beside itself:
 
 ```
-build\src\Debug\SpecStudio.exe
-build\src\Debug\SpecStudioAskPass.exe
+build\src\Debug\AlignThree.exe
+build\src\Debug\AlignThreeAskPass.exe
 build\converter\Debug\SpecTableConverter.exe
 ```
 

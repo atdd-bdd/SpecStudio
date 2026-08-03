@@ -1,6 +1,6 @@
 # Setting Up Git Sharing
 
-For whoever sets SpecStudio™ up on a machine — often a developer helping someone
+For whoever sets AlignThree™ (formerly named SpecStudio) up on a machine — often a developer helping someone
 who does not use git themselves. It is a **one-time** job per person per machine,
 and most of it is clicking through a browser sign-in.
 
@@ -13,7 +13,7 @@ below.
 ## First: does this person need a GitHub account?
 
 **Yes, unavoidably.** Pushing to GitHub means authenticating as somebody. There
-is no anonymous write access, and no arrangement where SpecStudio signs in on
+is no anonymous write access, and no arrangement where AlignThree signs in on
 their behalf. One of these has to be true before you start:
 
 - they have a free personal account on `github.com`, **or**
@@ -23,7 +23,7 @@ their behalf. One of these has to be true before you start:
 
 If none of those is true and they do not want an account, stop here and use
 **shared file system** sharing instead. That is a legitimate choice, not a
-lesser one: SpecStudio supports it fully, and for a small co-located team it is
+lesser one: AlignThree supports it fully, and for a small co-located team it is
 simpler. You choose it when the solution is created, and it can be changed later
 in the solution's settings.
 
@@ -33,7 +33,7 @@ in the solution's settings.
 
 On Windows, for a `github.com` account, the whole procedure is:
 
-1. Open the solution in SpecStudio.
+1. Open the solution in AlignThree.
 2. Use **Share Changes**.
 3. If git is not installed, accept the offer to install it. Take the defaults.
 4. A browser window opens. Sign in to GitHub and approve.
@@ -45,7 +45,7 @@ There is no token to create, copy or paste. Steps 3 and 4 happen once.
 
 ## Why there is nothing to configure
 
-Git for Windows installs **Git Credential Manager**, and SpecStudio installs Git
+Git for Windows installs **Git Credential Manager**, and AlignThree installs Git
 for Windows. GCM is what opens that browser window, and it stores the resulting
 token in the **Windows Credential Manager**, encrypted for that user account.
 
@@ -54,9 +54,9 @@ access token: a token you create yourself expires, silently, and the failure
 arrives weeks later as a sign-in error nobody connects to a decision made months
 before.
 
-SpecStudio deliberately does not get in the way of this. Earlier versions
+AlignThree deliberately does not get in the way of this. Earlier versions
 disabled the credential helper for their own git calls and used a password saved
-in SpecStudio's settings file instead; that is why pushing from the IDE could
+in AlignThree's settings file instead; that is why pushing from the IDE could
 fail while the same push from a terminal worked. It no longer does that — the
 credential helper answers first, every time.
 
@@ -64,12 +64,12 @@ credential helper answers first, every time.
 
 ## macOS
 
-git is not installed by default and SpecStudio will not install it, because on
+git is not installed by default and AlignThree will not install it, because on
 macOS it comes from Apple.
 
-1. SpecStudio offers to start the **Xcode Command Line Tools** installation
+1. AlignThree offers to start the **Xcode Command Line Tools** installation
    (`xcode-select --install`). Accept, and let Apple's installer finish — it runs
-   in its own window, and SpecStudio cannot tell when it is done. Come back and
+   in its own window, and AlignThree cannot tell when it is done. Come back and
    retry afterwards.
 2. Apple's git has no browser sign-in. Either install Git Credential Manager,
    which behaves exactly as it does on Windows:
@@ -92,7 +92,7 @@ hand.
 
 ## Linux
 
-git comes from the distribution. SpecStudio will name the command but will not
+git comes from the distribution. AlignThree will name the command but will not
 run it, because installing needs root and a desktop application should not be
 quietly invoking `sudo`:
 
@@ -113,7 +113,7 @@ For credentials, in order of preference:
 3. `credential.helper store` — **avoid**. It writes the token to
    `~/.git-credentials` in clear text.
 
-On a headless machine there may be no keyring at all. SpecStudio will tell you
+On a headless machine there may be no keyring at all. AlignThree will tell you
 if it has had to fall back to a file readable only by the owner rather than
 anything encrypted.
 
@@ -133,7 +133,7 @@ server and is valid only there — a `github.com` token means nothing to
 | Enterprise Server | `https://<your-host>/settings/tokens` — same path, your server |
 
 Scope: a **classic** token needs `repo`. A **fine-grained** token needs
-*Contents: read and write*, plus *Administration: read and write* if SpecStudio
+*Contents: read and write*, plus *Administration: read and write* if AlignThree
 is to create the repository for you.
 
 Set an expiry you will actually remember, and write down when it falls due.
@@ -153,7 +153,7 @@ fine.
 
 ## When something goes wrong
 
-SpecStudio inspects failed git output and, when it looks like a sign-in problem,
+AlignThree inspects failed git output and, when it looks like a sign-in problem,
 prints what to do next in the Output panel. The messages worth recognising:
 
 | Message | What it means |

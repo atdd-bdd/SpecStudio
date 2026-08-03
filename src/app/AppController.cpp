@@ -401,7 +401,7 @@ void AppController::onOpenSolution()
         m_mainWindow,
         tr("Open Solution"),
         QString(),
-        tr("SpecStudio Solutions (*.sspec);;All Files (*)"));
+        tr("AlignThree Solutions (*.sspec);;All Files (*)"));
 
     if (path.isEmpty()) return;
     loadSolution(path);
@@ -1081,13 +1081,13 @@ void AppController::onPull()
     }
 }
 
-// Auto-detect SpecTableConverter.exe: check same dir as SpecStudio, then dev build locations
+// Auto-detect SpecTableConverter.exe: check same dir as AlignThree, then dev build locations
 static QString autoDetectConverter()
 {
     const QString appDir = QCoreApplication::applicationDirPath();
     const QString exe    = toolpath::exeName("SpecTableConverter");
 
-    // Production: converter deployed next to SpecStudio
+    // Production: converter deployed next to AlignThree
     const QString prod = appDir + "/" + exe;
     if (QFile::exists(prod)) return prod;
 

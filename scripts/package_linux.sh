@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# package_linux.sh - build SpecStudio for Linux and package it.
+# package_linux.sh - build AlignThree for Linux and package it.
 #
 # Produces, in dist/:
-#   SpecStudio-<version>-x86_64.AppImage    single self-contained file
-#   SpecStudio-<version>-linux-x86_64.tar.gz  the same tree, if you prefer a tarball
+#   AlignThree-<version>-x86_64.AppImage    single self-contained file
+#   AlignThree-<version>-linux-x86_64.tar.gz  the same tree, if you prefer a tarball
 #
 # The AppImage carries the Qt libraries and plugins, so it runs on any
 # reasonably current distribution without Qt installed. It does not carry the
@@ -12,7 +12,7 @@
 #
 # Nothing is signed. Linux has no Authenticode equivalent and the Sectigo token
 # does not apply here; if you want provenance, GPG-sign the AppImage:
-#   gpg --detach-sign --armor SpecStudio-<version>-x86_64.AppImage
+#   gpg --detach-sign --armor AlignThree-<version>-x86_64.AppImage
 # which produces a .asc users can check with your public key.
 #
 #   ./scripts/package_linux.sh
@@ -54,11 +54,11 @@ echo "Qt: $QT_DIR"
 # CMakeLists.txt. Never a bare commit hash -- these names are user-facing.
 VERSION="$(git -C "$REPO" describe --tags --abbrev=0 2>/dev/null || true)"
 if [[ -z "$VERSION" ]]; then
-    VERSION="$(grep -o 'project(SpecStudio VERSION [0-9.]*' "$REPO/CMakeLists.txt" | grep -o '[0-9][0-9.]*$')"
+    VERSION="$(grep -o 'project(AlignThree VERSION [0-9.]*' "$REPO/CMakeLists.txt" | grep -o '[0-9][0-9.]*$')"
 fi
 VERSION="${VERSION:-0.0.0}"
 VERSION="${VERSION#v}"
-echo "SpecStudio $VERSION ($BUILD_TYPE)"
+echo "AlignThree $VERSION ($BUILD_TYPE)"
 
 BUILD_DIR="$REPO/build-linux"
 DIST="$REPO/dist"
@@ -77,10 +77,10 @@ fi
 
 # Single-config generators do not nest by build type, so the binaries land
 # straight in build-linux/src and build-linux/converter.
-SPECSTUDIO="$BUILD_DIR/src/SpecStudio"
+ALIGNTHREE="$BUILD_DIR/src/AlignThree"
 CONVERTER="$BUILD_DIR/converter/SpecTableConverter"
-ASKPASS="$BUILD_DIR/src/SpecStudioAskPass"
-for f in "$SPECSTUDIO" "$CONVERTER" "$ASKPASS"; do
+ASKPASS="$BUILD_DIR/src/AlignThreeAskPass"
+for f in "$ALIGNTHREE" "$CONVERTER" "$ASKPASS"; do
     [[ -x "$f" ]] || { echo "ERROR: missing $f -- build first" >&2; exit 1; }
 done
 
@@ -106,27 +106,27 @@ copy_docs() {  # dest-dir
 }
 
 # ---- AppDir ------------------------------------------------------------------
-# All three executables go in usr/bin together: SpecStudio finds the converter
+# All three executables go in usr/bin together: AlignThree finds the converter
 # and the askpass helper next to itself, through applicationDirPath().
 echo "Building AppDir..."
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
          "$APPDIR/usr/share/icons/hicolor/256x256/apps"
-cp "$SPECSTUDIO" "$CONVERTER" "$ASKPASS" "$APPDIR/usr/bin/"
+cp "$ALIGNTHREE" "$CONVERTER" "$ASKPASS" "$APPDIR/usr/bin/"
 
 # An AppImage is one file, so these are only reachable by extracting it
 # (--appimage-extract). usr/share/doc is where a user would look for them.
-copy_docs "$APPDIR/usr/share/doc/specstudio"
+copy_docs "$APPDIR/usr/share/doc/alignthree"
 
-DESKTOP="$APPDIR/usr/share/applications/specstudio.desktop"
+DESKTOP="$APPDIR/usr/share/applications/alignthree.desktop"
 cat > "$DESKTOP" <<EOF
 [Desktop Entry]
 Type=Application
-Name=SpecStudio
+Name=AlignThree
 GenericName=Specification IDE
 Comment=Write and share executable specifications
-Exec=SpecStudio %f
-Icon=specstudio
+Exec=AlignThree %f
+Icon=alignthree
 Categories=Development;IDE;
 Terminal=false
 MimeType=text/x-spectable;
@@ -134,13 +134,13 @@ EOF
 
 # linuxdeploy insists on an icon. Use the project's if there is one, otherwise
 # generate a plain placeholder so packaging is never blocked on artwork.
-ICON_SRC="$(find "$REPO/resources/icons" -iname 'specstudio*.png' 2>/dev/null | head -1 || true)"
-ICON_DST="$APPDIR/usr/share/icons/hicolor/256x256/apps/specstudio.png"
+ICON_SRC="$(find "$REPO/resources/icons" -iname 'alignthree*.png' 2>/dev/null | head -1 || true)"
+ICON_DST="$APPDIR/usr/share/icons/hicolor/256x256/apps/alignthree.png"
 if [[ -n "$ICON_SRC" ]]; then
     cp "$ICON_SRC" "$ICON_DST"
 elif command -v convert >/dev/null 2>&1; then
     convert -size 256x256 xc:'#2d5b88' -gravity center \
-            -pointsize 96 -fill white -annotate 0 'SS' "$ICON_DST"
+            -pointsize 96 -fill white -annotate 0 'A3' "$ICON_DST"
 else
     # A 1x1 PNG is enough to satisfy the tooling; replace it with real artwork
     # when there is some.
@@ -150,12 +150,12 @@ fi
 
 # ---- tarball (always) --------------------------------------------------------
 # Useful on its own, and a fallback when the AppImage tooling cannot be fetched.
-TARDIR="$BUILD_DIR/SpecStudio-$VERSION-linux-x86_64"
+TARDIR="$BUILD_DIR/AlignThree-$VERSION-linux-x86_64"
 rm -rf "$TARDIR"; mkdir -p "$TARDIR"
-cp "$SPECSTUDIO" "$CONVERTER" "$ASKPASS" "$TARDIR/"
+cp "$ALIGNTHREE" "$CONVERTER" "$ASKPASS" "$TARDIR/"
 copy_docs "$TARDIR"
 cat > "$TARDIR/README-FIRST.txt" <<EOF
-SpecStudio $VERSION
+AlignThree $VERSION
 
 This tarball contains the three executables and the documentation; it expects
 Qt 6 to be installed on the system. For a self-contained build use the
@@ -164,12 +164,12 @@ Qt 6 to be installed on the system. For a self-contained build use the
 Start with "Getting Started.md". "User Guide.md" is the full guide and
 "spectable syntax v3.3a.md" is the language reference.
 
-Keep the three files together -- SpecStudio looks for SpecTableConverter and
-SpecStudioAskPass beside itself.
+Keep the three files together -- AlignThree looks for SpecTableConverter and
+AlignThreeAskPass beside itself.
 EOF
-tar -C "$BUILD_DIR" -czf "$DIST/SpecStudio-$VERSION-linux-x86_64.tar.gz" \
-    "SpecStudio-$VERSION-linux-x86_64"
-echo "Wrote $DIST/SpecStudio-$VERSION-linux-x86_64.tar.gz"
+tar -C "$BUILD_DIR" -czf "$DIST/AlignThree-$VERSION-linux-x86_64.tar.gz" \
+    "AlignThree-$VERSION-linux-x86_64"
+echo "Wrote $DIST/AlignThree-$VERSION-linux-x86_64.tar.gz"
 
 # ---- AppImage ----------------------------------------------------------------
 TOOLS="$BUILD_DIR/tools"
@@ -207,15 +207,15 @@ export QMAKE="$QT_DIR/bin/qmake6"
 # libfuse2) often have none, and the failure reads as a bare "dlopen(): error
 # loading libfuse.so.2". Extracting instead is slower but works everywhere.
 export APPIMAGE_EXTRACT_AND_RUN=1
-export OUTPUT="$DIST/SpecStudio-$VERSION-x86_64.AppImage"
+export OUTPUT="$DIST/AlignThree-$VERSION-x86_64.AppImage"
 export VERSION
 
 # --executable for each helper too, so their own library needs are resolved and
 # they end up inside the image rather than dangling.
 "$LD" --appdir "$APPDIR" \
-      --executable "$APPDIR/usr/bin/SpecStudio" \
+      --executable "$APPDIR/usr/bin/AlignThree" \
       --executable "$APPDIR/usr/bin/SpecTableConverter" \
-      --executable "$APPDIR/usr/bin/SpecStudioAskPass" \
+      --executable "$APPDIR/usr/bin/AlignThreeAskPass" \
       --desktop-file "$DESKTOP" \
       --icon-file "$ICON_DST" \
       --plugin qt \

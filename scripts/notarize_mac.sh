@@ -12,7 +12,7 @@
 #   2. A "Developer ID Application" certificate in your login keychain.
 #      Xcode > Settings > Accounts > Manage Certificates, or developer.apple.com.
 #   3. An app-specific password for notarization, stored in the keychain once:
-#        xcrun notarytool store-credentials specstudio-notary \
+#        xcrun notarytool store-credentials alignthree-notary \
 #            --apple-id you@example.com --team-id ABCDE12345 \
 #            --password <app-specific-password>
 #      Create the app-specific password at appleid.apple.com, not your Apple ID
@@ -22,13 +22,13 @@
 # credentials and, for notarization, a round trip to Apple's servers. Build once,
 # sign the bytes you built.
 #
-#   ./scripts/notarize_mac.sh path/to/SpecStudio.app path/to/SpecStudio-x.y.z.dmg
+#   ./scripts/notarize_mac.sh path/to/AlignThree.app path/to/AlignThree-x.y.z.dmg
 #   ./scripts/notarize_mac.sh --identity "Developer ID Application: Name (TEAMID)" ...
 
 set -euo pipefail
 
 IDENTITY=""
-PROFILE="specstudio-notary"
+PROFILE="alignthree-notary"
 ENTITLEMENTS=""
 
 while [[ $# -gt 0 ]]; do
@@ -43,7 +43,7 @@ done
 
 APP="${1:-}"
 DMG="${2:-}"
-[[ -d "$APP" ]] || { echo "Usage: $0 <SpecStudio.app> [SpecStudio.dmg]" >&2; exit 2; }
+[[ -d "$APP" ]] || { echo "Usage: $0 <AlignThree.app> [AlignThree.dmg]" >&2; exit 2; }
 
 # ---- identity ----------------------------------------------------------------
 if [[ -z "$IDENTITY" ]]; then
@@ -77,14 +77,14 @@ find "$APP/Contents/PlugIns" -name '*.dylib' 2>/dev/null \
     | while read -r plugin; do codesign "${SIGN_ARGS[@]}" "$plugin"; done
 
 # The two helper executables are signed individually: they are separate
-# processes SpecStudio launches, and an unsigned child breaks the parent's
+# processes AlignThree launches, and an unsigned child breaks the parent's
 # hardened runtime.
-for helper in SpecTableConverter SpecStudioAskPass; do
+for helper in SpecTableConverter AlignThreeAskPass; do
     if [[ -f "$APP/Contents/MacOS/$helper" ]]; then
         echo "Signing $helper..."
         codesign "${SIGN_ARGS[@]}" "$APP/Contents/MacOS/$helper"
     else
-        echo "WARNING: $helper is not in the bundle - SpecStudio will not find it." >&2
+        echo "WARNING: $helper is not in the bundle - AlignThree will not find it." >&2
     fi
 done
 

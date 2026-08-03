@@ -1,4 +1,6 @@
-# Configuring SpecStudio™ Code Generation
+# Configuring AlignThree™ Code Generation
+
+*(formerly named SpecStudio)*
 
 How to set up a `.specconfig`, how to keep specifications in a different
 repository from the code generated out of them, and how the JSON support works.
@@ -26,7 +28,7 @@ A `.specconfig` is a JSON file describing how to turn `.spectable` files into
 test code. Generating for Java and Python from the same specifications means two
 config files side by side — nothing in the format is single-target.
 
-**Which config applies to a given specification:** SpecStudio walks up from the
+**Which config applies to a given specification:** AlignThree walks up from the
 `.spectable` file's own folder to the project root and uses the *nearest*
 `.specconfig` it finds. So a config at the project root covers everything, and a
 config in a subfolder overrides it for that subfolder.
@@ -42,7 +44,7 @@ A minimal one:
 }
 ```
 
-A real one, from `SpecStudioVariousTests/TestProject/A Java Config.specconfig`:
+A real one, from `AlignThreeVariousTests/TestProject/A Java Config.specconfig`:
 
 ```json
 {
@@ -89,9 +91,9 @@ Setting `overwriteGlue` to `true` discards your implementations. Leave it `false
 unless you mean it.
 
 **Leave `converterPath` empty.** A hardcoded path breaks on every other machine.
-Empty means SpecStudio looks, in order:
+Empty means AlignThree looks, in order:
 
-1. `SpecTableConverter` beside `SpecStudio` itself — how a release is laid out;
+1. `SpecTableConverter` beside `AlignThree` itself — how a release is laid out;
 2. `../../converter/Debug/`, then `../../converter/Release/` — a Visual Studio
    build tree, which nests by configuration;
 3. `../converter/` — Ninja and Makefile builds, which do not nest.
@@ -161,7 +163,7 @@ specifications sit inside the repository that holds the generated code, one
 folder per language:
 
 ```
-SpecStudioVariousTests/
+AlignThreeVariousTests/
   TestProject/
     include.spectable
     A Java Config.specconfig     <- outputDirectory: "../Java/SpecTableVariousTests/src/test/java/spectable"
@@ -175,7 +177,7 @@ config resolves on every machine.
 
 ### What this buys you, and what it costs
 
-Generating into another repository is a plain file write. SpecStudio does not
+Generating into another repository is a plain file write. AlignThree does not
 know or care that a repository boundary was crossed, which has consequences
 worth knowing before you rely on it:
 
@@ -307,7 +309,7 @@ List<Object>        items  = Json.getArray (obj, "items");
 
 The other facility is an ordinary production class, written by you, that a
 specification exercises like anything else. `json.spectable` in
-`SpecStudioExampleTests` is the worked example. It states the conversion as four
+`AlignThreeExampleTests` is the worked example. It states the conversion as four
 scenarios — object out, object in, array out, array in:
 
 ```
@@ -441,13 +443,13 @@ Things that go wrong:
 
 - `User Guide.md` — using the IDE
 - `spectable syntax v3.3a.md` — the language
-- `Building Distributions.md` — packaging and signing SpecStudio itself
+- `Building Distributions.md` — packaging and signing AlignThree itself
 
 Two repositories hold working configurations for all nine languages, and they
 have different jobs:
 
-- **`SpecStudioExampleTests`** — examples meant to be read. Start with
+- **`AlignThreeExampleTests`** — examples meant to be read. Start with
   `Calculator.spectable`, and see that repository's `README.md`.
-- **`SpecStudioVariousTests`** — where new SpecStudio features get exercised,
+- **`AlignThreeVariousTests`** — where new AlignThree features get exercised,
   including the awkward cases. Look here for a configuration that does something
   unusual; do not read it as a style guide.

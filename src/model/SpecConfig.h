@@ -22,7 +22,7 @@ struct SpecConfig
     QString namespacePrefix;
     bool        overwriteGlue  = false;      // regenerate glue stubs even if they exist
     bool        copySpectable  = true;       // copy the .spectable source file to the output directory
-    QString     converterPath;               // empty = auto-detect next to SpecStudio.exe
+    QString     converterPath;               // empty = auto-detect next to AlignThree.exe
     QStringList imports;                     // extra import/using statements for all generated files
     QString     tagFilter;                   // boolean $tag expression — only matching blocks generated
 

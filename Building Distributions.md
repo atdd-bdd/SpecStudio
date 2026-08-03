@@ -1,10 +1,12 @@
-# Building SpecStudio™ Distributions
+# Building AlignThree™ Distributions
 
-How to produce an installable SpecStudio for Windows, Linux and macOS, and how
+*(formerly named SpecStudio — the git repository is still called `specstudio`.)*
+
+How to produce an installable AlignThree for Windows, Linux and macOS, and how
 to sign each one.
 
-Every package bundles the Qt runtime and the two helper executables SpecStudio
-needs beside it — `SpecTableConverter` and `SpecStudioAskPass` — so it runs on a
+Every package bundles the Qt runtime and the two helper executables AlignThree
+needs beside it — `SpecTableConverter` and `AlignThreeAskPass` — so it runs on a
 machine with no Qt installed. The language toolchains used to compile generated
 tests (JDK, .NET, Go, Rust, Python, Node, Swift, a C++ compiler) are **not**
 included; developers bring their own.
@@ -19,7 +21,7 @@ the machines* at the end for the CI alternative.
 | Script | Platform | Produces |
 |---|---|---|
 | `scripts/package_windows.ps1` | Windows | staged folder, portable zip, installer |
-| `scripts/specstudio.iss` | Windows | Inno Setup definition (not run directly) |
+| `scripts/alignthree.iss` | Windows | Inno Setup definition (not run directly) |
 | `scripts/sign_windows.ps1` | Windows | Authenticode signing, Sectigo token |
 | `scripts/package_linux.sh` | Linux | AppImage, tarball |
 | `scripts/package_mac.sh` | macOS | DMG |
@@ -31,15 +33,17 @@ in the repository. Attach the artefacts to a GitHub release instead.
 ## Version numbering
 
 Artefact names come from a release tag if the repository has one, otherwise from
-`project(SpecStudio VERSION …)` in the top-level `CMakeLists.txt`. With `v0.9.0`
+`project(AlignThree VERSION …)` in the top-level `CMakeLists.txt`. With `v0.9.0`
 tagged, the tag wins.
 
 The version compiled *into* the application still comes from CMake, via the
-`SPECSTUDIO_VERSION` definition. So when bumping a release, move both together:
+`SPECSTUDIO_VERSION` definition — a preprocessor symbol that kept its old
+spelling through the rename, along with the QSettings names and the credential
+store keys. So when bumping a release, move both together:
 
 ```bash
 # edit CMakeLists.txt to the new version, commit, then
-git tag -a v0.10.0 -m "SpecStudio 0.10.0"
+git tag -a v0.10.0 -m "AlignThree 0.10.0"
 git push origin v0.10.0
 ```
 
@@ -54,7 +58,7 @@ All three platforms carry the same six, plus a generated `README-FIRST.txt`:
 
 | Document | |
 |---|---|
-| `README.md` | what SpecStudio is and where the format comes from |
+| `README.md` | what AlignThree is and where the format comes from |
 | `Getting Started.md` | the first hour: shared files, the Java default, a first specification |
 | `User Guide.md` | using the IDE |
 | `Configuration Guide.md` | `.specconfig` fields, generating into a separate repository, JSON |
@@ -67,17 +71,17 @@ Where they land differs, because what a user can actually open differs:
 |---|---|
 | Windows folder, zip, installer | beside the executables |
 | Linux tarball | beside the executables |
-| Linux AppImage | `usr/share/doc/specstudio` — one file, so only reachable via `--appimage-extract` |
+| Linux AppImage | `usr/share/doc/alignthree` — one file, so only reachable via `--appimage-extract` |
 | macOS DMG | loose in the image next to the app, visible on mount |
 
-They are **not** put inside `SpecStudio.app`: dragging the app to Applications
+They are **not** put inside `AlignThree.app`: dragging the app to Applications
 would leave them behind, and inside a bundle they need Show Package Contents.
 
 **Renaming a document breaks the build, deliberately.** Each script names the
 files in one list — `DOCS` in the shell scripts, the `foreach` in
 `package_windows.ps1` — and stops with the missing name if one is absent. This is
 a reaction to the previous behaviour: `package_windows.ps1` copied
-`SpecStudio User Guide.md` with `-ErrorAction SilentlyContinue`, and
+`AlignThree User Guide.md` with `-ErrorAction SilentlyContinue`, and
 `package_linux.sh` used `cp … 2>/dev/null || true`. When that guide was renamed,
 the Windows copy failed in silence and the 0.9.0 packages shipped the superseded
 guide, which still claimed tests generate in "C#, Java, or Rust". A rename should
@@ -109,9 +113,9 @@ This is the one that has been run end to end.
 Produces in `dist\`:
 
 ```
-SpecStudio-<version>-setup.exe          the installer
-SpecStudio-<version>-windows-x64.zip    portable, no install
-SpecStudio-<version>-windows-x64\       the staged folder both came from
+AlignThree-<version>-setup.exe          the installer
+AlignThree-<version>-windows-x64.zip    portable, no install
+AlignThree-<version>-windows-x64\       the staged folder both came from
 ```
 
 **The one thing not bundled** is the Microsoft Visual C++ 2015–2022
@@ -150,8 +154,8 @@ git clone https://github.com/atdd-bdd/SpecStudio && cd SpecStudio
 Produces in `dist/`:
 
 ```
-SpecStudio-<version>-x86_64.AppImage        self-contained, carries Qt
-SpecStudio-<version>-linux-x86_64.tar.gz    three binaries only, needs system Qt
+AlignThree-<version>-x86_64.AppImage        self-contained, carries Qt
+AlignThree-<version>-linux-x86_64.tar.gz    three binaries only, needs system Qt
 ```
 
 The script downloads `linuxdeploy` and its Qt plugin on first run, so it needs
@@ -162,7 +166,7 @@ mount. Ubuntu 22.04+ dropped `libfuse2`, and CI containers rarely have it; the
 failure reads as an obscure `libfuse.so.2` error. The script sets
 `APPIMAGE_EXTRACT_AND_RUN=1`, which extracts instead — slower, works everywhere.
 
-**Icon.** If `resources/icons/specstudio*.png` exists it is used. Otherwise the
+**Icon.** If `resources/icons/alignthree*.png` exists it is used. Otherwise the
 script generates a placeholder (via ImageMagick if present, else a 1×1 PNG) so
 packaging is never blocked on artwork. Replace it when there is real artwork.
 
@@ -170,7 +174,7 @@ packaging is never blocked on artwork. Replace it when there is real artwork.
 does not apply. For provenance, publish a detached GPG signature:
 
 ```bash
-gpg --detach-sign --armor dist/SpecStudio-<version>-x86_64.AppImage
+gpg --detach-sign --armor dist/AlignThree-<version>-x86_64.AppImage
 ```
 
 ---
@@ -193,7 +197,7 @@ brew install cmake ninja
 ./scripts/package_mac.sh --qt-dir ~/Qt/6.10.0/macos --universal
 ```
 
-Produces `dist/SpecStudio-<version>-macos-universal.dmg`.
+Produces `dist/AlignThree-<version>-macos-universal.dmg`.
 
 **Use `--universal`.** Without it the build targets whatever Mac it runs on, and
 an arm64 build will not launch on an Intel Mac at all — Rosetta translates
@@ -227,7 +231,7 @@ Signing *after* packaging is not enough, and the gap is easy to miss. The zip an
 the installer are both built **from the staged folder**, so a single
 package-then-sign pass signs the loose staged executables and the installer
 wrapper while the copies *embedded in* the zip and the installer stay unsigned.
-Install from it and `SpecStudio.exe` on disk is unsigned — the signature on the
+Install from it and `AlignThree.exe` on disk is unsigned — the signature on the
 installer says nothing about what it unpacked.
 
 So stage and package separately, signing in between:
@@ -236,7 +240,7 @@ So stage and package separately, signing in between:
 .\scripts\package_windows.ps1 -StageOnly      # build + stage, no zip/installer
 .\scripts\sign_windows.ps1                    # sign the staged .exe files
 .\scripts\package_windows.ps1 -PackageOnly    # zip + installer from signed files
-.\scripts\sign_windows.ps1 dist\SpecStudio-0.9.0-setup.exe
+.\scripts\sign_windows.ps1 dist\AlignThree-0.9.0-setup.exe
 ```
 
 `-PackageOnly` deliberately does **not** re-stage — re-staging would overwrite
@@ -258,9 +262,9 @@ token rather than a `.pfx` file.
 2. `.\scripts\sign_windows.ps1 -ListCerts` to confirm the certificate is visible.
 3. `.\scripts\sign_windows.ps1`
 
-It signs every `.exe` in `dist\` — `SpecStudio.exe`, `SpecTableConverter.exe`,
-`SpecStudioAskPass.exe` and the installer. All four, not just the launcher:
-SpecStudio starts the converter and askpass helper as child processes, and an
+It signs every `.exe` in `dist\` — `AlignThree.exe`, `SpecTableConverter.exe`,
+`AlignThreeAskPass.exe` and the installer. All four, not just the launcher:
+AlignThree starts the converter and askpass helper as child processes, and an
 unsigned child undermines the signature on the parent. The installer is signed
 so SmartScreen sees a signed download.
 
@@ -271,7 +275,7 @@ party's binary with this certificate would assert authorship we do not have.
 To sign a single file, pass it positionally:
 
 ```powershell
-.\scripts\sign_windows.ps1 dist\SpecStudio-0.9.0-setup.exe
+.\scripts\sign_windows.ps1 dist\AlignThree-0.9.0-setup.exe
 ```
 
 #### Choosing the certificate
@@ -319,14 +323,14 @@ The Sectigo certificate cannot sign macOS binaries. Gatekeeper accepts only an
    ID password — stored once:
 
 ```bash
-xcrun notarytool store-credentials specstudio-notary \
+xcrun notarytool store-credentials alignthree-notary \
     --apple-id you@example.com --team-id ABCDE12345 --password <app-specific>
 ```
 
 4. Sign, notarize and staple:
 
 ```bash
-./scripts/notarize_mac.sh build-mac/SpecStudio.app dist/SpecStudio-<version>-macos-universal.dmg
+./scripts/notarize_mac.sh build-mac/AlignThree.app dist/AlignThree-<version>-macos-universal.dmg
 ```
 
 Without this, macOS refuses to open the application on any machine that did not
@@ -336,7 +340,7 @@ offline.
 Confirm the way Gatekeeper will see it:
 
 ```bash
-spctl --assess --type execute --verbose SpecStudio.app
+spctl --assess --type execute --verbose AlignThree.app
 ```
 
 ### Linux — GPG or nothing
@@ -355,7 +359,7 @@ repo.
 **Trigger it** by pushing a version tag:
 
 ```bash
-git tag -a v0.10.0 -m "SpecStudio 0.10.0"
+git tag -a v0.10.0 -m "AlignThree 0.10.0"
 git push origin v0.10.0
 ```
 

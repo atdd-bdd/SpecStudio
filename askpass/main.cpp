@@ -1,9 +1,9 @@
-// Minimal GIT_ASKPASS helper for SpecStudio. Git invokes this program
+// Minimal GIT_ASKPASS helper for AlignThree. Git invokes this program
 // non-interactively (no terminal available) whenever it needs a credential
 // and no configured credential helper has already answered. It receives the
 // prompt text as argv[1] (e.g. "Username for 'https://github.com': " or
 // "Password for 'https://user@github.com': ") and must print the answer to
-// stdout. SpecStudio's GitClient sets SPECSTUDIO_GIT_USERNAME/
+// stdout. AlignThree's GitClient sets SPECSTUDIO_GIT_USERNAME/
 // SPECSTUDIO_GIT_PASSWORD on the git child process's environment for the
 // single invocation that needs them, so the credential never has to be
 // written into the remote URL or .git/config.

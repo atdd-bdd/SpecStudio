@@ -26,7 +26,7 @@ void GitClient::applyCredentialEnv(QProcess& proc, const QString& username, cons
 
     // Point git at our own askpass helper (a sibling executable of
     // SpecStudio) so it never needs an interactive terminal.
-    const QString askpassPath = toolpath::siblingTool("SpecStudioAskPass");
+    const QString askpassPath = toolpath::siblingTool("AlignThreeAskPass");
     env.insert("GIT_ASKPASS", askpassPath);
     env.insert("SPECSTUDIO_GIT_USERNAME", username);
     env.insert("SPECSTUDIO_GIT_PASSWORD", password);

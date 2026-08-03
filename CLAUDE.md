@@ -14,16 +14,16 @@ $qt6Dir = "C:\Qt\6.10.0\msvc2022_64\lib\cmake\Qt6"
 
 # Build
 & $cmake --build build --config Debug
-# Executable: build\src\Debug\SpecStudio.exe
+# Executable: build\src\Debug\AlignThree.exe
 
 # Run (Qt DLLs must be on PATH or deployed via windeployqt)
 $env:PATH += ";C:\Qt\6.10.0\msvc2022_64\bin"
-.\build\src\Debug\SpecStudio.exe
+.\build\src\Debug\AlignThree.exe
 ```
 
 ## Project Overview
 
-SpecStudio™ is a cross-platform IDE (Qt 6 / C++17 / CMake) for teams collaborating on specifications. The UI is modeled after Visual Studio. The original specification lives in `archive/To Do.txt`.
+AlignThree™ (formerly named SpecStudio; the repository keeps the old name) is a cross-platform IDE (Qt 6 / C++17 / CMake) for teams collaborating on specifications. The UI is modeled after Visual Studio. The original specification lives in `archive/To Do.txt`.
 
 ## Technology Stack
 

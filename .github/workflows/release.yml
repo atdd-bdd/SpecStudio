@@ -124,8 +124,8 @@ jobs:
         # to open it, so check rather than trust the flag.
         run: |
           set -euo pipefail
-          app="$(find build-mac -maxdepth 4 -name 'SpecStudio.app' -type d | head -1)"
-          for exe in SpecStudio SpecTableConverter SpecStudioAskPass; do
+          app="$(find build-mac -maxdepth 4 -name 'AlignThree.app' -type d | head -1)"
+          for exe in AlignThree SpecTableConverter AlignThreeAskPass; do
             echo "--- $exe"
             lipo -archs "$app/Contents/MacOS/$exe"
             lipo -archs "$app/Contents/MacOS/$exe" | grep -q 'x86_64' \
@@ -177,9 +177,9 @@ jobs:
           APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           set -euo pipefail
-          xcrun notarytool store-credentials specstudio-notary \
+          xcrun notarytool store-credentials alignthree-notary \
               --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD"
-          app="$(find build-mac -maxdepth 4 -name 'SpecStudio.app' -type d | head -1)"
+          app="$(find build-mac -maxdepth 4 -name 'AlignThree.app' -type d | head -1)"
           dmg="$(ls dist/*.dmg)"
           ./scripts/notarize_mac.sh "$app" "$dmg"
 
@@ -215,7 +215,7 @@ jobs:
           generate_release_notes: true
           files: artifacts/**/*
           body: |
-            SpecStudio ${{ github.ref_name }}
+            AlignThree ${{ github.ref_name }}
 
             Linux and macOS builds are attached, produced by CI.
 
@@ -225,5 +225,5 @@ jobs:
                 .\scripts\package_windows.ps1
                 .\scripts\sign_windows.ps1
 
-            Attach `SpecStudio-*-setup.exe` and `SpecStudio-*-windows-x64.zip`
+            Attach `AlignThree-*-setup.exe` and `AlignThree-*-windows-x64.zip`
             to this draft, check the notes, then publish.

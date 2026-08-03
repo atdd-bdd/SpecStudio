@@ -25,7 +25,7 @@ bool downloadToFile(QWidget* parent, const QUrl& url, const QString& destPath, Q
 {
     QNetworkAccessManager nam;
     QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::UserAgentHeader, "SpecStudio");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "AlignThree");
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QProgressDialog progress(QObject::tr("Downloading Git installer..."), QObject::tr("Cancel"), 0, 0, parent);
@@ -62,7 +62,7 @@ bool fetchJson(const QUrl& url, QJsonDocument& docOut, QString& errorOut)
 {
     QNetworkAccessManager nam;
     QNetworkRequest req(url);
-    req.setHeader(QNetworkRequest::UserAgentHeader, "SpecStudio");
+    req.setHeader(QNetworkRequest::UserAgentHeader, "AlignThree");
     req.setRawHeader("Accept", "application/vnd.github+json");
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
@@ -123,7 +123,7 @@ bool installGit(QWidget* parent, const QString& contextLabel)
     }
 
     const QString installerPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-        + "/SpecStudio-GitInstaller.exe";
+        + "/AlignThree-GitInstaller.exe";
     if (!downloadToFile(parent, QUrl(downloadUrl), installerPath, error)) {
         QMessageBox::critical(parent, QObject::tr("Download Failed"),
             QObject::tr("Could not download the Git installer: %1").arg(error));
@@ -171,7 +171,7 @@ bool installGit(QWidget* parent, const QString& contextLabel)
     QProcess::startDetached("xcode-select", {"--install"});
     QMessageBox::information(parent, QObject::tr("Finish in the Installer"),
         QObject::tr("Apple's installer is starting in a separate window.\n\n"
-                    "When it has finished, try again — SpecStudio does not "
+                    "When it has finished, try again — AlignThree does not "
                     "control that installation and cannot tell when it is done."));
     return false;   // not installed *yet*; the caller must not proceed
 }

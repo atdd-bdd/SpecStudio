@@ -15,7 +15,7 @@
 HelpDialog::HelpDialog(QWidget* parent)
     : QDialog(parent)
 {
-    setWindowTitle(tr("SpecStudio Help"));
+    setWindowTitle(tr("AlignThree Help"));
     resize(900, 700);
     // A dialog you can leave open while working, and that gets a maximise button
     // rather than only a close cross.

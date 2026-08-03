@@ -10,7 +10,7 @@ void BuildController::run(const QString& program, const QStringList& args)
 {
     if (program.isEmpty()) {
         emit outputReady(tr("ERROR: No converter found. Set the converter path in the .specconfig file,\n"
-                            "or place SpecTableConverter.exe next to SpecStudio.exe.\n"));
+                            "or place SpecTableConverter.exe next to AlignThree.exe.\n"));
         emit buildFinished(false);
         return;
     }

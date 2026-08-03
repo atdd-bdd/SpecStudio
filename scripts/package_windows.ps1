@@ -1,13 +1,13 @@
-# package_windows.ps1 - build SpecStudio for Windows and package it.
+# package_windows.ps1 - build AlignThree for Windows and package it.
 #
 # Produces, in dist/:
-#   SpecStudio-<version>-windows-x64/       a self-contained folder
-#   SpecStudio-<version>-windows-x64.zip    the same folder, zipped (portable)
-#   SpecStudio-<version>-setup.exe          an installer, if Inno Setup is present
+#   AlignThree-<version>-windows-x64/       a self-contained folder
+#   AlignThree-<version>-windows-x64.zip    the same folder, zipped (portable)
+#   AlignThree-<version>-setup.exe          an installer, if Inno Setup is present
 #
 # Everything needed to run is bundled: the Qt DLLs and plugins that windeployqt
-# resolves, plus the two helper executables SpecStudio locates beside itself
-# (SpecTableConverter and SpecStudioAskPass). A machine with no Qt and no
+# resolves, plus the two helper executables AlignThree locates beside itself
+# (SpecTableConverter and AlignThreeAskPass). A machine with no Qt and no
 # Visual Studio can run the result -- except for the C++ runtime, see below.
 #
 # Nothing here is signed. Signing needs the Sectigo token plugged in and a PIN,
@@ -22,14 +22,14 @@
 # The zip and the installer are both built *from the staged folder*, so a plain
 # "package, then sign" run signs the loose staged executables and the installer
 # wrapper while leaving the copies embedded in the zip and the installer
-# unsigned. A user who installs then has an unsigned SpecStudio.exe on disk.
+# unsigned. A user who installs then has an unsigned AlignThree.exe on disk.
 #
 # So for anything that ships, stage and package separately, signing in between:
 #
 #   .\scripts\package_windows.ps1 -StageOnly        # build + stage, no zip/installer
 #   .\scripts\sign_windows.ps1                      # sign the staged .exe files
 #   .\scripts\package_windows.ps1 -PackageOnly      # zip + installer from signed files
-#   .\scripts\sign_windows.ps1 dist\SpecStudio-<version>-setup.exe
+#   .\scripts\sign_windows.ps1 dist\AlignThree-<version>-setup.exe
 #
 # -PackageOnly deliberately does not re-stage: re-staging would overwrite the
 # executables that were just signed. It reports whether what it is about to
@@ -62,7 +62,7 @@ function Need-Path($path, $what) {
 # Windows PowerShell 5.1 wraps every stderr line from a native executable in a
 # NativeCommandError, and with $ErrorActionPreference = 'Stop' that terminates
 # the script even when the tool succeeded. windeployqt warning "Cannot find any
-# version of the dxcompiler.dll" -- entirely benign, SpecStudio uses no Direct3D
+# version of the dxcompiler.dll" -- entirely benign, AlignThree uses no Direct3D
 # -- was enough to kill packaging after a clean build. Exit code is the only
 # trustworthy signal here.
 function Invoke-Native {
@@ -114,15 +114,15 @@ finally { $ErrorActionPreference = $prev }
 if ($LASTEXITCODE -ne 0) { $version = $null }
 
 if (-not $version) {
-    $m = Select-String -Path (Join-Path $repo 'CMakeLists.txt') -Pattern 'project\(SpecStudio VERSION ([0-9.]+)'
+    $m = Select-String -Path (Join-Path $repo 'CMakeLists.txt') -Pattern 'project\(AlignThree VERSION ([0-9.]+)'
     $version = if ($m) { $m.Matches[0].Groups[1].Value } else { '0.0.0' }
 }
 $version = "$version".Trim().TrimStart('v')
-Write-Host "SpecStudio $version ($BuildType)" -ForegroundColor Cyan
+Write-Host "AlignThree $version ($BuildType)" -ForegroundColor Cyan
 
 $buildDir = Join-Path $repo 'build'
 $distRoot = Join-Path $repo 'dist'
-$stage    = Join-Path $distRoot "SpecStudio-$version-windows-x64"
+$stage    = Join-Path $distRoot "AlignThree-$version-windows-x64"
 
 # A function rather than inline code, because packaging has to run either at the
 # end of a full run or on its own under -PackageOnly. One definition means the
@@ -142,7 +142,7 @@ function Invoke-Package {
         Write-Host 'Building installer...'
         Invoke-Native $iscc @("/DAppVersion=$version", "/DStageDir=$stage",
                               "/DOutDir=$distRoot",
-                              (Join-Path $PSScriptRoot 'specstudio.iss')) -What 'Inno Setup'
+                              (Join-Path $PSScriptRoot 'alignthree.iss')) -What 'Inno Setup'
     } else {
         Write-Host 'Inno Setup not found - skipping installer, zip only.' -ForegroundColor Yellow
         Write-Host '  Get it from https://jrsoftware.org/isdl.php' -ForegroundColor Yellow
@@ -188,14 +188,14 @@ if ($PackageOnly) {
     Invoke-Package
     Write-ArtifactSummary
     Write-Host ''
-    Write-Host "Now sign the installer: .\scripts\sign_windows.ps1 dist\SpecStudio-$version-setup.exe" -ForegroundColor Yellow
+    Write-Host "Now sign the installer: .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe" -ForegroundColor Yellow
     exit 0
 }
 
 # ---- build -------------------------------------------------------------------
 if (-not $SkipBuild) {
-    # SpecStudio.exe cannot be relinked while it is running.
-    Get-Process SpecStudio -ErrorAction SilentlyContinue | Stop-Process -Force
+    # AlignThree.exe cannot be relinked while it is running.
+    Get-Process AlignThree -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds 500
 
     Write-Host 'Configuring...'
@@ -208,12 +208,12 @@ if (-not $SkipBuild) {
 }
 
 # ---- stage -------------------------------------------------------------------
-# All three executables go in one folder: SpecStudio finds the converter and the
+# All three executables go in one folder: AlignThree finds the converter and the
 # askpass helper through applicationDirPath(), so the layout is load-bearing.
 $binaries = @(
-    @{ Src = "$buildDir\src\$BuildType\SpecStudio.exe";                 Name = 'SpecStudio.exe' },
+    @{ Src = "$buildDir\src\$BuildType\AlignThree.exe";                 Name = 'AlignThree.exe' },
     @{ Src = "$buildDir\converter\$BuildType\SpecTableConverter.exe";   Name = 'SpecTableConverter.exe' },
-    @{ Src = "$buildDir\src\$BuildType\SpecStudioAskPass.exe";          Name = 'SpecStudioAskPass.exe' }
+    @{ Src = "$buildDir\src\$BuildType\AlignThreeAskPass.exe";          Name = 'AlignThreeAskPass.exe' }
 )
 foreach ($b in $binaries) { Need-Path $b.Src "$($b.Name) (build it first)" | Out-Null }
 
@@ -229,13 +229,13 @@ foreach ($b in $binaries) { Copy-Item $b.Src (Join-Path $stage $b.Name) }
 Write-Host 'Deploying Qt runtime...'
 $deployArgs = @(
     '--release'
-    '--no-translations'      # SpecStudio ships no .qm files
+    '--no-translations'      # AlignThree ships no .qm files
     '--no-system-d3d-compiler'
     '--no-opengl-sw'
-    (Join-Path $stage 'SpecStudio.exe')
+    (Join-Path $stage 'AlignThree.exe')
 )
 if ($BuildType -ne 'Release') { $deployArgs[0] = '--debug' }
-Invoke-Native $windeployqt $deployArgs -What 'windeployqt (SpecStudio)'
+Invoke-Native $windeployqt $deployArgs -What 'windeployqt (AlignThree)'
 
 # The converter is a separate Qt Core process; make sure its dependencies are
 # in too. It needs no plugins, so this only tops up DLLs.
@@ -244,7 +244,7 @@ Invoke-Native $windeployqt @('--release', '--no-translations', '--no-plugins',
                            -What 'windeployqt (converter)'
 
 # Named explicitly and checked, not copied with -ErrorAction SilentlyContinue:
-# this used to reference 'SpecStudio User Guide.md', and when that file was
+# this used to reference 'AlignThree User Guide.md', and when that file was
 # renamed the copy failed in silence and the distribution shipped without a
 # guide. A missing document should stop the build, not disappear from it.
 foreach ($doc in @('README.md', 'Getting Started.md', 'User Guide.md',
@@ -261,15 +261,15 @@ foreach ($doc in @('README.md', 'Getting Started.md', 'User Guide.md',
 # is allowed but fragile, and the installer below pulls it in properly. Say so
 # rather than let a portable-zip user hit a missing-DLL dialog.
 @"
-SpecStudio $version
+AlignThree $version
 
-Run SpecStudio.exe. Everything it needs is in this folder: the Qt runtime, the
+Run AlignThree.exe. Everything it needs is in this folder: the Qt runtime, the
 code generator (SpecTableConverter.exe) and the git credential helper
-(SpecStudioAskPass.exe). Keep them together -- SpecStudio looks for the other
+(AlignThreeAskPass.exe). Keep them together -- AlignThree looks for the other
 two beside itself.
 
 Requires the Microsoft Visual C++ 2015-2022 Redistributable (x64), which most
-machines already have. If SpecStudio.exe will not start, install it from
+machines already have. If AlignThree.exe will not start, install it from
 https://aka.ms/vs/17/release/vc_redist.x64.exe
 
 The language toolchains needed to build generated tests (JDK, .NET, Go, Rust,
@@ -286,9 +286,9 @@ if ($StageOnly) {
     # The staged folder is named explicitly rather than relying on the no-argument
     # form, which would also sign a stale installer left over in dist\ from an
     # earlier run -- wasted PIN prompts on a file that step 2 then overwrites.
-    Write-Host "  1. .\scripts\sign_windows.ps1 dist\SpecStudio-$version-windows-x64\*.exe"
+    Write-Host "  1. .\scripts\sign_windows.ps1 dist\AlignThree-$version-windows-x64\*.exe"
     Write-Host '  2. .\scripts\package_windows.ps1 -PackageOnly'
-    Write-Host "  3. .\scripts\sign_windows.ps1 dist\SpecStudio-$version-setup.exe"
+    Write-Host "  3. .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe"
     exit 0
 }
 
@@ -304,7 +304,7 @@ Write-ArtifactSummary
 Write-Host ''
 if ($stagedWasSigned) {
     Write-Host 'The zip and installer contain signed executables.' -ForegroundColor Green
-    Write-Host "Still to do: .\scripts\sign_windows.ps1 dist\SpecStudio-$version-setup.exe" -ForegroundColor Yellow
+    Write-Host "Still to do: .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe" -ForegroundColor Yellow
 } else {
     Write-Host 'Unsigned. To sign: .\scripts\sign_windows.ps1' -ForegroundColor Yellow
     Write-Host 'For a release, use -StageOnly / -PackageOnly so the signatures end up' -ForegroundColor Yellow

@@ -12,7 +12,7 @@ class GitClient : public QObject
 public:
     explicit GitClient(const QString& repoPath, QObject* parent = nullptr);
 
-    // Credentials used to authenticate over HTTPS via the SpecStudioAskPass
+    // Credentials used to authenticate over HTTPS via the AlignThreeAskPass
     // GIT_ASKPASS helper (see runGit()) — never written to the remote URL or
     // .git/config. Safe to call again whenever settings change; picked up by
     // the next git invocation.
