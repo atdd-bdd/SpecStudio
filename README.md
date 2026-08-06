@@ -7,11 +7,11 @@ tests in nine languages.
 
 You write a `.spectable` file describing what the software should do — the
 domain objects, the business rules, the scenarios, each illustrated by a table
-of examples. AlignThree generates the test code and the glue that connects
+of examples. AlignThree generates the test code and the templates for the glue code that connects
 those tests to your production classes, for Java, C#, Python, Go, Rust, Swift,
 JavaScript, TypeScript and C++.
 
-The specification is the source of truth. The generated tests are disposable.
+The specification is the source of truth. The tests are generated from it. 
 
 ---
 
@@ -40,7 +40,7 @@ everything else possible — type checking, generated conversion, cross-file
 analysis, and a spec that reads in the domain's own vocabulary.
 
 **Generation, not binding.** The types you declared become real classes in your
-language, and each step becomes a real method. Wiring is done by the generator,
+language, and each step becomes a test method. Wiring is done by the generator,
 at build time, where mistakes are compile errors rather than surprises at 3am.
 
 ## Why it is useful
@@ -55,11 +55,12 @@ at build time, where mistakes are compile errors rather than surprises at 3am.
 - **You cannot silently skip a step.** Every generated glue stub ends in a
   failure, so an unimplemented step is red, never a false green.
 - **Your code is never overwritten.** Glue methods are created once and only
-  ever appended to. Production classes are written only when the type does not
-  already exist anywhere in the folder.
+  ever appended to. The developer inserts calls to the appropriate production code.
+  Production classes are written only when the type does not
+  already exist anywhere in the folder.  They can be used as the real production classes with changes as needed.
 - **The examples stay readable.** Simulate Scenario expands a scenario the way
   it will actually run, with `Background` folded in and `=Define` references
-  resolved. Run Examples type-checks a table before you generate anything.
+  resolved. 
 
 ---
 
@@ -83,7 +84,7 @@ one row per case, expectations sitting beside their inputs.
 
 Cucumber's **Gherkin** (2008) contributed `Given` / `When` / `Then`: a shape for
 describing behaviour over time that non-programmers can read and, more
-importantly, argue with. Setup, action, consequence, in that order.
+importantly, collaborate on. Setup, action, consequence, in that order.
 
 SpecTable keeps the keywords and the discipline. `Scenario`, `Background`,
 `Given`/`When`/`Then`/`And` mean what they mean in Gherkin, and a scenario reads
@@ -96,9 +97,9 @@ Eric Evans' **Domain-Driven Design** (2003) supplied the model. `Entity`,
 deliberately: the specification is where the ubiquitous language is written
 down, and the generated production stubs carry those names into the code.
 
-This is also why glue contains no business logic. Glue drives production
+The glue contains no business logic. Glue drives production
 objects and compares results; the calculation belongs on the object that owns
-the data. Glue that computes its own answers is a test agreeing with itself.
+the data. 
 
 ---
 
@@ -151,7 +152,6 @@ can read a `.feature` file aloud in a meeting. SpecTable's tables ask a little
 more of the reader in exchange for being checkable — a real trade, and the wrong
 one if your audience will not read a table.
 
-AlignThree also edits `.feature` and `.featurex` files, so the two can coexist.
 
 ---
 
@@ -250,3 +250,4 @@ converter/        SpectableParser and one generator per target language
 - [User Guide.md](User%20Guide.md) — using the IDE
 - [spectable syntax v3.3a.md](spectable%20syntax%20v3.3a.md) — the language
 - [Building Distributions.md](Building%20Distributions.md) — packaging and signing
+    
