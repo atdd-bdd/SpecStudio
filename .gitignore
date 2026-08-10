@@ -21,3 +21,8 @@ n.txt
 dist/
 build-linux/
 build-mac/
+
+# The alignthree.com website: generator, templates, stylesheet and the pages it
+# produces. The pages are uploaded by FTP rather than committed, and the site is
+# kept out of the product repository entirely.
+website/
