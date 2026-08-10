@@ -239,8 +239,7 @@ So stage and package separately, signing in between:
 ```powershell
 .\scripts\package_windows.ps1 -StageOnly      # build + stage, no zip/installer
 .\scripts\sign_windows.ps1                    # sign the staged .exe files
-.\scripts\package_windows.ps1 -PackageOnly    # zip + installer from signed files
-.\scripts\sign_windows.ps1 dist\AlignThree-0.9.0-setup.exe
+.\scripts\package_windows.ps1 -PackageOnly    # zip + installer, both signed
 ```
 
 `-PackageOnly` deliberately does **not** re-stage — re-staging would overwrite
@@ -248,9 +247,60 @@ the executables just signed — and it reports whether what it is about to packa
 is actually signed, so this cannot fail quietly. `-StageOnly` and `-PackageOnly`
 are mutually exclusive.
 
+There is no fourth step signing the installer. `-PackageOnly` signs it during
+the Inno compile, together with the uninstaller stub — see below. Keep the token
+plugged in for it, and expect to be asked for the PIN twice unless SafeNet
+single logon is on.
+
 A plain `.\scripts\package_windows.ps1` still does everything in one pass; it is
 fine for a test build, and it now tells you to use the two-phase flow for a
 release.
+
+### The uninstaller has to be signed at compile time
+
+`unins000.exe` is not built here. Inno generates it on the **user's** machine
+from a stub embedded in the installer, so `sign_windows.ps1` — which only ever
+sees files in `dist\` — can never reach it. It shipped unsigned through 0.9.0,
+and users got a SmartScreen warning while trying to *remove* the program.
+
+Inno's `SignedUninstaller` signs that stub during the compile instead. The
+uninstall data goes to `unins000.dat` rather than being appended to the `.exe`,
+so what lands on disk is byte-for-byte what was signed and the signature holds.
+
+`package_windows.ps1` therefore passes Inno a sign tool whenever one code-signing
+certificate is visible, and Inno signs the stub and the finished installer with
+it. Inno **verifies** each file after signtool exits, so a sign tool that returns
+0 without signing aborts the compile rather than yielding an installer that only
+looks signed.
+
+- `-SkipSigning` builds a deliberately unsigned installer.
+- `-Thumbprint` picks the certificate when more than one is visible; without it,
+  an ambiguous store is reported and signing is skipped rather than guessed.
+- The certificate stays listed in the store for a while after the token is
+  unplugged, so signing can be attempted with no hardware behind it. That fails
+  the compile; the script says so and points at `-SkipSigning`.
+
+### What users still see
+
+A valid signature stops the *Unknown Publisher* elevation prompt. It does **not**
+by itself stop SmartScreen's full-screen *"Windows protected your PC"* panel,
+which is reputation-based: it keys on the file hash, the signing certificate and
+the download URL, and it clears as installs accumulate. EV certificates no longer
+reliably buy instant reputation.
+
+Two things help, neither of them a code change:
+
+- Submit each release to
+  <https://www.microsoft.com/en-us/wdsi/filesubmission> as a software developer.
+  It is free and usually turns around in a few days.
+- **Never change certificates.** Reputation accrues per certificate and resets
+  with a new one — renew rather than re-issue.
+
+Separately, the portable zip trips *Open File – Security Warning* on first run,
+because Windows tags downloaded files and copies the tag to everything extracted
+from a zip. That is not a signing problem and cannot be fixed from this end;
+`Getting Started.md` and the zip's own `README-FIRST.txt` tell users to
+right-click the zip → Properties → **Unblock** before extracting.
 
 ### Windows — Sectigo token
 
@@ -263,10 +313,13 @@ token rather than a `.pfx` file.
 3. `.\scripts\sign_windows.ps1`
 
 It signs every `.exe` in `dist\` — `AlignThree.exe`, `SpecTableConverter.exe`,
-`AlignThreeAskPass.exe` and the installer. All four, not just the launcher:
-AlignThree starts the converter and askpass helper as child processes, and an
-unsigned child undermines the signature on the parent. The installer is signed
-so SmartScreen sees a signed download.
+`AlignThreeAskPass.exe` and any installer already sitting there. All of them, not
+just the launcher: AlignThree starts the converter and askpass helper as child
+processes, and an unsigned child undermines the signature on the parent.
+
+In the two-phase flow you point it at the staged folder and the installer is
+signed later, by the compile — that is the only way to reach the uninstaller
+stub as well.
 
 **DLLs are not signed.** Every DLL that ships came from Qt, not from this build;
 The Qt Company's signature is the accurate provenance, and re-signing another
@@ -416,6 +469,20 @@ random password, and deleted with the runner.
 ## What has and has not been verified
 
 **Windows** is verified end to end, as described above.
+
+**Uninstaller signing is verified at the compile only.** Both branches of
+`alignthree.iss` were compiled against a throwaway stage folder: unsigned (exit
+0, `CompanyName` = `Ken Pugh, Inc.`) and signed with a self-signed probe
+certificate, where Inno ran the sign tool twice — once over `uninst.e32.tmp`,
+once over the setup `.exe` — and its own post-sign verification passed both.
+Inno's `$f` placeholder was checked to be **self-quoting**: wrapping it in
+`$q…$q` yields a doubly quoted path signtool cannot open.
+
+What has *not* been done is a real release: signing with the Sectigo token, then
+installing and confirming `unins000.exe` on disk carries the signature. That
+needs the token, a PIN and an elevation prompt. Do it as part of the next
+release — install, then `Get-AuthenticodeSignature` the installed
+`unins000.exe`.
 
 **Linux and macOS are unverified.** The scripts are syntax-checked (`bash -n`)
 and written carefully, but have never been run — there is no Linux or Mac

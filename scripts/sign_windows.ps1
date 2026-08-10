@@ -58,6 +58,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Signing.ps1')
 
 if ($Thumbprint -and $SubjectName) {
     throw 'Pass -Thumbprint or -SubjectName, not both.'
@@ -118,30 +119,13 @@ function Invoke-SignTool {
 }
 
 # ---- locate signtool ---------------------------------------------------------
-function Find-SignTool {
-    $c = Get-Command signtool -ErrorAction SilentlyContinue
-    if ($c) { return $c.Source }
-    $kits = 'C:\Program Files (x86)\Windows Kits\10\bin'
-    if (Test-Path $kits) {
-        $found = Get-ChildItem $kits -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
-                 Where-Object { $_.FullName -match '\\x64\\' } |
-                 Sort-Object FullName -Descending | Select-Object -First 1
-        if ($found) { return $found.FullName }
-    }
-    throw "signtool.exe not found. Install the Windows SDK (Signing Tools component)."
-}
+# Find-SignTool and Get-SigningCerts live in Signing.ps1, shared with
+# package_windows.ps1, which hands the same tool and certificate to Inno Setup so
+# the uninstaller stub is signed at compile time.
 $script:signtool = Find-SignTool
 Write-Host "signtool: $script:signtool"
 
 # ---- certificates ------------------------------------------------------------
-# The SafeNet client publishes the token's certificate into the current user's
-# personal store while the token is plugged in, so signtool can reach it by
-# thumbprint and the key stays on the hardware.
-function Get-SigningCerts {
-    Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert -ErrorAction SilentlyContinue |
-        Where-Object { $_.NotAfter -gt (Get-Date) }
-}
-
 if ($ListCerts) {
     $certs = Get-SigningCerts
     if (-not $certs) {
@@ -199,6 +183,11 @@ if (-not $VerifyOnly -and -not $Thumbprint -and -not $SubjectName) {
 # SpecTableConverter and AlignThreeAskPass as child processes, and an unsigned
 # child undermines the signature on the parent. The installer is signed too, so
 # SmartScreen sees a signed download.
+#
+# What this script cannot sign is the uninstaller: unins000.exe does not exist
+# until Inno builds it on the user's machine. Only the compile can reach that
+# stub, which is why package_windows.ps1 now signs the installer itself rather
+# than leaving the job here.
 #
 # DLLs are deliberately not signed. Every one that ships came from Qt, not from
 # this build -- the Qt Company's own signature is the accurate provenance, and

@@ -10,12 +10,30 @@
 # (SpecTableConverter and AlignThreeAskPass). A machine with no Qt and no
 # Visual Studio can run the result -- except for the C++ runtime, see below.
 #
-# Nothing here is signed. Signing needs the Sectigo token plugged in and a PIN,
-# so it is a separate, deliberate step: scripts\sign_windows.ps1.
+# The executables this script produces are not signed. Signing needs the Sectigo
+# token plugged in and a PIN, so it is a separate, deliberate step:
+# scripts\sign_windows.ps1.
+#
+# The one exception is the installer, and it has to be -- see "the uninstaller"
+# below. If a code-signing certificate is visible when the installer is built,
+# Inno Setup signs it and the embedded uninstaller stub during the compile.
+# Pass -SkipSigning to build a deliberately unsigned installer.
 #
 #   .\scripts\package_windows.ps1
 #   .\scripts\package_windows.ps1 -QtDir C:\Qt\6.10.0\msvc2022_64 -BuildType Release
 #   .\scripts\package_windows.ps1 -SkipBuild        # package what is already built
+#   .\scripts\package_windows.ps1 -SkipSigning      # never touch the token
+#
+# ---- the uninstaller ---------------------------------------------------------
+#
+# unins000.exe is not built here. Inno generates it on the *user's* machine from
+# a stub embedded in the installer, so sign_windows.ps1 -- which only ever sees
+# files in dist\ -- cannot reach it. It shipped unsigned, and users got a
+# SmartScreen warning while trying to remove the program.
+#
+# Inno's SignedUninstaller signs that stub at compile time instead. The uninstall
+# data is written to unins000.dat rather than appended to the .exe, so the file
+# laid down on disk is byte-for-byte what was signed.
 #
 # ---- signing a release needs two phases --------------------------------------
 #
@@ -29,24 +47,34 @@
 #   .\scripts\package_windows.ps1 -StageOnly        # build + stage, no zip/installer
 #   .\scripts\sign_windows.ps1                      # sign the staged .exe files
 #   .\scripts\package_windows.ps1 -PackageOnly      # zip + installer from signed files
-#   .\scripts\sign_windows.ps1 dist\AlignThree-<version>-setup.exe
 #
 # -PackageOnly deliberately does not re-stage: re-staging would overwrite the
 # executables that were just signed. It reports whether what it is about to
 # package is signed.
+#
+# There is no fourth step signing the installer: the -PackageOnly compile signs
+# it and the uninstaller stub itself. Expect the token to be asked for during
+# that step, possibly twice -- once per file -- unless SafeNet single logon is
+# enabled. If signing was skipped, the script says so and tells you to run
+# sign_windows.ps1 over the setup .exe, which still leaves the uninstaller
+# unsigned.
 
 [CmdletBinding()]
 param(
     [string] $QtDir     = 'C:\Qt\6.10.0\msvc2022_64',
     [string] $BuildType = 'Release',
     [string] $CMake     = 'C:\Qt\Tools\CMake_64\bin\cmake.exe',
+    [string] $Thumbprint,
+    [string] $TimestampUrl = 'http://timestamp.sectigo.com',
     [switch] $SkipBuild,
     [switch] $StageOnly,
-    [switch] $PackageOnly
+    [switch] $PackageOnly,
+    [switch] $SkipSigning
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot 'Signing.ps1')
 
 if ($StageOnly -and $PackageOnly) {
     throw '-StageOnly and -PackageOnly are the two halves of one release; pass one or neither.'
@@ -124,6 +152,68 @@ $buildDir = Join-Path $repo 'build'
 $distRoot = Join-Path $repo 'dist'
 $stage    = Join-Path $distRoot "AlignThree-$version-windows-x64"
 
+# Set by Get-InstallerSigningArgs. Drives the closing advice: whether the setup
+# .exe still needs a sign_windows.ps1 pass, or came out of the compile signed.
+$script:installerSigned = $false
+
+# The extra ISCC arguments that turn on signing, or an empty array.
+#
+# Inno needs both halves together: /DSignUninstaller makes the script ask for a
+# sign tool, /Ssigntool=<command> supplies it. Naming one without the other
+# fails the compile.
+#
+# Returns nothing rather than throwing when the token is absent. Packaging an
+# unsigned test installer is legitimate, and the caller reports the outcome
+# either way -- what must not happen is silence.
+function Get-InstallerSigningArgs {
+    if ($SkipSigning) {
+        Write-Host 'Installer signing skipped (-SkipSigning).' -ForegroundColor Yellow
+        return @()
+    }
+
+    $tool = Find-SignTool -Quiet
+    if (-not $tool) {
+        Write-Host 'signtool.exe not found - the installer and uninstaller will be unsigned.' -ForegroundColor Yellow
+        Write-Host '  Install the Windows SDK (Signing Tools component).' -ForegroundColor Yellow
+        return @()
+    }
+
+    $thumb = $Thumbprint
+    if ($thumb) {
+        # Same normalisation as sign_windows.ps1: a hash copied out of the
+        # Windows certificate dialog carries an invisible U+200E mark and spaces
+        # between byte pairs, and signtool rejects it as "Invalid SHA1 hash
+        # format" without saying why.
+        $thumb = ($thumb -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+        if ($thumb -notmatch '^[0-9A-F]{40}$') {
+            throw "-Thumbprint must be a certificate's 40-digit SHA1 hash; got '$Thumbprint'."
+        }
+    } else {
+        $certs = @(Get-SigningCerts)
+        if ($certs.Count -eq 0) {
+            Write-Host 'No code-signing certificate visible - the installer and uninstaller will be unsigned.' -ForegroundColor Yellow
+            Write-Host '  Plug in the Sectigo token and start SafeNet Authentication Client.' -ForegroundColor Yellow
+            return @()
+        }
+        if ($certs.Count -gt 1) {
+            Write-Host 'More than one code-signing certificate is available:' -ForegroundColor Yellow
+            $certs | ForEach-Object { "  {0}  {1}" -f $_.Thumbprint, $_.Subject }
+            Write-Host 'Pass -Thumbprint to choose one. Unsigned installer and uninstaller for now.' -ForegroundColor Yellow
+            return @()
+        }
+        $thumb = $certs[0].Thumbprint
+        Write-Host "Certificate: $($certs[0].Subject)"
+    }
+
+    # $f is Inno's placeholder for the file being signed, and Inno quotes the
+    # substitution itself -- wrapping it in $q$q here yields a doubly quoted path
+    # that signtool cannot open. Single-quoted so PowerShell leaves it alone.
+    $command = "$tool sign /sha1 $thumb /fd sha256 /tr $TimestampUrl /td sha256 " + '$f'
+
+    $script:installerSigned = $true
+    return @('/DSignUninstaller', "/Ssigntool=$command")
+}
+
 # A function rather than inline code, because packaging has to run either at the
 # end of a full run or on its own under -PackageOnly. One definition means the
 # two phases cannot drift apart.
@@ -139,10 +229,34 @@ function Invoke-Package {
         if ($c) { $iscc = $c.Source }
     }
     if (Test-Path $iscc) {
-        Write-Host 'Building installer...'
-        Invoke-Native $iscc @("/DAppVersion=$version", "/DStageDir=$stage",
-                              "/DOutDir=$distRoot",
-                              (Join-Path $PSScriptRoot 'alignthree.iss')) -What 'Inno Setup'
+        $signArgs = @(Get-InstallerSigningArgs)
+        if ($script:installerSigned) {
+            Write-Host 'Building installer (signed - enter the token PIN if prompted)...'
+        } else {
+            Write-Host 'Building installer...'
+        }
+        # Inno verifies the signature after the sign tool exits, so a tool that
+        # returns 0 without signing aborts the compile rather than producing an
+        # installer that only looks signed.
+        #
+        # The certificate stays visible in the store for a while after the token
+        # is unplugged, so signing can be attempted with no hardware to sign
+        # with. That surfaces as a bare Inno exit code; say what to do about it.
+        try {
+            Invoke-Native $iscc (@("/DAppVersion=$version", "/DStageDir=$stage",
+                                   "/DOutDir=$distRoot") + $signArgs +
+                                 @((Join-Path $PSScriptRoot 'alignthree.iss'))) -What 'Inno Setup'
+        } catch {
+            if ($script:installerSigned) {
+                Write-Host ''
+                Write-Host 'The installer compile failed while signing was enabled.' -ForegroundColor Red
+                Write-Host 'If the Sectigo token is not plugged in, or SafeNet Authentication' -ForegroundColor Yellow
+                Write-Host 'Client is not running, signtool cannot reach the private key even' -ForegroundColor Yellow
+                Write-Host 'though the certificate is still listed in the store.' -ForegroundColor Yellow
+                Write-Host 'Plug it in, or re-run with -SkipSigning to build unsigned.' -ForegroundColor Yellow
+            }
+            throw
+        }
     } else {
         Write-Host 'Inno Setup not found - skipping installer, zip only.' -ForegroundColor Yellow
         Write-Host '  Get it from https://jrsoftware.org/isdl.php' -ForegroundColor Yellow
@@ -188,7 +302,14 @@ if ($PackageOnly) {
     Invoke-Package
     Write-ArtifactSummary
     Write-Host ''
-    Write-Host "Now sign the installer: .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe" -ForegroundColor Yellow
+    if ($script:installerSigned) {
+        Write-Host 'The installer and its uninstaller stub were signed during the compile.' -ForegroundColor Green
+        Write-Host 'Nothing further to sign.' -ForegroundColor Green
+    } else {
+        Write-Host "Now sign the installer: .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe" -ForegroundColor Yellow
+        Write-Host 'That leaves unins000.exe unsigned - users will see SmartScreen when' -ForegroundColor Yellow
+        Write-Host 'they uninstall. Only a signed compile can reach the uninstaller stub.' -ForegroundColor Yellow
+    }
     exit 0
 }
 
@@ -268,6 +389,12 @@ code generator (SpecTableConverter.exe) and the git credential helper
 (AlignThreeAskPass.exe). Keep them together -- AlignThree looks for the other
 two beside itself.
 
+If Windows warned you when you started AlignThree.exe, that is the download tag
+Windows copies onto everything extracted from a zip, not a problem with the
+program. To avoid it next time, unblock the zip before extracting: right-click
+it, Properties, tick Unblock, OK. AlignThree is signed by Ken Pugh, Inc. -- the
+publisher shown behind "More info" is what to check.
+
 Requires the Microsoft Visual C++ 2015-2022 Redistributable (x64), which most
 machines already have. If AlignThree.exe will not start, install it from
 https://aka.ms/vs/17/release/vc_redist.x64.exe
@@ -288,7 +415,9 @@ if ($StageOnly) {
     # earlier run -- wasted PIN prompts on a file that step 2 then overwrites.
     Write-Host "  1. .\scripts\sign_windows.ps1 dist\AlignThree-$version-windows-x64\*.exe"
     Write-Host '  2. .\scripts\package_windows.ps1 -PackageOnly'
-    Write-Host "  3. .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe"
+    Write-Host ''
+    Write-Host '  Step 2 signs the installer and the uninstaller stub itself, so there is' -ForegroundColor DarkGray
+    Write-Host '  no third step. Keep the token plugged in for it.' -ForegroundColor DarkGray
     exit 0
 }
 
@@ -304,7 +433,11 @@ Write-ArtifactSummary
 Write-Host ''
 if ($stagedWasSigned) {
     Write-Host 'The zip and installer contain signed executables.' -ForegroundColor Green
-    Write-Host "Still to do: .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe" -ForegroundColor Yellow
+    if ($script:installerSigned) {
+        Write-Host 'The installer and its uninstaller stub are signed too.' -ForegroundColor Green
+    } else {
+        Write-Host "Still to do: .\scripts\sign_windows.ps1 dist\AlignThree-$version-setup.exe" -ForegroundColor Yellow
+    }
 } else {
     Write-Host 'Unsigned. To sign: .\scripts\sign_windows.ps1' -ForegroundColor Yellow
     Write-Host 'For a release, use -StageOnly / -PackageOnly so the signatures end up' -ForegroundColor Yellow
