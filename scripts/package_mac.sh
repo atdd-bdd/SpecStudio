@@ -89,14 +89,14 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
     fi
 
     echo "Configuring..."
-    cmake -S "$REPO" -B "$BUILD_DIR" "${GEN[@]}" "${ARCH_ARGS[@]}" \
+    cmake -S "$REPO" -B "$BUILD_DIR" ${GEN[@]+"${GEN[@]}"} ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} \
         -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
         -DQt6_DIR="$QT_DIR/lib/cmake/Qt6"
     echo "Building..."
     cmake --build "$BUILD_DIR" --parallel
 fi
 
-APP="$(find "$BUILD_DIR" -maxdepth 4 -name 'AlignThree.app' -type d | head -1)"
+APP="$(find "$BUILD_DIR" -maxdepth 4 -name 'AlignThree.app' -type d -not -path "$STAGING/*" | head -1)"
 [[ -n "$APP" ]] || { echo "ERROR: AlignThree.app not found under $BUILD_DIR" >&2; exit 1; }
 echo "Bundle: $APP"
 
@@ -128,6 +128,18 @@ echo "Running macdeployqt..."
     -executable="$APP/Contents/MacOS/SpecTableConverter" \
     -executable="$APP/Contents/MacOS/AlignThreeAskPass" \
     -verbose=1
+
+# ---- re-sign -------------------------------------------------------------------
+# macdeployqt rewrites load commands (install_name_tool) in every framework and
+# dylib it touches, which strips whatever ad-hoc signature the linker put there.
+# On Apple Silicon the kernel refuses to load a Mach-O with an invalid signature
+# -- not a Gatekeeper warning, a hard SIGKILL at launch -- so the bundle is
+# unusable, even locally, until everything is re-signed. This is ad-hoc (no
+# certificate, no notarization): enough to run, not enough to satisfy Gatekeeper
+# on a machine that didn't build it. scripts/notarize_mac.sh replaces this with a
+# real Developer ID signature.
+echo "Re-signing after macdeployqt (its rewrites invalidate the linker's signatures)..."
+codesign --force --deep --sign - "$APP"
 
 # ---- sanity check ------------------------------------------------------------
 # A bundle that still points at the build machine's Qt looks fine here and fails

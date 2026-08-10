@@ -163,3 +163,18 @@ endif()
 target_compile_definitions(AlignThree PRIVATE
     SPECSTUDIO_VERSION="${PROJECT_VERSION}"
 )
+
+# AlignThree finds SpecTableConverter and AlignThreeAskPass via
+# applicationDirPath() (see src/ToolPath.h), which on macOS resolves to
+# AlignThree.app/Contents/MacOS. TARGET_FILE_DIR:AlignThree is that same
+# directory on every platform (on Windows/Linux it's just the folder holding
+# the .exe/binary), so one copy step covers all three OSes. This only wires up
+# local/dev builds; scripts/package_mac.sh, package_linux.sh and
+# package_windows.ps1 do the equivalent copy for distributed bundles.
+add_custom_command(TARGET AlignThree POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:SpecTableConverter>
+            $<TARGET_FILE:AlignThreeAskPass>
+            $<TARGET_FILE_DIR:AlignThree>
+    COMMENT "Copying SpecTableConverter and AlignThreeAskPass next to AlignThree"
+)
