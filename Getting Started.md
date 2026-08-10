@@ -11,6 +11,29 @@ changes what you write.
 
 ---
 
+## 0. Installing: unblock the download first
+
+If you downloaded the **zip**, unblock it *before* you extract it:
+
+> Right-click `AlignThree-<version>-windows-x64.zip` → **Properties** → tick
+> **Unblock** at the bottom → **OK**. Then extract.
+
+Windows tags every file you download from the internet, and the tag is copied to
+everything extracted from a zip. Miss this and the first run of `AlignThree.exe`
+brings up a security warning; unblocking afterwards means doing it file by file.
+
+The **installer** needs no unblocking. It will ask for administrator permission,
+which is normal — it installs into `Program Files`.
+
+Either way you may see a **"Windows protected your PC"** panel from SmartScreen.
+AlignThree is signed by *Ken Pugh, Inc.*, and clicking **More info** shows that
+publisher; **Run anyway** then proceeds. SmartScreen shows this until enough
+people have installed a given release, so it fades with each version rather than
+indicating anything is wrong. Check the publisher before you click through — on
+this or on anything else.
+
+---
+
 ## 1. Sharing: pick the shared file system
 
 The first thing AlignThree asks is how your team will share the work — a

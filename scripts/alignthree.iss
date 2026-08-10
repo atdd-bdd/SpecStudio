@@ -15,7 +15,10 @@
 #endif
 
 #define AppName    "AlignThree"
-#define AppPublisher "Pugh-Killeen Associates"
+; Must match the CN on the signing certificate. UAC shows the certificate
+; subject, the wizard shows this, and two different company names either side of
+; the elevation prompt is exactly the sort of thing that makes a user cancel.
+#define AppPublisher "Ken Pugh, Inc."
 #define AppExe     "AlignThree.exe"
 
 [Setup]
@@ -37,6 +40,28 @@ ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayIcon={app}\{#AppExe}
 DisableProgramGroupPage=yes
+
+; Signing, only when the caller supplied a sign tool.
+;
+; unins000.exe is not built here -- Inno generates it on the *user's* machine
+; from a stub embedded in the installer, so sign_windows.ps1 can never reach it.
+; The result was an unsigned uninstaller, and SmartScreen warning people while
+; they were trying to remove the program. SignedUninstaller signs that stub at
+; compile time instead; the uninstall data goes to unins000.dat, so the .exe laid
+; down on disk is a byte-for-byte copy of what was signed and the signature
+; survives.
+;
+; The same SignTool also signs the finished installer, so a compile with signing
+; enabled needs no separate sign_windows.ps1 pass over the setup .exe.
+;
+; Guarded by a define because a compile with SignTool named but not configured
+; fails outright, and building an unsigned test installer -- no token, no PIN --
+; has to keep working. package_windows.ps1 passes both /DSignUninstaller and
+; /Ssigntool=<command> together or neither.
+#ifdef SignUninstaller
+SignTool=signtool
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
