@@ -42,6 +42,43 @@ Altered so that it is separated into Issues and Future Features
   anywhere.
 
 
+### BUG: an unresolvable field type warns but still emits uncompilable code.
+  When an Attributes/Entity field names a type the generator cannot convert, the
+  converter prints "Unknown type 'X' for field 'y' -- no parse conversion
+  available" and then generates the *String -> *Typed class anyway, declaring the
+  field as that type and assigning a String to it. The output does not compile,
+  so the warning is really an error that lets the build proceed.
+
+  Two ways to reach it, both hit while implementing bowling.spectable:
+
+  1. A DomainTerm used as a field type. checkAttributeFieldTypes in
+     SpecTableAnalyzer.cpp explicitly accepts a DomainTerm as a valid field type,
+     so Analyze is silent -- but the generator has no conversion for one. The
+     spec had "DomainTerm Roll : Pins" and "| Roll1 | Roll | TBR |", which is
+     exactly what the analyzer says is legal.
+  2. A type that is never declared at all (the same spec's "Score").
+
+  What Java produced for case 1:
+      public Roll roll1;                       // no such class anywhere
+      this.roll1 = s.roll1;                    // String assigned to Roll
+      Json.asString(Json.require(m, "roll1"), "roll1")   // String -> Roll param
+
+  The analyzer and the generator disagree about what a legal field type is, and
+  the generator loses. Pick one:
+    - resolve a DomainTerm to its underlying DataType when emitting conversions
+      ("DomainTerm Roll : Pins" already says Roll is a Pins), and make a
+      genuinely unresolvable type an ERROR that stops generation; or
+    - make the analyzer reject a DomainTerm as a field type, so the failure is
+      reported where the author can act on it.
+
+  The first is better -- it makes the domain vocabulary usable in Attributes
+  tables, which is presumably why the analyzer allows it.
+
+  Verified in Java only. The "no parse conversion available" warning comes from
+  shared type resolution, so check whether the other eight generators emit the
+  same broken shape or merely differ in how they fail.
+
+
 ### Make up a project with all the feature files from GherkinExecutor and try
   it out as a migration exercise.
 
