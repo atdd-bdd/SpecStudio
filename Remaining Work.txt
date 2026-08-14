@@ -46,6 +46,33 @@ Altered so that it is separated into Issues and Future Features
   it out as a migration exercise.
 
 
+### Prove the signed uninstaller with a real token-signed install. Uninstaller
+  signing is verified at the COMPILE only: alignthree.iss was compiled both
+  ways against a throwaway stage folder, and with signing on Inno ran the sign
+  tool twice -- once over uninst.e32.tmp, once over the setup .exe -- and its
+  own post-sign verification passed both. What has not been done is the thing
+  the user actually sees.
+
+  Do it as part of the next release, after the two-phase flow:
+    .\scripts\package_windows.ps1 -StageOnly
+    .\scripts\sign_windows.ps1
+    .\scripts\package_windows.ps1 -PackageOnly     # signs installer + stub
+  then install and check the file that lands on disk:
+    Get-AuthenticodeSignature "C:\Program Files\AlignThree\unins000.exe"
+  Expect Status=Valid with the Sectigo EV certificate (D357408F...). Then
+  uninstall and confirm it removes cleanly.
+
+  Needs the token, a PIN and an elevation prompt, so it cannot be scripted
+  unattended -- that is why it is still open. The claim being tested is that
+  Inno writes uninstall data to unins000.dat rather than appending it to the
+  .exe, leaving the on-disk file byte-for-byte what was signed. If that turns
+  out to be wrong the signature will be invalid and SignedUninstaller is not
+  the fix it appears to be.
+
+  See "What has and has not been verified" in Building Distributions.md, which
+  says the same thing and must be updated when this is done.
+
+
 
 
 
@@ -74,7 +101,25 @@ Altered so that it is separated into Issues and Future Features
 
   *** Will hold for now.   
 
-## Future Enhancements: 
+## Future Enhancements:
+
+### Accept a solution path on the command line. main.cpp ignores argv entirely --
+  it builds QApplication, applies the theme, then shows MainWindow with no path
+  handling -- so AlignThree.exe always opens empty and the only way into a
+  solution is File > Open Solution or the Recent Solutions list.
+
+  Read argv[1], hand it to MainWindow, and let AppController::loadSolution()
+  take it from there; ignore a missing or unreadable path and open empty as now
+  rather than failing to start. Small change, three payoffs:
+    - AlignThree.exe "C:\path\To\X.sspec" works from a shell or a shortcut.
+    - Double-clicking a .sspec can open it, once the installer registers the
+      file association (scripts/alignthree.iss has no [Registry] section yet,
+      so that is a second, separate piece of work).
+    - Scripts and agents can launch straight into a solution instead of asking
+      someone to click through the GUI.
+
+  Worth deciding at the same time whether a second argument, or a --file switch,
+  should also open a named .spectable within that solution.
 
 ### Have a tab / untab (indent/outdent) command for the file; decide whether
   there should also be a whole-file reformat/indent-normalize command. Not
