@@ -1,0 +1,209 @@
+Specification AddressCorrection
+Description Standardizes street addresses through the address correction API
+
+# An illustration of testing a business-defined API. There are no production
+# classes: the API is the thing under test. The glue turns each table into JSON
+# with the generated toJSON(), calls the service, turns the response back with
+# the generated fromJsonValue(), and compares -- the same three jobs as
+# API_glue.java in SpecStudioVariousTests, over the same RestCall helper.
+#
+# The URL is built from three parts: the base Page below, the scenario's Page,
+# and its Parameter.
+#
+# This is what an API specification looks like when every expected value is a
+# real one. "1 Penny LN" becomes "1 Penny Lane" or the service is wrong, and the
+# table says which. Nothing here is a type placeholder.
+
+Background
+Given base Page is : String
+| https://api.example.com/address |
+
+# ============================================================
+# The abbreviation the caller typed is expanded
+# ============================================================
+
+Scenario Expand a street suffix
+When sending request : Request Vertical
+| Method | POST     |
+| Page   | correct  |
+| Body   | Submitted |
+And submitted address is : Submitted Vertical
+| Street | 1 Penny LN |
+| City   | Liverpool  |
+| State  | NY         |
+| Zip    | 13088      |
+Then response status is : Status Vertical
+| Code | 200 |
+And response body is : Corrected Vertical
+| Street  | 1 Penny Lane |
+| City    | Liverpool    |
+| State   | NY           |
+| Zip     | 13088        |
+| Quality | Verified     |
+
+# LN -> Lane is the whole point of the call, so it is stated as a literal. A
+# cell reading "string" here would pass whatever the service returned.
+
+# ============================================================
+# Several corrections at once
+# ============================================================
+
+Scenario Expand a directional, a suffix and a unit
+When sending request : Request Vertical
+| Method | POST      |
+| Page   | correct   |
+| Body   | Submitted |
+And submitted address is : Submitted Vertical
+| Street | 100 n main st apt 4b |
+| City   | springfield          |
+| State  | il                   |
+| Zip    | 62701                |
+Then response status is : Status Vertical
+| Code | 200 |
+And response body is : Corrected Vertical
+| Street  | 100 North Main Street Apartment 4B |
+| City    | Springfield                        |
+| State   | IL                                 |
+| Zip     | 62701-1032                         |
+| Quality | Verified                           |
+
+# The Zip gained its +4 from the correction. That is a business rule worth
+# pinning: the caller sent five digits and is entitled to nine back.
+
+# ============================================================
+# Only some fields matter
+# ============================================================
+
+# CompareOnly checks the columns shown and ignores every other field of
+# Corrected. Use it when the scenario is about one rule -- here, that a PO Box
+# is recognised whatever else comes back.
+
+Scenario Recognize a post office box
+When sending request : Request Vertical
+| Method | POST      |
+| Page   | correct   |
+| Body   | Submitted |
+And submitted address is : Submitted Vertical
+| Street | po box 12 |
+| City   | Liverpool |
+| State  | NY        |
+| Zip    | 13088     |
+Then response status is : Status Vertical
+| Code | 200 |
+And response body is : Corrected CompareOnly
+| Street         | Quality  |
+| PO Box 12      | Verified |
+
+# A step takes one modifier, so CompareOnly cannot be written with Vertical.
+# The table is horizontal instead -- which is also how several rows are checked
+# at once.
+
+# ============================================================
+# The address cannot be corrected
+# ============================================================
+
+Scenario Reject an address that does not exist
+When sending request : Request Vertical
+| Method | POST      |
+| Page   | correct   |
+| Body   | Submitted |
+And submitted address is : Submitted Vertical
+| Street | 9999 Nowhere Rd |
+| City   | Liverpool       |
+| State  | NY              |
+| Zip    | 13088           |
+Then response status is : Status Vertical
+| Code | 200 |
+And response body is : Corrected Vertical
+| Street  | ?DNC?      |
+| City    | ?DNC?      |
+| State   | ?DNC?      |
+| Zip     | ?DNC?      |
+| Quality | Unverified |
+
+# A failure to correct is still a 200 -- the call succeeded, the address did
+# not. ?DNC? says the corrected fields are deliberately not checked here rather
+# than forgotten.
+
+# ============================================================
+# Ambiguity returns candidates
+# ============================================================
+
+Scenario Return every candidate for an ambiguous street
+When sending request : Request Vertical
+| Method | POST      |
+| Page   | candidates |
+| Body   | Submitted |
+And submitted address is : Submitted Vertical
+| Street | 1 Penny  |
+| City   | Liverpool |
+| State  | NY        |
+| Zip    | 13088     |
+Then response status is : Status Vertical
+| Code | 200 |
+And response array items match : Corrected CompareOnly
+| Street         |
+| 1 Penny Lane   |
+| 1 Penny Court  |
+
+# Two rows, checked against the array the service returned, on Street alone.
+# Every other field of Corrected is ?DNC?, so adding a field to the response
+# does not break this scenario.
+
+# ============================================================
+# Look up a previous correction by its identifier
+# ============================================================
+
+Scenario Retrieve a stored correction
+When sending request : Request Vertical
+| Method    | GET       |
+| Page      | correction |
+| Parameter | 4471      |
+Then response status is : Status Vertical
+| Code | 200 |
+And response body is : Corrected Vertical
+| Street  | 1 Penny Lane |
+| City    | Liverpool    |
+| State   | NY           |
+| Zip     | 13088        |
+| Quality | Verified     |
+
+Scenario Report an identifier that is not stored
+When sending request : Request Vertical
+| Method    | GET        |
+| Page      | correction |
+| Parameter | 999999     |
+Then response status is : Status Vertical
+| Code | 404 |
+
+Attributes Request
+| Attribute | Type   | Default | Notes                                         |
+| Method    | String |         | GET, POST, PUT, PATCH, DELETE                 |
+| Page      | String |         | Appended to the base Page from the Background |
+| Parameter | String |         | Appended after the Page, such as an id        |
+| Body      | String |         | Name of the attribute set holding the body    |
+
+Attributes Status
+| Attribute | Type    | Default | Notes            |
+| Code      | Integer | 200     | HTTP status code |
+
+Attributes Submitted
+| Attribute | Type   | Default | Notes                       |
+| Street    | String |         | As the caller typed it      |
+| City      | String |         |                             |
+| State     | String |         | Two letters, any case       |
+| Zip       | String |         | Five digits or ZIP+4        |
+
+Attributes Corrected
+| Attribute | Type    | Default | Notes                            |
+| Street    | String  |         | Suffixes and directionals spelled out |
+| City      | String  |         | Title case                       |
+| State     | String  |         | Two upper case letters           |
+| Zip       | String  |         | ZIP+4 where the service knows it |
+| Quality   | Quality |         | Whether the address was found    |
+
+DataType Quality
+Examples: EnumerationValues
+| Value      | Notes                                            |
+| Verified   | The address exists and was standardized          |
+| Unverified | No matching address; the corrected fields are unset |
