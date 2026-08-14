@@ -267,6 +267,134 @@ Define
 
 ## Bigger Language Feature Ideas (not scoped/designed yet) ---
 
+### What Karate has that SpecTable does not, from writing API.spectable against a
+  live service (SpecStudioVariousTests, 2026-08-13). Karate is an API-testing
+  DSL built on Gherkin. The array syntax below was checked against Karate's own
+  reference; the single-object example is from knowledge, so confirm that one
+  before relying on it.
+
+  The headline difference is that Karate collapses the specification and the glue
+  into one file. Everything written for API.spectable -- RestCall, the glue, the
+  generated *String/*Typed classes -- is what Karate ships as its DSL, and for
+  pure API testing it needs no Java at all:
+
+      Scenario: Retrieve a single post
+        Given url 'https://jsonplaceholder.typicode.com'
+        And path 'posts', 1
+        When method get
+        Then status 200
+        And match response == { userId: 1, id: 1, title: 'sunt aut...', body: '#string' }
+
+  Two things there were arrived at independently for API.spectable and are worth
+  keeping: `path` takes segments rather than a joined string (the Page/Parameter
+  split), and `status` is a separate step from `match response` (status and body
+  come from different places).
+
+  Two features worth considering for SpecTable:
+
+  #### Explicit fuzzy matchers instead of bare words in a cell.
+  Karate writes '#string', '#number', '#notnull', '#uuid', '#regex(...)'. The
+  generated API.spectable used bare "string" and "number" for the same purpose,
+  which is indistinguishable from expecting the literal word "string" -- and that
+  ambiguity is exactly what let unverified expectations sit there looking
+  checked. A marked syntax would let the generator emit a type assertion
+  deliberately rather than the glue guessing from the text. See the placeholder
+  section in SpecStudioVariousTests's Remaining Work.txt.
+
+  #### An "each" form for arrays, and a way to address one element.
+  This is really two features, and the second is the one SpecTable cannot express
+  at all. Verified against Karate's own reference rather than from memory:
+
+      # every element, one shape -- covers all 100 posts in one line
+      * match each response == { userId: '#number', id: '#number', title: '#string' }
+
+      # the shape can be named first, which reads like an Attributes block
+      * def Post = { userId: '#number', id: '#number', title: '#string' }
+      * match each response == Post
+
+      # partial: each element has at least these, others allowed
+      * match each response contains { userId: '#number' }
+
+      # exactly 100 elements ('#[]' alone only asserts "is an array")
+      * match response == '#[100]'
+
+      # and one specific element, by index
+      * match response[0] == { userId: 1, id: 1, title: 'sunt aut...' }
+
+  Karate also asserts an exact set, deep and order-sensitive, by listing it:
+
+      * match response ==
+        """
+        [ { userId: 1, id: 1, title: 'sunt aut...' },
+          { userId: 1, id: 2, title: 'qui est esse' } ]
+        """
+      * match response == read('user-1-posts.json')   # or from a file
+
+  **Most of this needs no language change -- it is a glue convention.** A
+  multi-row table already produces a List of *String objects, so "these are
+  exactly the elements" is a comparison the glue can make today: match the
+  expected rows against the actual array as a set, failing on a missing row, an
+  extra element, or a duplicate. Order-independence is then a property of the
+  helper rather than of the notation, and is usually what is wanted from a
+  filtered query. Addressing one element is the same story -- an index column,
+  or a step whose glue takes the first row.
+
+  What distinguishes the cases is the step wording, not the table:
+
+      Then response array items match : Post     -- one shape, every element
+      Then response posts are        : Post      -- exactly these rows
+      Then first response post is    : Post      -- one element
+
+  Each is a different glue method over the same generated type. Only the first
+  exists today, which is why API.spectable's array scenario loops 100 items by
+  hand and can state types but not values.
+
+  For an exact set the table is the better notation -- an array of objects *is*
+  a table, it diffs line by line, and a missing or extra row shows up plainly,
+  where Karate's version is JSON pasted into a feature file.
+
+  #### CompareOnly already covers "check only these columns".
+  It is not a gap -- `: Post CompareOnly` fills every column the table does not
+  show with ?DNC? instead of the field default, and the generated *String.equals
+  and the hand-written glue both skip ?DNC?. So an exact-set table listing only
+  id and title checks exactly those two and ignores userId and body. That is the
+  answer to "the body is multi-line" for most cases: leave the column out.
+
+  One restriction to know: the step regex is
+  `:\s*(\w+)(?:\s+(Vertical|CompareOnly))?`, so a step takes *one* modifier.
+  Vertical and CompareOnly cannot be combined. An exact-set table is horizontal
+  anyway, so this bites only a single-object check that wants both.
+
+  #### Multi-line values in a cell: the mechanism exists but is not connected.
+  A Define can hold a docstring (`Define X =` followed by """ ... """), and a
+  table cell can reference a Define with `=X`. Putting those together is the
+  natural way to compare a multi-line value, and it does not work today.
+
+  resolveValue in JavaGenerator.cpp (and identically in the Cpp and CSharp
+  generators, so presumably all nine) resolves an `=` reference only for a
+  *scalar* Define:
+
+      if (d.name.compare(name, ...) == 0 && !d.isTable && !d.hasDocString)
+
+  The `!d.hasDocString` guard excludes exactly the case wanted. A docstring
+  Define referenced from a cell falls through to resolveCell and the cell keeps
+  the literal text "=X", which then fails the comparison against real data.
+  Docstring Defines are reachable from a bare step but not from a table.
+
+  Relaxing that guard -- and emitting the multi-line text the way a step
+  docstring already is (a Java text block, an escaped literal elsewhere) -- would
+  make exact-set assertions work for values like jsonplaceholder's four-line
+  bodies. Check all nine generators; the guard was written the same way in each
+  one seen so far.
+
+  Where each tool wins is clean, and worth being honest about. Karate is far less
+  work for API testing. SpecTable is doing a different job: not API-specific,
+  one specification into nine languages, and declared types so a Post is checked
+  structurally rather than as loose JSON -- which is why bowling.spectable works
+  in the same tool. If API.spectable were the whole job, Karate would be the
+  better choice; its value here is showing that SpecTable can reach a live
+  service, which is worth saying plainly rather than claiming parity.
+
 ### Sequence keyword: shows a sequence of operations where each step's Given is
   the previous step's output.
 
