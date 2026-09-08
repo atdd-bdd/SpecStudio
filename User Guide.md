@@ -21,10 +21,11 @@ regenerate them whenever the specification changes.
 7. [Configuration](#configuration)
 8. [Generating code](#generating-code)
 9. [What gets generated](#what-gets-generated)
-10. [Analyze](#analyze)
-11. [Sharing work](#sharing-work)
-12. [Settings](#settings)
-13. [Keyboard reference](#keyboard-reference)
+10. [Testing an API](#testing-an-api)
+11. [Analyze](#analyze)
+12. [Sharing work](#sharing-work)
+13. [Settings](#settings)
+14. [Keyboard reference](#keyboard-reference)
 
 ---
 
@@ -578,6 +579,129 @@ it. Glue that does arithmetic is testing itself.
 
 ---
 
+## Testing an API
+
+A specification can drive a running service instead of a class. Nothing in the
+language is special-cased for it — the tables, the steps and the generated
+readers are the ordinary ones. What changes is that **there is no production
+code**: the service is the thing under test, so the glue is all there is.
+
+`examples/AddressCorrection.spectable` is a worked example of everything below.
+
+### The shape
+
+Three attribute sets carry a call. One describes the request, one the status,
+one the response body:
+
+```
+Attributes Request
+| Attribute | Type   | Default | Notes                                         |
+| Method    | String |         | GET, POST, PUT, PATCH, DELETE                 |
+| Page      | String |         | Appended to the base Page from the Background |
+| Parameter | String |         | Appended after the Page, such as an id        |
+| Body      | String |         | Name of the attribute set holding the body    |
+```
+
+Keep the base URL in the `Background` so a scenario says only what is peculiar
+to it, and build the URL from the pieces — `posts/1` is Page `posts` with
+Parameter `1`. Joining the parts in glue rather than writing whole URLs in
+cells means a call with no Parameter cannot end up with a trailing slash.
+
+```
+Background
+Given base Page is : String
+| https://api.example.com/address |
+```
+
+### Check the status and the body separately
+
+```
+Then response status is : Status Vertical
+| Code | 200 |
+And response body is : Corrected Vertical
+| Street | 1 Penny Lane |
+```
+
+This is worth doing even though one step would parse. A status field sitting in
+the same attribute set as the body's fields makes the generated reader demand a
+`status` field that no response body contains — it is the HTTP status code, not
+part of the JSON — and the glue then has to splice one in before every check.
+Kept apart, the body goes straight through `fromJsonValue` with nothing added.
+
+It also separates two different failures. A 404 with the right body and a 200
+with the wrong one are not the same defect, and they now fail on different
+lines.
+
+### What the glue does
+
+Three jobs, and only three:
+
+1. Turn the request table into JSON with the generated `toJSON()`
+2. Call the service
+3. Turn the response back with the generated `fromJsonValue()`, then compare
+
+Put the transport — URL assembly, verb selection, carrying the payload — in one
+static helper beside the glue rather than in `common/`, which every build
+rewrites. Have it throw, naming the URL, when the service cannot be reached: a
+call that never happened is a broken test, not a failed assertion, and the
+message should say which.
+
+That leaves glue that does no computation, which is the same rule as everywhere
+else. Here it is easier to keep, because there is nothing to compute.
+
+### Write real expected values
+
+**A cell reading `string` or `number` asserts almost nothing.** Any non-empty
+text passes, and the scenario reads as covered while checking that a field
+exists. Placeholders are what you write before you have called the service —
+they should not survive the first run.
+
+If the service returns the same answer every time, put that answer in the cell:
+
+```
+And response body is : Corrected Vertical
+| Street  | 1 Penny Lane |
+| Zip     | 62701-1032   |
+| Quality | Verified     |
+```
+
+`1 Penny LN` becoming `1 Penny Lane` is the reason the service exists. `62701`
+coming back as `62701-1032` is a rule the caller is entitled to. Both are worth
+stating; neither survives a cell reading `string`.
+
+When a value genuinely varies — a generated id, a timestamp — say so in a
+comment where it occurs, so the next reader knows the placeholder was a decision
+rather than an omission.
+
+### Checking part of a response
+
+`CompareOnly` limits equality to the columns actually shown, filling the rest
+with `?DNC?`. Use it when the scenario is about one rule:
+
+```
+And response body is : Corrected CompareOnly
+| Street    | Quality  |
+| PO Box 12 | Verified |
+```
+
+Adding a field to the response does not break that scenario. A step takes one
+modifier, so `CompareOnly` cannot be combined with `Vertical` — write the table
+horizontally, which is also how several rows are checked at once:
+
+```
+And response array items match : Corrected CompareOnly
+| Street        |
+| 1 Penny Lane  |
+| 1 Penny Court |
+```
+
+Write `?DNC?` in a cell directly to skip one field while checking its
+neighbours — useful when a call legitimately succeeds without producing a
+value, such as an address that cannot be corrected coming back `200` with the
+corrected fields unset.
+
+---
+
 ## Analyze
 
 **Analyze → Solution** (`Shift+F7`), or **Analyze → Project** for one project.
@@ -741,6 +865,8 @@ block's *name* still selects a word, as it does everywhere else.
   a different repository from the generated code, and the JSON support
 - `Git Setup.md` — the one-time GitHub sign-in setup, for whoever installs it
 - `Building Distributions.md` — packaging and signing AlignThree itself
+- `examples/` — specifications to read rather than build, including
+  `AddressCorrection.spectable`, the worked example behind *Testing an API*
 - `Remaining Work.txt` — the project backlog
 - `archive/` — superseded syntax revisions, design notes and earlier backlogs,
   kept for history. Nothing there is current.
