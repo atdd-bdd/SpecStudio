@@ -92,6 +92,10 @@ done
 # the build, not quietly drop out of it.
 DOCS=("README.md" "Getting Started.md" "User Guide.md" "Configuration Guide.md" "Git Setup.md" "spectable syntax v3.3a.md")
 
+# examples/ ships as a directory rather than a named list, because the User Guide
+# points at the folder and not at any one file. The check is therefore that it
+# holds something: a directory copy cannot fail the way a renamed file does, but
+# it can quietly ship empty.
 copy_docs() {  # dest-dir
     local dest="$1" doc
     mkdir -p "$dest"
@@ -103,6 +107,14 @@ copy_docs() {  # dest-dir
         fi
         cp "$REPO/$doc" "$dest/"
     done
+
+    if ! compgen -G "$REPO/examples/*.spectable" > /dev/null; then
+        echo "ERROR: examples/ holds no .spectable files." >&2
+        echo "       The User Guide's Testing an API section points at it." >&2
+        exit 1
+    fi
+    rm -rf "$dest/examples"
+    cp -R "$REPO/examples" "$dest/examples"
 }
 
 # ---- AppDir ------------------------------------------------------------------

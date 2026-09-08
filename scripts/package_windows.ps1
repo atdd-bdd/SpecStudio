@@ -378,6 +378,17 @@ foreach ($doc in @('README.md', 'Getting Started.md', 'User Guide.md',
     Copy-Item -LiteralPath $src -Destination $stage
 }
 
+# examples/ ships as a directory rather than a named list, because the User Guide
+# points at the folder and not at any one file. The check is therefore that it
+# holds something: a directory copy cannot fail the way a renamed file does, but
+# it can quietly ship empty. The installer takes the whole staging folder
+# recursively, so this reaches the installed copy as well as the zip.
+$examples = Join-Path $repo 'examples'
+if (-not (Get-ChildItem -LiteralPath $examples -Filter '*.spectable' -ErrorAction SilentlyContinue)) {
+    throw "examples/ holds no .spectable files. The User Guide's Testing an API section points at it."
+}
+Copy-Item -LiteralPath $examples -Destination $stage -Recurse -Force
+
 # The MSVC runtime is the one thing not bundled: redistributing it as loose DLLs
 # is allowed but fragile, and the installer below pulls it in properly. Say so
 # rather than let a portable-zip user hit a missing-DLL dialog.
