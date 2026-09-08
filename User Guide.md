@@ -586,7 +586,10 @@ language is special-cased for it — the tables, the steps and the generated
 readers are the ordinary ones. What changes is that **there is no production
 code**: the service is the thing under test, so the glue is all there is.
 
-`examples/AddressCorrection.spectable` is a worked example of everything below.
+`AddressCorrection.spectable` in the
+[SpecStudioExampleTests](https://github.com/atdd-bdd/SpecStudioExampleTests)
+repository is a worked example of everything below, running against a public
+service that needs no API key.
 
 ### The shape
 
@@ -865,8 +868,9 @@ block's *name* still selects a word, as it does everywhere else.
   a different repository from the generated code, and the JSON support
 - `Git Setup.md` — the one-time GitHub sign-in setup, for whoever installs it
 - `Building Distributions.md` — packaging and signing AlignThree itself
-- `examples/` — specifications to read rather than build, including
-  `AddressCorrection.spectable`, the worked example behind *Testing an API*
+- [SpecStudioExampleTests](https://github.com/atdd-bdd/SpecStudioExampleTests) —
+  worked specifications generated into all nine languages, including
+  `AddressCorrection.spectable`, the example behind *Testing an API*
 - `Remaining Work.txt` — the project backlog
 - `archive/` — superseded syntax revisions, design notes and earlier backlogs,
   kept for history. Nothing there is current.
