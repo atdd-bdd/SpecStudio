@@ -135,7 +135,10 @@ static QString resolveAttrCellExpr(const QString& cellValue, const QString& fiel
             }
         }
     }
-    return "\"" + cellValue + "\"";
+    // Not a =Define reference, so the cell is the Entity's own text form.
+    if (isAttrSetType(fieldType, file))
+        return fieldType.trimmed() + "String.FromText(\"" + csEscape(cellValue) + "\")";
+    return "\"" + csEscape(cellValue) + "\"";
 }
 
 // A DataType whose Examples table is EnumerationValues becomes a C# enum, so a
@@ -511,6 +514,85 @@ QString CSharpGenerator::genEqualityMembers(const AttrSet& as, const QString& cn
     return out;
 }
 
+
+// ---------------------------------------------------------------------------
+// Tokens — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensClass(const QString& ns, const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "using System;\n";
+    s << "using System.Collections.Generic;\n";
+    s << "using System.Text;\n";
+    for (const QString& u : extraImports) s << u << "\n";
+    s << "\n";
+    s << "namespace " << ns << "\n{\n";
+    s << "    /// <summary>\n";
+    s << "    /// The text form of an Entity: its attribute values as space separated\n";
+    s << "    /// tokens, in the order the attributes are declared. A value containing a\n";
+    s << "    /// space is wrapped in double quotes; a nested Entity's own text form is\n";
+    s << "    /// wrapped in single quotes. A run of spaces separates exactly as one does.\n";
+    s << "    /// </summary>\n";
+    s << "    public static class Tokens\n    {\n";
+
+    s << "        public static List<string> Split(string text)\n        {\n";
+    s << "            var outv = new List<string>();\n";
+    s << "            if (text == null) return outv;\n";
+    s << "            int n = text.Length, i = 0;\n";
+    s << "            while (i < n)\n            {\n";
+    s << "                while (i < n && char.IsWhiteSpace(text[i])) i++;\n";
+    s << "                if (i >= n) break;\n";
+    s << "                char c = text[i];\n";
+    s << "                if (c == '\"' || c == '\\'')\n                {\n";
+    s << "                    int close = ClosingQuote(text, i, c);\n";
+    s << "                    outv.Add(text.Substring(i + 1, close - i - 1));\n";
+    s << "                    i = close + 1;\n";
+    s << "                }\n                else\n                {\n";
+    s << "                    int j = i;\n";
+    s << "                    while (j < n && !char.IsWhiteSpace(text[j])) j++;\n";
+    s << "                    outv.Add(text.Substring(i, j - i));\n";
+    s << "                    i = j;\n";
+    s << "                }\n";
+    s << "            }\n";
+    s << "            return outv;\n";
+    s << "        }\n\n";
+
+    s << "        // The closing quote is the next one of the same kind followed by\n";
+    s << "        // whitespace or the end of the text, which is what lets a nested Entity,\n";
+    s << "        // itself single quoted, sit inside a single quoted value.\n";
+    s << "        private static int ClosingQuote(string text, int open, char quote)\n";
+    s << "        {\n";
+    s << "            for (int j = open + 1; j < text.Length; j++)\n            {\n";
+    s << "                if (text[j] != quote) continue;\n";
+    s << "                if (j + 1 == text.Length || char.IsWhiteSpace(text[j + 1])) return j;\n";
+    s << "            }\n";
+    s << "            throw new ArgumentException(\"No closing \" + quote + \" in: \" + text);\n";
+    s << "        }\n\n";
+
+    s << "        public static string Token(string value)\n        {\n";
+    s << "            if (string.IsNullOrEmpty(value)) return \"\\\"\\\"\";\n";
+    s << "            foreach (char c in value) if (char.IsWhiteSpace(c)) return \"\\\"\" + value + \"\\\"\";\n";
+    s << "            return value;\n";
+    s << "        }\n\n";
+
+    s << "        public static string Nested(string text)\n        {\n";
+    s << "            return \"'\" + (text ?? \"\") + \"'\";\n";
+    s << "        }\n\n";
+
+    s << "        public static List<string> Require(string text, int expected, string typeName)\n";
+    s << "        {\n";
+    s << "            var parts = Split(text);\n";
+    s << "            if (parts.Count != expected)\n";
+    s << "                throw new ArgumentException(typeName + \" takes \" + expected\n";
+    s << "                        + \" values but got \" + parts.Count + \": \" + text);\n";
+    s << "            return parts;\n";
+    s << "        }\n";
+    s << "    }\n}\n";
+    return out;
+}
+
 QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
@@ -540,7 +622,30 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, co
         s << "            this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "        }\n\n";
 
-    // To<Name>Typed()
+    // The text form: values as space separated tokens, in declaration order. A
+    // static factory as well as a constructor, because an attribute set with a
+    // single string field would otherwise declare the same signature twice.
+    s << "        /// <summary>Builds from the text form, e.g. Money as \"25 USD\".</summary>\n";
+    s << "        public static " << cn << " FromText(string text)\n        {\n";
+    s << "            var parts = Tokens.Require(text, " << as.fields.size()
+      << ", \"" << as.name << "\");\n";
+    s << "            return new " << cn << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << as.fields[i].type.trimmed() << "String.FromText(parts[" << i << "])";
+        else
+            s << "parts[" << i << "]";
+    }
+    s << ");\n        }\n\n";
+    if (!(as.fields.size() == 1 && !isAttrSetType(as.fields[0].type, file))) {
+        s << "        public " << cn << "(string text)\n        {\n";
+        s << "            var parsed = FromText(text);\n";
+        for (const Field& f : as.fields)
+            s << "            this." << toCamelCase(f.name) << " = parsed."
+              << toCamelCase(f.name) << ";\n";
+        s << "        }\n\n";
+    }
     const QString tn = as.name + "Typed";
     s << "        public " << tn << " To" << tn << "()\n        {\n";
     s << "            return new " << tn << "(\n";
@@ -553,14 +658,18 @@ QString CSharpGenerator::genStringClass(const AttrSet& as, const QString& ns, co
     }
     s << "            );\n        }\n\n";
 
-    // ToString()
+    // ToString() — the text form, so that it round-trips with FromText.
     s << "        public override string ToString()\n        {\n";
-    s << "            return $\"";
+    s << "            return ";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        s << as.fields[i].name << "={" << toCamelCase(as.fields[i].name) << "}";
+        if (i) s << " + \" \" + ";
+        const QString tsField = toCamelCase(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "Tokens.Nested(" << tsField << " == null ? \"\" : " << tsField << ".ToString())";
+        else
+            s << "Tokens.Token(" << tsField << ")";
     }
-    s << "\";\n        }\n\n";
+    s << ";\n        }\n\n";
 
     s << genEqualityMembers(as, cn, file, /*dncAware=*/true);
 
@@ -1596,6 +1705,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     }
 
     writeFile(commonDir.filePath("Json.cs"), genCSharpJsonClass(commonNs, m_extraImports), msgs);
+    writeFile(commonDir.filePath("Tokens.cs"), genTokensClass(commonNs, m_extraImports), msgs);
 
     // 1. String + Typed classes for each AttrSet → go into common/
     for (const AttrSet& as : augmented.attrSets) {

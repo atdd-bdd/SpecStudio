@@ -123,6 +123,12 @@ QString JavaScriptGenerator::nestedLiteral(const QString& cellValue, const QStri
                 break;
             }
         }
+        // Not a =Define reference, so the cell is the Entity's own text form --
+        // `25 USD` is a Money. Build it from that rather than silently keeping the
+        // field defaults, which is what this used to do: a cell saying 25 USD was
+        // discarded and the test asserted 0.0 USD.
+        if (!cellValue.startsWith('='))
+            return subAs.name + "String.fromText(\"" + jsStringEscape(cellValue) + "\")";
         return stringLiteral(subAs, row, file);
     }
     return "\"" + jsStringEscape(cellValue) + "\"";
@@ -403,6 +409,72 @@ QVector<QStringList> JavaScriptGenerator::resolveExamplesRows(
 // String class generator
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// tokens — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensModule()
+{
+    QString out;
+    QTextStream s(&out);
+    s << "// The text form of an Entity: its attribute values as space separated tokens,\n";
+    s << "// in the order the attributes are declared. A value containing a space is\n";
+    s << "// wrapped in double quotes; a nested Entity's own text form is wrapped in\n";
+    s << "// single quotes. A run of spaces separates exactly as a single space does.\n\n";
+
+    s << "export function split(text) {\n";
+    s << "  const out = [];\n";
+    s << "  if (text === null || text === undefined) return out;\n";
+    s << "  const n = text.length;\n";
+    s << "  let i = 0;\n";
+    s << "  while (i < n) {\n";
+    s << "    while (i < n && /\\s/.test(text[i])) i++;\n";
+    s << "    if (i >= n) break;\n";
+    s << "    const c = text[i];\n";
+    s << "    if (c === '\"' || c === \"'\") {\n";
+    s << "      const close = closingQuote(text, i, c);\n";
+    s << "      out.push(text.slice(i + 1, close));\n";
+    s << "      i = close + 1;\n";
+    s << "    } else {\n";
+    s << "      let j = i;\n";
+    s << "      while (j < n && !/\\s/.test(text[j])) j++;\n";
+    s << "      out.push(text.slice(i, j));\n";
+    s << "      i = j;\n";
+    s << "    }\n";
+    s << "  }\n";
+    s << "  return out;\n";
+    s << "}\n\n";
+
+    s << "// The closing quote is the next one of the same kind followed by whitespace or\n";
+    s << "// the end of the text, which is what lets a nested Entity, itself single\n";
+    s << "// quoted, sit inside a single quoted value.\n";
+    s << "function closingQuote(text, open, quote) {\n";
+    s << "  for (let j = open + 1; j < text.length; j++) {\n";
+    s << "    if (text[j] !== quote) continue;\n";
+    s << "    if (j + 1 === text.length || /\\s/.test(text[j + 1])) return j;\n";
+    s << "  }\n";
+    s << "  throw new Error(`No closing ${quote} in: ${text}`);\n";
+    s << "}\n\n";
+
+    s << "export function token(value) {\n";
+    s << "  if (value === null || value === undefined || value === \"\") return '\"\"';\n";
+    s << "  return /\\s/.test(value) ? `\"${value}\"` : value;\n";
+    s << "}\n\n";
+
+    s << "export function nested(text) {\n";
+    s << "  return `'${text ?? \"\"}'`;\n";
+    s << "}\n\n";
+
+    s << "export function require_(text, expected, typeName) {\n";
+    s << "  const parts = split(text);\n";
+    s << "  if (parts.length !== expected)\n";
+    s << "    throw new Error(`${typeName} takes ${expected} values but got ${parts.length}: ${text}`);\n";
+    s << "  return parts;\n";
+    s << "}\n";
+    return out;
+}
+
 QString JavaScriptGenerator::genStringClass(const AttrSet& as, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
@@ -420,6 +492,7 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as, const SpectableFi
                 s << "import { " << sub.name << "String } from \"./"
                   << sub.name << "String.js\";\n";
     }
+    s << "import * as tokens from \"./tokens.js\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << cn << " {\n";
@@ -444,14 +517,35 @@ QString JavaScriptGenerator::genStringClass(const AttrSet& as, const SpectableFi
     }
     s << "    );\n  }\n\n";
 
-    s << "  toString() {\n";
-    s << "    return `";
+    // fromText — the Entity's text form, values as space separated tokens.
+    s << "  /** Builds from the text form, e.g. Money as \"25 USD\". */\n";
+    s << "  static fromText(text) {\n";
+    s << "    const parts = tokens.require_(text, " << as.fields.size()
+      << ", \"" << as.name << "\");\n";
+    s << "    return new " << cn << "(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        const QString fn = toCamelCase(as.fields[i].name);
-        s << as.fields[i].name << "=${this." << fn << "}";
+        s << "      ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << as.fields[i].type.trimmed() << "String.fromText(parts[" << i << "])";
+        else
+            s << "parts[" << i << "]";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
     }
-    s << "`;\n  }\n\n";
+    s << "    );\n  }\n\n";
+
+    // toString — the text form, so that it round-trips with fromText.
+    s << "  toString() {\n";
+    s << "    return ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << " + \" \" + ";
+        const QString fn = toCamelCase(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "tokens.nested(String(this." << fn << "))";
+        else
+            s << "tokens.token(this." << fn << ")";
+    }
+    s << ";\n  }\n\n";
 
     s << genEqualsMethod(as, cn, file, /*dncAware=*/true);
     s << "}\n";
@@ -1308,6 +1402,7 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.js"),  genJsonModule(),             msgs);
+    writeFile(commonDir.filePath("tokens.js"), genTokensModule(), msgs);
     {
         // Read the existing barrel so classes from the other .spectable files survive.
         QString existingIndex;

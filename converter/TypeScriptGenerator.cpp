@@ -162,6 +162,11 @@ QString TypeScriptGenerator::nestedLiteral(const QString& cellValue, const QStri
                 break;
             }
         }
+        // Not a =Define reference, so the cell is the Entity's own text form --
+        // `25 USD` is a Money. Build it from that rather than silently keeping the
+        // field defaults, which is what this used to do.
+        if (!cellValue.startsWith('='))
+            return subAs.name + "String.fromText(\"" + jsStringEscape(cellValue) + "\")";
         return stringLiteral(subAs, row, file);
     }
     return "\"" + jsStringEscape(cellValue) + "\"";
@@ -442,6 +447,72 @@ QVector<QStringList> TypeScriptGenerator::resolveExamplesRows(
 // String class generator
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// tokens — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensModule()
+{
+    QString out;
+    QTextStream s(&out);
+    s << "// The text form of an Entity: its attribute values as space separated tokens,\n";
+    s << "// in the order the attributes are declared. A value containing a space is\n";
+    s << "// wrapped in double quotes; a nested Entity's own text form is wrapped in\n";
+    s << "// single quotes. A run of spaces separates exactly as a single space does.\n\n";
+
+    s << "export function split(text: string | null | undefined): string[] {\n";
+    s << "  const out: string[] = [];\n";
+    s << "  if (text === null || text === undefined) return out;\n";
+    s << "  const n = text.length;\n";
+    s << "  let i = 0;\n";
+    s << "  while (i < n) {\n";
+    s << "    while (i < n && /\\s/.test(text[i])) i++;\n";
+    s << "    if (i >= n) break;\n";
+    s << "    const c = text[i];\n";
+    s << "    if (c === '\"' || c === \"'\") {\n";
+    s << "      const close = closingQuote(text, i, c);\n";
+    s << "      out.push(text.slice(i + 1, close));\n";
+    s << "      i = close + 1;\n";
+    s << "    } else {\n";
+    s << "      let j = i;\n";
+    s << "      while (j < n && !/\\s/.test(text[j])) j++;\n";
+    s << "      out.push(text.slice(i, j));\n";
+    s << "      i = j;\n";
+    s << "    }\n";
+    s << "  }\n";
+    s << "  return out;\n";
+    s << "}\n\n";
+
+    s << "// The closing quote is the next one of the same kind followed by whitespace or\n";
+    s << "// the end of the text, which is what lets a nested Entity, itself single\n";
+    s << "// quoted, sit inside a single quoted value.\n";
+    s << "function closingQuote(text: string, open: number, quote: string): number {\n";
+    s << "  for (let j = open + 1; j < text.length; j++) {\n";
+    s << "    if (text[j] !== quote) continue;\n";
+    s << "    if (j + 1 === text.length || /\\s/.test(text[j + 1])) return j;\n";
+    s << "  }\n";
+    s << "  throw new Error(`No closing ${quote} in: ${text}`);\n";
+    s << "}\n\n";
+
+    s << "export function token(value: string | null | undefined): string {\n";
+    s << "  if (value === null || value === undefined || value === \"\") return '\"\"';\n";
+    s << "  return /\\s/.test(value) ? `\"${value}\"` : value;\n";
+    s << "}\n\n";
+
+    s << "export function nested(text: string | null | undefined): string {\n";
+    s << "  return `'${text ?? \"\"}'`;\n";
+    s << "}\n\n";
+
+    s << "export function require_(text: string, expected: number, typeName: string): string[] {\n";
+    s << "  const parts = split(text);\n";
+    s << "  if (parts.length !== expected)\n";
+    s << "    throw new Error(`${typeName} takes ${expected} values but got ${parts.length}: ${text}`);\n";
+    s << "  return parts;\n";
+    s << "}\n";
+    return out;
+}
+
 QString TypeScriptGenerator::genStringClass(const AttrSet& as, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
@@ -465,6 +536,7 @@ QString TypeScriptGenerator::genStringClass(const AttrSet& as, const SpectableFi
                                           : QString("string");
     };
 
+    s << "import * as tokens from \"./tokens.js\";\n\n";
     s << "export class " << cn << " {\n";
     s << "  static readonly DNC_STRING = \"?DNC?\";\n\n";
     for (const Field& f : as.fields)
@@ -482,6 +554,23 @@ QString TypeScriptGenerator::genStringClass(const AttrSet& as, const SpectableFi
     for (const Field& f : as.fields)
         s << "    this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "  }\n\n";
+
+    // fromText — the Entity's text form, values as space separated tokens.
+    s << "  /** Builds from the text form, e.g. Money as \"25 USD\". */\n";
+    s << "  static fromText(text: string): " << cn << " {\n";
+    s << "    const parts = tokens.require_(text, " << as.fields.size()
+      << ", \"" << as.name << "\");\n";
+    s << "    return new " << cn << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        s << "      ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << as.fields[i].type.trimmed() << "String.fromText(parts[" << i << "])";
+        else
+            s << "parts[" << i << "]";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "    );\n  }\n\n";
 
     s << "  static fromList(values: Iterable<string>): " << cn << " {\n";
     s << "    const v = Array.from(values);\n";
@@ -1422,6 +1511,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.ts"),  genTsJsonModule(),             msgs);
+    writeFile(commonDir.filePath("tokens.ts"), genTokensModule(), msgs);
     // A tsconfig at the output root so `npx tsc` compiles the tree as-is.
     // Never overwritten — the project owns its build settings after the first run.
     {

@@ -539,6 +539,97 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
 }
 
 // ---------------------------------------------------------------------------
+// Tokens — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensClass(const QString& pkg, const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.List;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+    s << "/**\n";
+    s << " * The text form of an Entity: its attribute values as space separated tokens,\n";
+    s << " * in the order the attributes are declared.\n";
+    s << " *\n";
+    s << " *   Money        Amount, Currency        25 USD\n";
+    s << " *   Address      with a spaced value     \\\"1 Penny Lane\\\" Liverpool NY\n";
+    s << " *   Holding      with a nested Money     IBM 1000 '25 USD'\n";
+    s << " *\n";
+    s << " * A value containing a space is wrapped in double quotes; a nested Entity's own\n";
+    s << " * text form is wrapped in single quotes. A run of spaces separates one token\n";
+    s << " * from the next exactly as a single space does.\n";
+    s << " */\n";
+    s << "public final class Tokens {\n\n";
+    s << "    private Tokens() {}\n\n";
+
+    s << "    /** Splits a text form into one string per attribute. */\n";
+    s << "    public static List<String> split(String text) {\n";
+    s << "        List<String> out = new ArrayList<>();\n";
+    s << "        if (text == null) return out;\n";
+    s << "        final int n = text.length();\n";
+    s << "        int i = 0;\n";
+    s << "        while (i < n) {\n";
+    s << "            while (i < n && Character.isWhitespace(text.charAt(i))) i++;\n";
+    s << "            if (i >= n) break;\n";
+    s << "            final char c = text.charAt(i);\n";
+    s << "            if (c == '\"' || c == '\\'') {\n";
+    s << "                final int close = closingQuote(text, i, c);\n";
+    s << "                out.add(text.substring(i + 1, close));\n";
+    s << "                i = close + 1;\n";
+    s << "            } else {\n";
+    s << "                int j = i;\n";
+    s << "                while (j < n && !Character.isWhitespace(text.charAt(j))) j++;\n";
+    s << "                out.add(text.substring(i, j));\n";
+    s << "                i = j;\n";
+    s << "            }\n";
+    s << "        }\n";
+    s << "        return out;\n";
+    s << "    }\n\n";
+
+    s << "    // The closing quote is the next one of the same kind that ends the token --\n";
+    s << "    // that is, one followed by whitespace or by the end of the text. Scanning for\n";
+    s << "    // that rather than for the first quote is what lets a nested Entity, itself\n";
+    s << "    // single quoted, sit inside a single quoted value.\n";
+    s << "    private static int closingQuote(String text, int open, char quote) {\n";
+    s << "        for (int j = open + 1; j < text.length(); j++) {\n";
+    s << "            if (text.charAt(j) != quote) continue;\n";
+    s << "            if (j + 1 == text.length() || Character.isWhitespace(text.charAt(j + 1)))\n";
+    s << "                return j;\n";
+    s << "        }\n";
+    s << "        throw new IllegalArgumentException(\n";
+    s << "                \"No closing \" + quote + \" in: \" + text);\n";
+    s << "    }\n\n";
+
+    s << "    /** Renders one plain value, quoting it only when it has to be. */\n";
+    s << "    public static String token(String value) {\n";
+    s << "        if (value == null || value.isEmpty()) return \"\\\"\\\"\";\n";
+    s << "        for (int i = 0; i < value.length(); i++)\n";
+    s << "            if (Character.isWhitespace(value.charAt(i))) return \"\\\"\" + value + \"\\\"\";\n";
+    s << "        return value;\n";
+    s << "    }\n\n";
+
+    s << "    /** Renders a nested Entity's text form. */\n";
+    s << "    public static String nested(String text) {\n";
+    s << "        return \"'\" + (text == null ? \"\" : text) + \"'\";\n";
+    s << "    }\n\n";
+
+    s << "    /** Checks the count before a text form is unpacked into attributes. */\n";
+    s << "    public static List<String> require(String text, int expected, String typeName) {\n";
+    s << "        List<String> parts = split(text);\n";
+    s << "        if (parts.size() != expected)\n";
+    s << "            throw new IllegalArgumentException(typeName + \" takes \" + expected\n";
+    s << "                    + \" values but got \" + parts.size() + \": \" + text);\n";
+    s << "        return parts;\n";
+    s << "    }\n";
+    s << "}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // String class
 // ---------------------------------------------------------------------------
 
@@ -576,6 +667,39 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
         s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "    }\n\n";
 
+    // The text form: values as space separated tokens, in declaration order. A
+    // static factory rather than only a constructor, because an attribute set with
+    // a single String field would otherwise declare the same signature twice. The
+    // constructor is emitted as well wherever it cannot collide.
+    {
+        s << "    /** Builds from the text form, e.g. Money as \"25 USD\". */\n";
+        s << "    public static " << cn << " fromText(String text) {\n";
+        s << "        java.util.List<String> parts = Tokens.require(text, "
+          << as.fields.size() << ", \"" << as.name << "\");\n";
+        s << "        return new " << cn << "(";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            if (i) s << ", ";
+            if (isAttrSetType(as.fields[i].type, file))
+                s << as.fields[i].type << "String.fromText(parts.get(" << i << "))";
+            else
+                s << "parts.get(" << i << ")";
+        }
+        s << ");\n";
+        s << "    }\n\n";
+
+        const bool ctorCollides =
+            as.fields.size() == 1 && !isAttrSetType(as.fields[0].type, file);
+        if (!ctorCollides) {
+            s << "    public " << cn << "(String text) {\n";
+            s << "        " << cn << " parsed = fromText(text);\n";
+            for (int i = 0; i < as.fields.size(); ++i) {
+                const QString field = toCamelCase(as.fields[i].name);
+                s << "        this." << field << " = parsed." << field << ";\n";
+            }
+            s << "    }\n\n";
+        }
+    }
+
     // equals() — DNCString on either side skips the field comparison
     s << "    @Override\n    public boolean equals(Object o) {\n";
     s << "        if (this == o) return true;\n";
@@ -603,11 +727,18 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     }
     s << ");\n    }\n\n";
 
-    // toString() — label uses original name, value reference uses camelCase identifier
+    // toString() — the text form, so that it round-trips with fromText: values
+    // space separated, a spaced value in double quotes, a nested Entity in single
+    // quotes. This replaced a Name=value listing, which read well in a failure
+    // message but could not be handed back in.
     s << "    @Override\n    public String toString() {\n        return ";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << " + \", \" + ";
-        s << "\"" << as.fields[i].name << "=\" + " << toCamelCase(as.fields[i].name);
+        if (i) s << " + \" \" + ";
+        const QString tsField = toCamelCase(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "Tokens.nested(String.valueOf(" << tsField << "))";
+        else
+            s << "Tokens.token(" << tsField << ")";
     }
     s << ";\n    }\n}\n";
 
@@ -878,6 +1009,12 @@ static QString resolveAttrCellExpr(const QString& cellValue, const QString& fiel
             }
         }
     }
+    // Not a =Define reference, so the cell is the Entity's own text form -- the
+    // attribute values space separated, as `25 USD` is a Money. Build the object
+    // from it rather than handing a String to a constructor that wants the
+    // composite, which is what used to be emitted and did not compile.
+    if (isAttrSetType(fieldType, file))
+        return fieldType + "String.fromText(" + javaQuoted(cellValue) + ")";
     return javaQuoted(cellValue);
 }
 
@@ -1148,7 +1285,15 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                     s << "        " << listVar << ".add(new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << javaQuoted(row[ci]);
+                        // An Examples: column can be Entity-typed just as a scenario
+                        // table's can, so the cell is that Entity's text form and has
+                        // to be built rather than passed as a String.
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file))
+                            s << resolveAttrCellExpr(row[ci], fType, file, errors);
+                        else
+                            s << javaQuoted(row[ci]);
                     }
                     s << "));\n";
                 }
@@ -2524,6 +2669,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
 
     writeFile(domainDir.filePath("YesNo.java"), genYesNoClass(domainPkg, m_extraImports), msgs);
     writeFile(domainDir.filePath("Json.java"),  genJsonClass(domainPkg, m_extraImports),  msgs);
+    writeFile(domainDir.filePath("Tokens.java"), genTokensClass(domainPkg, m_extraImports), msgs);
 
     // Copy the source .spectable file into the output folder (if enabled)
     if (opts.copySpectable && !file.filePath.isEmpty()) {

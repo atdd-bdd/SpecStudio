@@ -109,6 +109,10 @@ QString PythonGenerator::resolveAttrCellExpr(const QString& cellValue, const QSt
             }
         }
     }
+    // Not a =Define reference, so the cell is the Entity's own text form.
+    if (isAttrSetType(fieldType, file))
+        return toTypeName(fieldType) + "String.from_text('"
+             + pyEscape(cellValue) + "')";
     return "'" + pyEscape(cellValue) + "'";
 }
 
@@ -371,6 +375,75 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
 // String class generator  →  {name}_string.py
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// common/tokens.py — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensUtil()
+{
+    QString out;
+    QTextStream s(&out);
+    s << "\"\"\"The text form of an Entity.\n\n";
+    s << "Its attribute values as space separated tokens, in the order the attributes\n";
+    s << "are declared. A value containing a space is wrapped in double quotes; a nested\n";
+    s << "Entity's own text form is wrapped in single quotes. A run of spaces separates\n";
+    s << "one token from the next exactly as a single space does.\n";
+    s << "\"\"\"\n\n\n";
+
+    s << "def split(text):\n";
+    s << "    out = []\n";
+    s << "    if text is None:\n";
+    s << "        return out\n";
+    s << "    n, i = len(text), 0\n";
+    s << "    while i < n:\n";
+    s << "        while i < n and text[i].isspace():\n";
+    s << "            i += 1\n";
+    s << "        if i >= n:\n";
+    s << "            break\n";
+    s << "        c = text[i]\n";
+    s << "        if c in ('\"', \"'\"):\n";
+    s << "            close = _closing_quote(text, i, c)\n";
+    s << "            out.append(text[i + 1:close])\n";
+    s << "            i = close + 1\n";
+    s << "        else:\n";
+    s << "            j = i\n";
+    s << "            while j < n and not text[j].isspace():\n";
+    s << "                j += 1\n";
+    s << "            out.append(text[i:j])\n";
+    s << "            i = j\n";
+    s << "    return out\n\n\n";
+
+    s << "def _closing_quote(text, open_at, quote):\n";
+    s << "    # The closing quote is the next one of the same kind followed by whitespace\n";
+    s << "    # or the end of the text, which is what lets a nested Entity, itself single\n";
+    s << "    # quoted, sit inside a single quoted value.\n";
+    s << "    for j in range(open_at + 1, len(text)):\n";
+    s << "        if text[j] != quote:\n";
+    s << "            continue\n";
+    s << "        if j + 1 == len(text) or text[j + 1].isspace():\n";
+    s << "            return j\n";
+    s << "    raise ValueError('No closing %s in: %s' % (quote, text))\n\n\n";
+
+    s << "def token(value):\n";
+    s << "    if not value:\n";
+    s << "        return '\\\"\\\"'\n";
+    s << "    if any(ch.isspace() for ch in value):\n";
+    s << "        return '\\\"' + value + '\\\"'\n";
+    s << "    return value\n\n\n";
+
+    s << "def nested(text):\n";
+    s << "    return \"'\" + ('' if text is None else text) + \"'\"\n\n\n";
+
+    s << "def require(text, expected, type_name):\n";
+    s << "    parts = split(text)\n";
+    s << "    if len(parts) != expected:\n";
+    s << "        raise ValueError('%s takes %d values but got %d: %s'\n";
+    s << "                         % (type_name, expected, len(parts), text))\n";
+    s << "    return parts\n";
+    return out;
+}
+
 QString PythonGenerator::genStringClass(const AttrSet& as,
                                          const SpectableFile& file) const
 {
@@ -384,6 +457,7 @@ QString PythonGenerator::genStringClass(const AttrSet& as,
         if (isAttrSetType(f.type, file))
             s << "from ." << toModuleName(f.type) << "_string import "
               << toTypeName(f.type) << "String\n";
+    s << "from . import tokens\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     if (!m_extraImports.isEmpty()) s << "\n";
 
@@ -417,15 +491,34 @@ QString PythonGenerator::genStringClass(const AttrSet& as,
     }
     s << "        )\n\n";
 
-    // __str__
+    // from_text — the text form, values as space separated tokens
+    s << "    @classmethod\n";
+    s << "    def from_text(cls, text):\n";
+    s << "        \"\"\"Builds from the text form, e.g. Money as '25 USD'.\"\"\"\n";
+    s << "        parts = tokens.require(text, " << as.fields.size()
+      << ", '" << as.name << "')\n";
+    s << "        return cls(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        s << "            ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << toTypeName(as.fields[i].type) << "String.from_text(parts[" << i << "])";
+        else
+            s << "parts[" << i << "]";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "        )\n\n";
+
+    // __str__ — the text form, so that it round-trips with from_text
     s << "    def __str__(self):\n";
     s << "        return (";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << " +\n                ";
-        const QString fname = as.fields[i].name;
-        const QString fid   = toIdentifier(fname);
-        s << "f'" << fname << "={self." << fid << "}'";
-        if (i < as.fields.size() - 1) s << " + ', '";
+        if (i) s << " + ' ' +\n                ";
+        const QString fid = toIdentifier(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "tokens.nested(str(self." << fid << "))";
+        else
+            s << "tokens.token(self." << fid << ")";
     }
     s << ")\n\n";
 
@@ -1338,6 +1431,7 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json_util.py"), genJsonUtil(),               msgs);
+    writeFile(commonDir.filePath("tokens.py"),    genTokensUtil(),           msgs);
     {
         const QString initPath = commonDir.filePath("__init__.py");
         QString existing;
