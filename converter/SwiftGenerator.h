@@ -23,6 +23,7 @@ public:
     // Public so production-class free functions can call them
     static QString swiftType(const QString& specType);
     static QString toIdentifier(const QString& name);  // lowerCamelCase — properties, functions
+    static QString toArgLabel(const QString& name);    // same, without the keyword backticks
     static QString toTypeName(const QString& name);    // UpperCamelCase — struct/class/enum names
 
 private:

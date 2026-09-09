@@ -153,7 +153,7 @@ QString SwiftGenerator::stringLiteral(const AttrSet& as, const QStringList& row,
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) expr += ", ";
         const QString cell = (i < row.size()) ? row[i] : QString();
-        expr += toIdentifier(as.fields[i].name) + ": ";
+        expr += toArgLabel(as.fields[i].name) + ": ";
         if (isAttrSetType(as.fields[i].type, file))
             expr += nestedLiteral(cell, as.fields[i].type, file);
         else
@@ -182,6 +182,44 @@ QString SwiftGenerator::parseExpr(const QString& field, const QString& specType)
 // Identifier helpers
 // ---------------------------------------------------------------------------
 
+// Swift lets any keyword be used as an identifier when it is written in
+// backticks, and a specification is free to name an attribute Where, Class or
+// Default. Without this a field named Where generated `public let where:`,
+// which does not compile. Backticks are accepted wherever an identifier is --
+// a property, an argument label, a member access, an enum case -- so escaping
+// once here covers every use.
+static bool isSwiftKeyword(const QString& s)
+{
+    static const QSet<QString> keywords = {
+        // declarations
+        "associatedtype", "class", "deinit", "enum", "extension", "fileprivate",
+        "func", "import", "init", "inout", "internal", "let", "open", "operator",
+        "private", "precedencegroup", "protocol", "public", "rethrows", "static",
+        "struct", "subscript", "typealias", "var",
+        // statements
+        "break", "case", "catch", "continue", "default", "defer", "do", "else",
+        "fallthrough", "for", "guard", "if", "in", "repeat", "return", "throw",
+        "switch", "where", "while",
+        // expressions and types
+        "Any", "as", "await", "false", "is", "nil", "self", "Self", "super",
+        "throws", "true", "try",
+        // patterns and modifiers that are still awkward as bare identifiers
+        "actor", "async", "borrowing", "consuming", "each", "macro", "some", "any"
+    };
+    return keywords.contains(s);
+}
+
+// An argument label may be a bare keyword: `init(where: Place)` is legal, and
+// Swift warns that backticks there are unnecessary. Only an identifier used as
+// an expression -- `self.`where`` -- needs escaping, so label positions use
+// this and everything else uses toIdentifier.
+QString SwiftGenerator::toArgLabel(const QString& name)
+{
+    QString id = toIdentifier(name);
+    if (id.startsWith('`') && id.endsWith('`')) id = id.mid(1, id.size() - 2);
+    return id;
+}
+
 QString SwiftGenerator::toIdentifier(const QString& name)
 {
     const QStringList parts = name.trimmed().split(QRegularExpression(R"([\s_]+)"), Qt::SkipEmptyParts);
@@ -190,6 +228,7 @@ QString SwiftGenerator::toIdentifier(const QString& name)
     for (int i = 1; i < parts.size(); ++i)
         result += parts[i][0].toUpper() + parts[i].mid(1);
     if (!result.isEmpty() && result[0].isDigit()) result.prepend('_');
+    if (isSwiftKeyword(result)) result = "`" + result + "`";
     return result;
 }
 
@@ -530,8 +569,7 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        const QString fid = toIdentifier(f.name);
-        s << fid << ": " << fieldType(f);
+        s << toArgLabel(f.name) << ": " << fieldType(f);
     }
     s << ") {\n";
     for (const Field& f : as.fields) {
@@ -564,7 +602,7 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        s << toIdentifier(f.name) << ": ";
+        s << toArgLabel(f.name) << ": ";
         if (isAttrSetType(f.type, file))
             s << toTypeName(f.type) << "String.fromText(parts[" << i << "])";
         else
@@ -822,7 +860,7 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
         const Field& f = as.fields[i];
-        s << toIdentifier(f.name) << ": " << swiftCommonType(f, file);
+        s << toArgLabel(f.name) << ": " << swiftCommonType(f, file);
     }
     s << ") {\n";
     for (const Field& f : as.fields) {
@@ -1324,9 +1362,8 @@ static QString genSwiftProductionEntity(const AttrSet& as, const SpectableFile& 
     s << "    public init(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        const QString fid = SwiftGenerator::toIdentifier(as.fields[i].name);
         const QString st  = SwiftGenerator::swiftType(as.fields[i].type);
-        s << fid << ": " << st;
+        s << SwiftGenerator::toArgLabel(as.fields[i].name) << ": " << st;
     }
     s << ") {\n";
     for (const Field& f : as.fields) {
