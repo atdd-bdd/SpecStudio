@@ -3,6 +3,7 @@
 #include "SpectableModel.h"
 #include <QString>
 #include <QStringList>
+#include <QMap>
 
 class JavaGenerator
 {
@@ -66,6 +67,15 @@ private:
                                    QStringList& msgs,
                                    const QString& framework,
                                    bool failEveryTest);
+
+    // Adds this specification's grid converters to common/TableHelper.java,
+    // keeping any that other specifications put there. Several specs share the
+    // file, so it is merged under a lock rather than replaced.
+    static bool mergeTableHelper(const QString& path,
+                                 const QMap<QString, QString>& fresh,
+                                 const QString& pkg,
+                                 const QStringList& extraImports,
+                                 QStringList& msgs);
 
     static bool writeFile(const QString& path, const QString& content, QStringList& msgs);
 };

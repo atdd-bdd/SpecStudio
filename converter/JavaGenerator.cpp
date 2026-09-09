@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QLockFile>
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QMap>
@@ -1283,30 +1284,101 @@ static QString genGridConverter(const QString& dataType, const SpectableFile& fi
     return out;
 }
 
+// TableHelper.java is the one file in common/ that several specifications
+// share. Every spec with a grid step contributes its own toListListXxx
+// converter, and each is written by the conversion of the spec that needs it.
+//
+// So this file is *merged* with what is already on disk rather than replaced.
+// Replacing it left only the last-generated spec's converters and broke the
+// build for every other spec — a converter would appear, then silently vanish
+// when a sibling spec was generated afterwards. Regenerating a spec still
+// refreshes its own converters (a DataType's constructor may have changed);
+// converters this specification knows nothing about are carried over verbatim,
+// because only the file on disk records that they are needed.
+//
 // extraImports matters here: a grid over a user DataType emits
 // `new IDForm(cell)`, and without `import production.*;` the file does not
 // compile. Every other file in common/ already receives these imports.
-static QString genTableHelperClass(const QVector<JavaGenerator::GlueSig>& sigs,
-                                    const QString& pkg, const SpectableFile& file,
-                                    const QStringList& extraImports)
+
+// The converters and imports of a TableHelper.java already on disk. The file is
+// wholly generated, so its shape is known: each converter is one method opening
+// with `public static List<List<X>> toListListX(` and closing at the first line
+// that is exactly four spaces and a brace.
+struct TableHelperParts {
+    QStringList imports;              // every import line, in file order
+    QMap<QString, QString> methods;   // toListListXxx -> the whole method text
+};
+
+static TableHelperParts parseTableHelper(const QString& text)
 {
-    QSet<QString> seen;
-    QStringList methods;
+    static const QRegularExpression reOpen(
+        R"(^    public static List<List<[^>]+>> (toListList\w+)\()");
+
+    TableHelperParts parts;
+    const QStringList lines = text.split('\n');
+    for (int i = 0; i < lines.size(); ++i) {
+        const QString& line = lines[i];
+
+        if (line.startsWith("import ")) {
+            if (!parts.imports.contains(line)) parts.imports << line;
+            continue;
+        }
+
+        const QRegularExpressionMatch m = reOpen.match(line);
+        if (!m.hasMatch()) continue;
+
+        QStringList body{ line };
+        int j = i + 1;
+        for (; j < lines.size(); ++j) {
+            body << lines[j];
+            if (lines[j] == "    }") break;
+        }
+        // An unterminated method means the file was truncated or hand-edited;
+        // drop it rather than carry a fragment into the merged file.
+        if (j < lines.size())
+            parts.methods.insert(m.captured(1), body.join('\n') + "\n");
+        i = j;
+    }
+    return parts;
+}
+
+// name -> method text, for the grid steps of this specification alone.
+static QMap<QString, QString> genGridConverters(const QVector<JavaGenerator::GlueSig>& sigs,
+                                                const SpectableFile& file)
+{
+    QMap<QString, QString> methods;
     for (const JavaGenerator::GlueSig& sig : sigs) {
         if (sig.gridDataType.isEmpty()) continue;
         const QString boxed = javaBoxedType(sig.gridDataType);
-        if (seen.contains(boxed)) continue;
-        seen.insert(boxed);
-        methods << genGridConverter(sig.gridDataType, file);
+        methods.insert("toListList" + boxed, genGridConverter(sig.gridDataType, file));
     }
-    if (methods.isEmpty()) return {};
+    return methods;
+}
 
+// java.util first, then whatever the configuration asks for, then any import the
+// file already carried that neither covers — a converter kept from another
+// specification may be the only user of it, and dropping it would stop the file
+// compiling.
+static QStringList tableHelperImports(const QStringList& existing,
+                                       const QStringList& extraImports)
+{
+    QStringList imports{ "import java.util.ArrayList;", "import java.util.List;" };
+    for (const QString& imp : extraImports)
+        if (!imports.contains(imp)) imports << imp;
+    for (const QString& imp : existing)
+        if (!imports.contains(imp)) imports << imp;
+    return imports;
+}
+
+// Methods come out in QMap key order, so the file is stable across builds and a
+// regeneration that changes nothing produces no diff.
+static QString renderTableHelper(const QString& pkg, const QStringList& imports,
+                                  const QMap<QString, QString>& methods)
+{
     QString out;
     QTextStream s(&out);
     s << "package " << pkg << ";\n\n";
-    s << "import java.util.ArrayList;\n";
-    s << "import java.util.List;\n";
-    for (const QString& imp : extraImports) s << imp << "\n";
+    for (const QString& imp : imports) s << imp << "\n";
     s << "\n";
     s << "public class TableHelper {\n";
     for (const QString& m : methods)
@@ -2286,6 +2358,50 @@ static QString genProductionHelper(const QVector<AttrSet>& entities, const QStri
     return out;
 }
 
+// Read TableHelper.java, add this specification's converters to whatever is
+// already there, and write it back.
+//
+// Held under a lock because Build > Project spawns every conversion at once and
+// they all reach this file: an unguarded read-modify-write would let two
+// processes each read the old contents and the second overwrite the first,
+// losing a converter exactly as replacing the file used to. QLockFile is
+// advisory between processes, which is all that is needed — every writer is
+// this same function.
+bool JavaGenerator::mergeTableHelper(const QString& path,
+                                     const QMap<QString, QString>& fresh,
+                                     const QString& pkg,
+                                     const QStringList& extraImports,
+                                     QStringList& msgs)
+{
+    QLockFile lock(path + ".lock");
+    lock.setStaleLockTime(30000);
+    if (!lock.tryLock(15000)) {
+        msgs << QString("WARNING:0:Timed out waiting to update %1; "
+                        "its converters may be incomplete. Build again.").arg(path);
+        return writeFile(path, renderTableHelper(pkg, tableHelperImports({}, extraImports), fresh), msgs);
+    }
+
+    TableHelperParts existing;
+    QFile f(path);
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&f);
+        existing = parseTableHelper(in.readAll());
+        f.close();
+    }
+
+    // Freshly generated converters win over their namesakes: this specification
+    // has just been read, and a DataType's constructor may have changed under
+    // one of them. Everything else on disk belongs to another specification and
+    // is kept.
+    QMap<QString, QString> merged = existing.methods;
+    for (auto it = fresh.constBegin(); it != fresh.constEnd(); ++it)
+        merged.insert(it.key(), it.value());
+
+    return writeFile(path,
+                     renderTableHelper(pkg, tableHelperImports(existing.imports, extraImports), merged),
+                     msgs);
+}
+
 bool JavaGenerator::writeFile(const QString& path, const QString& content, QStringList& msgs)
 {
     QFile f(path);
@@ -2472,12 +2588,13 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         }
     }
 
-    // Generate TableHelper.java in common/ with toListListXxx static converters
+    // Merge this specification's toListListXxx converters into common/TableHelper.java
     {
         const QVector<GlueSig> sigs = collectGlueSigs(augmented);
-        const QString helperContent = genTableHelperClass(sigs, domainPkg, augmented, m_extraImports);
-        if (!helperContent.isEmpty())
-            writeFile(domainDir.filePath("TableHelper.java"), helperContent, msgs);
+        const QMap<QString, QString> fresh = genGridConverters(sigs, augmented);
+        if (!fresh.isEmpty())
+            mergeTableHelper(domainDir.filePath("TableHelper.java"), fresh,
+                             domainPkg, m_extraImports, msgs);
     }
 
     // Production class generation
