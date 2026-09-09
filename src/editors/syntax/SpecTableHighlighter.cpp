@@ -76,9 +76,14 @@ void SpecTableHighlighter::buildRules()
     addRule(R"(^\s*\*.*$)", descFmt);
 
     // --- Quoted strings (file paths in Import/Insert/Define) ---
+    // Deliberately not matched on a """ line: this pattern would take the first
+    // two quotes as an empty string and leave the third uncoloured. Docstrings
+    // are handled by block state in highlightBlock instead.
     QTextCharFormat stringFmt;
     stringFmt.setForeground(QColor("#CE9178")); // VS orange
     addRule(R"("[^"]*")", stringFmt);
+
+    m_docStringFmt.setForeground(QColor("#CE9178")); // the same orange
 
     // --- Table pipe separators ---
     QTextCharFormat pipeFmt;
@@ -110,6 +115,23 @@ void SpecTableHighlighter::buildRules()
 
 void SpecTableHighlighter::highlightBlock(const QString& text)
 {
+    // A docstring runs from a line that is exactly """ to the next such line.
+    // Everything between is literal text, so no keyword inside it is coloured,
+    // and the delimiters are coloured whole — the quoted-string rule would
+    // otherwise take two of the three quotes and leave the third bare.
+    static const QRegularExpression reDocDelimiter(R"(^\s*"""\s*$)");
+    const bool inDocString = (previousBlockState() == InDocString);
+    const bool isDelimiter = reDocDelimiter.match(text).hasMatch();
+
+    if (inDocString || isDelimiter) {
+        setFormat(0, text.length(), m_docStringFmt);
+        // A delimiter closes the docstring it is in, and opens one otherwise.
+        setCurrentBlockState(isDelimiter ? (inDocString ? Normal : InDocString)
+                                         : InDocString);
+        return;
+    }
+    setCurrentBlockState(Normal);
+
     // Apply rules in order (later rules can override earlier ones for same span)
     for (const auto& rule : m_rules) {
         QRegularExpressionMatchIterator it = rule.pattern.globalMatch(text);
