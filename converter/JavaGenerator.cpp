@@ -965,9 +965,35 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
 // the sub-AttrSet and returns "new XxxString(\"v1\", \"v2\", ...)".
 // ---------------------------------------------------------------------------
 
+// A do-not-care cell for a nested block is a whole sub-object whose every field
+// is the marker, so the nested equals -- which compares field by field and skips
+// a field marked on either side -- passes on all of them. CompareOnly fills the
+// columns it does not name with ?DNC?, and a nested column has to mean the same
+// thing there as a flat one does. Recurses, so a block nested two deep is filled
+// all the way down.
+static QString dncLiteral(const QString& fieldType, const SpectableFile& file)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+        QString expr = "new " + subAs.name + "String(";
+        for (int i = 0; i < subAs.fields.size(); ++i) {
+            if (i) expr += ", ";
+            if (isAttrSetType(subAs.fields[i].type, file))
+                expr += dncLiteral(subAs.fields[i].type, file);
+            else
+                expr += "\"?DNC?\"";
+        }
+        return expr + ")";
+    }
+    return "\"?DNC?\"";
+}
+
 static QString resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
                                     const SpectableFile& file, QStringList& /*errors*/)
 {
+    if (cellValue.trimmed() == "?DNC?" && isAttrSetType(fieldType, file))
+        return dncLiteral(fieldType, file);
+
     if (cellValue.startsWith('=')) {
         const QString defineName = cellValue.mid(1).trimmed();
         for (const Define& d : file.defines) {

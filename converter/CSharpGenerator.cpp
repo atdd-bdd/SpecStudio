@@ -91,9 +91,33 @@ static QString collectionElementType(const QString& name, const SpectableFile& f
 
 // A cell for a nested-object field is written "=SomeDefine"; expand that define
 // against the nested Attributes block and build its String constructor call.
+// A do-not-care cell for a nested block is a whole sub-object whose every field
+// is the marker, so the nested equality -- which skips a field marked on either
+// side -- passes on all of them. Recurses, so a block nested two deep is filled
+// all the way down.
+static QString dncLiteral(const QString& fieldType, const SpectableFile& file)
+{
+    for (const AttrSet& subAs : file.attrSets) {
+        if (subAs.name.compare(fieldType, Qt::CaseInsensitive) != 0) continue;
+        QString expr = "new " + subAs.name.trimmed() + "String(";
+        for (int i = 0; i < subAs.fields.size(); ++i) {
+            if (i) expr += ", ";
+            if (isAttrSetType(subAs.fields[i].type, file))
+                expr += dncLiteral(subAs.fields[i].type, file);
+            else
+                expr += "\"?DNC?\"";
+        }
+        return expr + ")";
+    }
+    return "\"?DNC?\"";
+}
+
 static QString resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
                                     const SpectableFile& file)
 {
+    if (cellValue.trimmed() == QLatin1String("?DNC?") && isAttrSetType(fieldType, file))
+        return dncLiteral(fieldType, file);
+
     if (cellValue.startsWith('=')) {
         const QString defineName = cellValue.mid(1).trimmed();
         for (const Define& d : file.defines) {

@@ -105,11 +105,18 @@ QString CppGenerator::nestedLiteral(const QString& cellValue, const QString& fie
         for (int i = 0; i < subAs.fields.size(); ++i)
             row[i] = subAs.fields[i].defaultValue;
 
+        // A do-not-care cell means the whole sub-object is do-not-care: every
+        // field takes the marker, so the nested comparison skips all of them.
+        // CompareOnly fills the columns it does not name with ?DNC?, and that
+        // has to mean the same for a nested column as for a flat one.
+        if (cellValue.trimmed() == QLatin1String("?DNC?")) {
+            for (int i = 0; i < row.size(); ++i) row[i] = QStringLiteral("?DNC?");
+        }
         // A cell that is not a =Define reference is the Entity's own text form --
         // `25 USD` is a Money. Split it and use those values, rather than keeping
         // the defaults, which silently turned a row saying 25 USD into 0.0 USD.
         // Each token goes back through this function, so a nested Entity works.
-        if (!cellValue.trimmed().isEmpty() && !cellValue.startsWith('=')) {
+        else if (!cellValue.trimmed().isEmpty() && !cellValue.startsWith('=')) {
             const QStringList parts = textform::split(cellValue);
             for (int i = 0; i < row.size() && i < parts.size(); ++i)
                 row[i] = parts[i];

@@ -38,6 +38,7 @@ private:
 
     // Lookup helpers
     static bool        isAttrSetType(const QString& name, const SpectableFile& file);
+    static QString     dncLiteral(const QString& fieldType, const SpectableFile& file);
     static QString     resolveAttrCellExpr(const QString& cellValue, const QString& fieldType,
                                             const SpectableFile& file);
     static bool        isDataType(const QString& name, const SpectableFile& file);

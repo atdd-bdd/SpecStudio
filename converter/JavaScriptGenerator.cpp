@@ -123,6 +123,12 @@ QString JavaScriptGenerator::nestedLiteral(const QString& cellValue, const QStri
                 break;
             }
         }
+        // A do-not-care cell means the whole sub-object is do-not-care: every
+        // field takes the marker, so the nested comparison skips all of them.
+        if (cellValue.trimmed() == QLatin1String("?DNC?")) {
+            for (int i = 0; i < row.size(); ++i) row[i] = QStringLiteral("?DNC?");
+            return stringLiteral(subAs, row, file);
+        }
         // Not a =Define reference, so the cell is the Entity's own text form --
         // `25 USD` is a Money. Build it from that rather than silently keeping the
         // field defaults, which is what this used to do: a cell saying 25 USD was
