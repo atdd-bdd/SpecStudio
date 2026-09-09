@@ -10,8 +10,12 @@
 static const QStringList k_builtinAttributeSets = { "EnumerationValues", "ValidValues" };
 
 // Built-in DataType names that need no declaration
+// Keep in step with the generators' own list, which is the one that decides
+// whether a build succeeds. Decimal used to be missing here while every
+// generator accepted it, so Analyze reported an undeclared type for a
+// specification that then built and ran perfectly.
 static const QStringList k_builtinDataTypes = {
-    "Character", "String", "Text", "Integer", "Float", "Scientific",
+    "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal",
     "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
 };
 

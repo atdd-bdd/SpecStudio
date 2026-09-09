@@ -45,7 +45,7 @@ void SpecTableHighlighter::buildRules()
     // --- Built-in DataType names ---
     QTextCharFormat builtinFmt;
     builtinFmt.setForeground(QColor("#4FC1FF")); // light blue
-    addRule(R"(\b(Character|String|Text|Integer|Scientific|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
+    addRule(R"(\b(Character|String|Text|Integer|Float|Scientific|Decimal|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
             builtinFmt);
 
     // --- Built-in AttributeSet names ---

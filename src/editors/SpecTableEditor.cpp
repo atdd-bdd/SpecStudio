@@ -48,7 +48,7 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
         "Given ", "When ", "Then ", "And ", "WhenThen ",
         "applying BusinessRule ", "applying Calculation ",
         // Built-in DataTypes
-        "Character", "String", "Text", "Integer", "Scientific",
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal",
         "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo",
         // Built-in AttributeSets
         "EnumerationValues", "ValidValues",
@@ -560,7 +560,7 @@ bool SpecTableEditor::handleTableTabKey()
 
                 if (!cellValue.isEmpty()) {
                     static const QStringList builtInTypes = {
-                        "Boolean", "Character", "Date", "DateTime", "Duration",
+                        "Boolean", "Character", "Date", "DateTime", "Decimal", "Duration",
                         "Float", "Integer", "Scientific", "String", "Text", "Time", "YesNo"
                     };
                     const SpecTableSymbols& syms = m_index->projectSymbols();
@@ -1813,8 +1813,8 @@ void SpecTableEditor::refreshDynamicCompletions()
 
     // Dedicated list for the Type column dropdown in Attributes/Entity tables
     static const QStringList builtInTypes = {
-        "Boolean", "Character", "Date", "DateTime", "Duration",
-        "Integer", "Scientific", "String", "Text", "Time", "YesNo"
+        "Boolean", "Character", "Date", "DateTime", "Decimal", "Duration",
+        "Float", "Integer", "Scientific", "String", "Text", "Time", "YesNo"
     };
     QStringList typeWords = builtInTypes;
     for (const QString& n : syms.dataTypes.keys()) typeWords << n;

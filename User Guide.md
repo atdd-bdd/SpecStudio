@@ -152,11 +152,21 @@ Examples: ValidValues
 `ValidValues` and `EnumerationValues` are built-in attribute sets for exactly
 this purpose.
 
-Built-in types: `Character`, `String`, `Text`, `Integer`, `Float`,
-`Scientific`, `Decimal`, `Boolean`, `Date`, `Time`, `DateTime`, `Duration`,
-`YesNo`. Anything else must be a `DataType`, `Entity` or `Collection` you
-declared. (`Float` and `Decimal` are accepted but not yet syntax-coloured —
-cosmetic only.)
+Built-in types — thirteen, needing no declaration:
+
+| | | | |
+|---|---|---|---|
+| `Character` | `String` | `Text` | `Boolean` |
+| `Integer` | `Float` | `Decimal` | `Scientific` |
+| `Date` | `Time` | `DateTime` | `Duration` |
+| `YesNo` | | | |
+
+Anything else must be a `DataType`, `Entity` or `Collection` you declared.
+`ValidValues` and `EnumerationValues` are built-in attribute sets, described
+under [DataType](#datatype--a-value-with-its-own-validity-rules).
+
+All thirteen are coloured in the editor, offered in the Type column, and
+accepted by Analyze and by every language generator.
 
 ### Define — a named example row
 
