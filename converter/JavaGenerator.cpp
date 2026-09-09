@@ -28,17 +28,41 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+// A cell may name a Define with =Name. A scalar Define contributes its value; a
+// docstring Define contributes its whole text, newlines and all, which is how a
+// multi-line value is compared in a table. Tilde-for-space substitution applies
+// only to the scalar form: a table cell is trimmed, so `~` is how a value keeps
+// a leading or trailing space, while a docstring is already verbatim and a `~`
+// inside one is a tilde.
 static QString resolveValue(const QString& cell, const SpectableFile& file)
 {
     if (cell.startsWith('=')) {
         const QString name = cell.mid(1).trimmed();
-        for (const Define& d : file.defines)
-            if (d.name.compare(name, Qt::CaseInsensitive) == 0 && !d.isTable && !d.hasDocString) {
-                QString v = d.scalarValue;
-                return v.replace('~', ' ');
-            }
+        for (const Define& d : file.defines) {
+            if (d.name.compare(name, Qt::CaseInsensitive) != 0 || d.isTable)
+                continue;
+            if (d.hasDocString)
+                return d.docString;
+            QString v = d.scalarValue;
+            return v.replace('~', ' ');
+        }
     }
     return resolveCell(cell);
+}
+
+// Wraps a cell value as a Java string literal. Values reach here from the
+// specification unaltered, so anything in them has to survive: a docstring
+// Define carries newlines, and a quote or backslash in any cell would otherwise
+// end the literal early and produce code that does not compile.
+static QString javaQuoted(const QString& value)
+{
+    QString out = value;
+    out.replace('\\', "\\\\")
+       .replace('"',  "\\\"")
+       .replace('\n', "\\n")
+       .replace('\r', "\\r")
+       .replace('\t', "\\t");
+    return "\"" + out + "\"";
 }
 
 // Join a package prefix with a suffix; if prefix is empty, return suffix alone.
@@ -847,14 +871,14 @@ static QString resolveAttrCellExpr(const QString& cellValue, const QString& fiel
                 QString expr = "new " + fieldType + "String(";
                 for (int i = 0; i < row.size(); ++i) {
                     if (i) expr += ", ";
-                    expr += "\"" + row[i] + "\"";
+                    expr += javaQuoted(row[i]);
                 }
                 expr += ")";
                 return expr;
             }
         }
     }
-    return "\"" + cellValue + "\"";
+    return javaQuoted(cellValue);
 }
 
 // ---------------------------------------------------------------------------
@@ -1012,14 +1036,14 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                             if (isAttrSetType(f.type, file))
                                 s << resolveAttrCellExpr(row[ci], f.type, file, errors);
                             else
-                                s << "\"" << row[ci] << "\"";
+                                s << javaQuoted(row[ci]);
                             s << (ci + 1 < as->fields.size() && ci + 1 < row.size() ? ",\n" : "));\n");
                         }
                     } else {
                         s << "        " << listVar << ".add(new " << listType << "(";
                         for (int ci = 0; ci < as->fields.size() && ci < row.size(); ++ci) {
                             if (ci) s << ", ";
-                            s << "\"" << row[ci] << "\"";
+                            s << javaQuoted(row[ci]);
                         }
                         s << "));\n";
                     }
@@ -1042,7 +1066,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                     const QStringList& r = tbl.rows[ri];
                     for (int ci = 0; ci < r.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << resolveValue(r[ci], file) << "\"";
+                        s << javaQuoted(resolveValue(r[ci], file));
                     }
                     s << "));\n";
                 }
@@ -1124,7 +1148,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                     s << "        " << listVar << ".add(new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << row[ci] << "\"";
+                        s << javaQuoted(row[ci]);
                     }
                     s << "));\n";
                 }
@@ -1138,7 +1162,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                     s << "        " << listVar << ".add(List.of(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << resolveValue(row[ci], file) << "\"";
+                        s << javaQuoted(resolveValue(row[ci], file));
                     }
                     s << "));\n";
                 }
