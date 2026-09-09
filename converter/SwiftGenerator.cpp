@@ -1,6 +1,7 @@
 #include "SwiftGenerator.h"
 #include "TagFilter.h"
 #include "SourceScan.h"
+#include "TextForm.h"
 
 #include <QDir>
 #include <QFile>
@@ -102,6 +103,16 @@ QString SwiftGenerator::nestedLiteral(const QString& cellValue, const QString& f
         QStringList row(subAs.fields.size());
         for (int i = 0; i < subAs.fields.size(); ++i)
             row[i] = subAs.fields[i].defaultValue;
+
+        // A cell that is not a =Define reference is the Entity's own text form --
+        // `25 USD` is a Money. Split it and use those values, rather than keeping
+        // the defaults, which silently turned a row saying 25 USD into 0.0 USD.
+        // Each token goes back through this function, so a nested Entity works.
+        if (!cellValue.trimmed().isEmpty() && !cellValue.startsWith('=')) {
+            const QStringList parts = textform::split(cellValue);
+            for (int i = 0; i < row.size() && i < parts.size(); ++i)
+                row[i] = parts[i];
+        }
 
         if (cellValue.startsWith('=')) {
             const QString defineName = cellValue.mid(1).trimmed();
@@ -414,6 +425,88 @@ QVector<QStringList> SwiftGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// Tokens.swift — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensSwift(const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "import Foundation\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+    s << "/// The text form of an Entity: its attribute values as space separated\n";
+    s << "/// tokens, in the order the attributes are declared. A value containing a\n";
+    s << "/// space is wrapped in double quotes; a nested Entity's own text form is\n";
+    s << "/// wrapped in single quotes. A run of spaces separates exactly as one does.\n";
+    s << "public enum Tokens {\n\n";
+
+    s << "    public static func split(_ text: String) -> [String] {\n";
+    s << "        let r = Array(text)\n";
+    s << "        var out: [String] = []\n";
+    s << "        var i = 0\n";
+    s << "        while i < r.count {\n";
+    s << "            while i < r.count && r[i].isWhitespace { i += 1 }\n";
+    s << "            if i >= r.count { break }\n";
+    s << "            let c = r[i]\n";
+    s << "            if c == \"\\\"\" || c == \"'\" {\n";
+    s << "                if let close = closingQuote(r, i, c) {\n";
+    s << "                    out.append(String(r[(i + 1)..<close]))\n";
+    s << "                    i = close + 1\n";
+    s << "                } else {\n";
+    s << "                    out.append(String(r[(i + 1)...]))\n";
+    s << "                    break\n";
+    s << "                }\n";
+    s << "            } else {\n";
+    s << "                var j = i\n";
+    s << "                while j < r.count && !r[j].isWhitespace { j += 1 }\n";
+    s << "                out.append(String(r[i..<j]))\n";
+    s << "                i = j\n";
+    s << "            }\n";
+    s << "        }\n";
+    s << "        return out\n";
+    s << "    }\n\n";
+
+    s << "    // The closing quote is the next one of the same kind followed by\n";
+    s << "    // whitespace or the end of the text, which is what lets a nested Entity,\n";
+    s << "    // itself single quoted, sit inside a single quoted value.\n";
+    s << "    private static func closingQuote(_ r: [Character], _ open: Int,\n";
+    s << "                                     _ quote: Character) -> Int? {\n";
+    s << "        var j = open + 1\n";
+    s << "        while j < r.count {\n";
+    s << "            if r[j] == quote && (j + 1 == r.count || r[j + 1].isWhitespace) {\n";
+    s << "                return j\n";
+    s << "            }\n";
+    s << "            j += 1\n";
+    s << "        }\n";
+    s << "        return nil\n";
+    s << "    }\n\n";
+
+    s << "    public static func token(_ value: String) -> String {\n";
+    s << "        if value.isEmpty { return \"\\\"\\\"\" }\n";
+    s << "        if value.contains(where: { $0.isWhitespace }) {\n";
+    s << "            return \"\\\"\" + value + \"\\\"\"\n";
+    s << "        }\n";
+    s << "        return value\n";
+    s << "    }\n\n";
+
+    s << "    public static func nested(_ text: String) -> String {\n";
+    s << "        return \"'\" + text + \"'\"\n";
+    s << "    }\n\n";
+
+    s << "    public static func require(_ text: String, _ expected: Int,\n";
+    s << "                               _ typeName: String) -> [String] {\n";
+    s << "        let parts = split(text)\n";
+    s << "        precondition(parts.count == expected,\n";
+    s << "            \"\\(typeName) takes \\(expected) values but got \\(parts.count): \\(text)\")\n";
+    s << "        return parts\n";
+    s << "    }\n";
+    s << "}\n";
+    return out;
+}
+
 QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& file) const
 {
     const QString typeName = toTypeName(as.name) + "String";
@@ -462,13 +555,35 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
     }
     s << "    }\n\n";
 
+    // fromText — the Entity's text form, values as space separated tokens.
+    s << "    /// Builds from the text form, e.g. Money as \"25 USD\".\n";
+    s << "    public static func fromText(_ text: String) -> " << typeName << " {\n";
+    s << "        let parts = Tokens.require(text, " << as.fields.size()
+      << ", \"" << as.name << "\")\n";
+    s << "        return " << typeName << "(";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        const Field& f = as.fields[i];
+        s << toIdentifier(f.name) << ": ";
+        if (isAttrSetType(f.type, file))
+            s << toTypeName(f.type) << "String.fromText(parts[" << i << "])";
+        else
+            s << "parts[" << i << "]";
+    }
+    s << ")\n    }\n\n";
+
+    // description — the text form, so that it round-trips with fromText.
     s << "    public var description: String {\n";
-    s << "        return \"";
-    QStringList parts;
-    for (const Field& f : as.fields)
-        parts << (f.name + "=\\(" + toIdentifier(f.name) + ")");
-    s << parts.join(", ") << "\"\n";
-    s << "    }\n\n";
+    s << "        return ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << " + \" \" + ";
+        const QString fid = toIdentifier(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "Tokens.nested(" << fid << ".description)";
+        else
+            s << "Tokens.token(" << fid << ")";
+    }
+    s << "\n    }\n\n";
 
     // A field holding the Do-Not-Care marker on either side matches whatever the
     // other side holds — that is what lets a CompareOnly step name only the
@@ -1364,6 +1479,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
     // without per-file imports, so — unlike Rust's mod.rs — no index file
     // or "use" statement is needed to wire them together.
     writeFile(commonDir.filePath("Json.swift"), genSwiftJsonFile(m_extraImports), msgs);
+    writeFile(commonDir.filePath("Tokens.swift"), genTokensSwift(m_extraImports), msgs);
 
     for (const AttrSet& as : augmented.attrSets) {
         if (as.isContext) continue;

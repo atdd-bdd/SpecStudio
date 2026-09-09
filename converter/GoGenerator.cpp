@@ -1,6 +1,7 @@
 #include "GoGenerator.h"
 #include "TagFilter.h"
 #include "SourceScan.h"
+#include "TextForm.h"
 
 #include <QDir>
 #include <QFile>
@@ -69,6 +70,16 @@ QString GoGenerator::goNestedLiteral(const QString& cellValue, const QString& fi
         QStringList row(subAs.fields.size());
         for (int i = 0; i < subAs.fields.size(); ++i)
             row[i] = subAs.fields[i].defaultValue;
+
+        // A cell that is not a =Define reference is the Entity's own text form --
+        // `25 USD` is a Money. Split it and use those values, rather than keeping
+        // the defaults, which silently turned a row saying 25 USD into 0.0 USD.
+        // Each token goes back through this function, so a nested Entity works.
+        if (!cellValue.trimmed().isEmpty() && !cellValue.startsWith('=')) {
+            const QStringList parts = textform::split(cellValue);
+            for (int i = 0; i < row.size() && i < parts.size(); ++i)
+                row[i] = parts[i];
+        }
 
         if (cellValue.startsWith('=')) {
             const QString defineName = cellValue.mid(1).trimmed();
@@ -380,6 +391,73 @@ QVector<QStringList> GoGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// common/tokens.go — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensGo(const QString& pkg)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << "\n\n";
+    s << "import (\n\t\"fmt\"\n\t\"strings\"\n\t\"unicode\"\n)\n\n";
+    s << "// The text form of an Entity: its attribute values as space separated tokens,\n";
+    s << "// in the order the attributes are declared. A value containing a space is\n";
+    s << "// wrapped in double quotes; a nested Entity's own text form is wrapped in\n";
+    s << "// single quotes. A run of spaces separates exactly as a single space does.\n\n";
+
+    s << "func SplitTokens(text string) []string {\n";
+    s << "\tout := []string{}\n";
+    s << "\tr := []rune(text)\n";
+    s << "\tn, i := len(r), 0\n";
+    s << "\tfor i < n {\n";
+    s << "\t\tfor i < n && unicode.IsSpace(r[i]) {\n\t\t\ti++\n\t\t}\n";
+    s << "\t\tif i >= n {\n\t\t\tbreak\n\t\t}\n";
+    s << "\t\tc := r[i]\n";
+    s << "\t\tif c == '\"' || c == '\\'' {\n";
+    s << "\t\t\tclose := closingQuote(r, i, c)\n";
+    s << "\t\t\tif close < 0 {\n";
+    s << "\t\t\t\tout = append(out, string(r[i+1:]))\n\t\t\t\tbreak\n\t\t\t}\n";
+    s << "\t\t\tout = append(out, string(r[i+1:close]))\n";
+    s << "\t\t\ti = close + 1\n";
+    s << "\t\t} else {\n";
+    s << "\t\t\tj := i\n";
+    s << "\t\t\tfor j < n && !unicode.IsSpace(r[j]) {\n\t\t\t\tj++\n\t\t\t}\n";
+    s << "\t\t\tout = append(out, string(r[i:j]))\n";
+    s << "\t\t\ti = j\n";
+    s << "\t\t}\n";
+    s << "\t}\n";
+    s << "\treturn out\n}\n\n";
+
+    s << "// The closing quote is the next one of the same kind followed by whitespace or\n";
+    s << "// the end of the text, which is what lets a nested Entity, itself single\n";
+    s << "// quoted, sit inside a single quoted value.\n";
+    s << "func closingQuote(r []rune, open int, quote rune) int {\n";
+    s << "\tfor j := open + 1; j < len(r); j++ {\n";
+    s << "\t\tif r[j] != quote {\n\t\t\tcontinue\n\t\t}\n";
+    s << "\t\tif j+1 == len(r) || unicode.IsSpace(r[j+1]) {\n\t\t\treturn j\n\t\t}\n";
+    s << "\t}\n";
+    s << "\treturn -1\n}\n\n";
+
+    s << "func Token(value string) string {\n";
+    s << "\tif value == \"\" {\n\t\treturn \"\\\"\\\"\"\n\t}\n";
+    s << "\tif strings.ContainsFunc(value, unicode.IsSpace) {\n";
+    s << "\t\treturn \"\\\"\" + value + \"\\\"\"\n\t}\n";
+    s << "\treturn value\n}\n\n";
+
+    s << "func Nested(text string) string {\n";
+    s << "\treturn \"'\" + text + \"'\"\n}\n\n";
+
+    s << "func RequireTokens(text string, expected int, typeName string) []string {\n";
+    s << "\tparts := SplitTokens(text)\n";
+    s << "\tif len(parts) != expected {\n";
+    s << "\t\tpanic(fmt.Sprintf(\"%s takes %d values but got %d: %s\",\n";
+    s << "\t\t\ttypeName, expected, len(parts), text))\n\t}\n";
+    s << "\treturn parts\n}\n";
+    return out;
+}
+
 QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
                                      const SpectableFile& file) const
 {
@@ -387,7 +465,10 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
     QString out;
     QTextStream s(&out);
 
-    s << "package " << pkg << "\n\nimport \"fmt\"\n\n";
+    // No import: String() is built from Token/Nested in this same package, and
+    // Go treats an unused import as an error. fmt was needed only while String()
+    // used Sprintf.
+    s << "package " << pkg << "\n\n";
 
     // A field whose type names another Attributes block holds that block's
     // String struct, not a bare string.
@@ -412,16 +493,35 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
     }
     s << "\treturn s\n}\n\n";
 
-    s << "func (s " << typeName << ") String() string {\n";
-    s << "\treturn fmt.Sprintf(\"";
+    // FromText — the Entity's text form, values as space separated tokens.
+    s << "// New" << typeName << "FromText builds from the text form, e.g. Money as \"25 USD\".\n";
+    s << "func New" << typeName << "FromText(text string) " << typeName << " {\n";
+    s << "\tparts := RequireTokens(text, " << as.fields.size()
+      << ", \"" << as.name << "\")\n";
+    s << "\treturn " << typeName << "{\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        s << as.fields[i].name << (isAttrSetType(as.fields[i].type, file) ? "=%v" : "=%s");
+        s << "\t\t" << toExported(as.fields[i].name) << ": ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "New" << toExported(as.fields[i].type) << "StringFromText(parts["
+              << i << "])";
+        else
+            s << "parts[" << i << "]";
+        s << ",\n";
     }
-    s << "\"";
-    for (const Field& f : as.fields)
-        s << ", s." << toExported(f.name);
-    s << ")\n}\n\n";
+    s << "\t}\n}\n\n";
+
+    // String() — the text form, so that it round-trips with FromText.
+    s << "func (s " << typeName << ") String() string {\n";
+    s << "\treturn ";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << " + \" \" + ";
+        const QString fx = toExported(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "Nested(s." << fx << ".String())";
+        else
+            s << "Token(s." << fx << ")";
+    }
+    s << "\n}\n\n";
 
     // A field holding the Do-Not-Care marker on either side matches whatever
     // the other side holds — that is what lets a CompareOnly step name only the
@@ -1371,6 +1471,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         s << "\tcase \"true\", \"t\", \"yes\", \"y\", \"1\":\n\t\treturn true\n";
         s << "\t}\n\treturn false\n}\n";
         writeFile(commonDir.filePath("common.go"), commonGo, msgs);
+    writeFile(commonDir.filePath("tokens.go"), genTokensGo(commonPkg), msgs);
     }
 
     writeFile(commonDir.filePath("json.go"), genGoJsonHelpers(commonPkg), msgs);

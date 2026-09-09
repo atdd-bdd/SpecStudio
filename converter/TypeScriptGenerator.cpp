@@ -584,14 +584,18 @@ QString TypeScriptGenerator::genStringClass(const AttrSet& as, const SpectableFi
     }
     s << "    return r;\n  }\n\n";
 
+    // toString — the text form, so that it round-trips with fromText.
     s << "  toString(): string {\n";
-    s << "    return `";
+    s << "    return ";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
+        if (i) s << " + \" \" + ";
         const QString fn = toCamelCase(as.fields[i].name);
-        s << as.fields[i].name << "=${this." << fn << "}";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "tokens.nested(String(this." << fn << "))";
+        else
+            s << "tokens.token(this." << fn << ")";
     }
-    s << "`;\n  }\n\n";
+    s << ";\n  }\n\n";
 
     s << genEqualsMethod(as, cn, file, /*dncAware=*/true);
     s << "}\n";

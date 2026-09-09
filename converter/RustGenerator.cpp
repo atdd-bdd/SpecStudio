@@ -1,6 +1,7 @@
 #include "RustGenerator.h"
 #include "TagFilter.h"
 #include "SourceScan.h"
+#include "TextForm.h"
 
 #include <QDir>
 #include <QFile>
@@ -79,6 +80,16 @@ QString RustGenerator::rustNestedLiteral(const QString& cellValue, const QString
         QStringList row(subAs.fields.size());
         for (int i = 0; i < subAs.fields.size(); ++i)
             row[i] = subAs.fields[i].defaultValue;
+
+        // A cell that is not a =Define reference is the Entity's own text form --
+        // `25 USD` is a Money. Split it and use those values, rather than keeping
+        // the defaults, which silently turned a row saying 25 USD into 0.0 USD.
+        // Each token goes back through this function, so a nested Entity works.
+        if (!cellValue.trimmed().isEmpty() && !cellValue.startsWith('=')) {
+            const QStringList parts = textform::split(cellValue);
+            for (int i = 0; i < row.size() && i < parts.size(); ++i)
+                row[i] = parts[i];
+        }
 
         if (cellValue.startsWith('=')) {
             const QString defineName = cellValue.mid(1).trimmed();
@@ -426,6 +437,80 @@ QVector<QStringList> RustGenerator::resolveExamplesRows(
 // String struct
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// common/tokens.rs — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensRs()
+{
+    QString out;
+    QTextStream s(&out);
+    s << "#![allow(dead_code)]\n\n";
+    s << "//! The text form of an Entity: its attribute values as space separated\n";
+    s << "//! tokens, in the order the attributes are declared. A value containing a\n";
+    s << "//! space is wrapped in double quotes; a nested Entity's own text form is\n";
+    s << "//! wrapped in single quotes. A run of spaces separates exactly as one does.\n\n";
+
+    s << "pub fn split(text: &str) -> Vec<String> {\n";
+    s << "    let r: Vec<char> = text.chars().collect();\n";
+    s << "    let n = r.len();\n";
+    s << "    let mut out: Vec<String> = Vec::new();\n";
+    s << "    let mut i = 0usize;\n";
+    s << "    while i < n {\n";
+    s << "        while i < n && r[i].is_whitespace() { i += 1; }\n";
+    s << "        if i >= n { break; }\n";
+    s << "        let c = r[i];\n";
+    s << "        if c == '\"' || c == '\\'' {\n";
+    s << "            match closing_quote(&r, i, c) {\n";
+    s << "                Some(close) => {\n";
+    s << "                    out.push(r[i + 1..close].iter().collect());\n";
+    s << "                    i = close + 1;\n";
+    s << "                }\n";
+    s << "                None => {\n";
+    s << "                    out.push(r[i + 1..].iter().collect());\n";
+    s << "                    break;\n";
+    s << "                }\n";
+    s << "            }\n";
+    s << "        } else {\n";
+    s << "            let mut j = i;\n";
+    s << "            while j < n && !r[j].is_whitespace() { j += 1; }\n";
+    s << "            out.push(r[i..j].iter().collect());\n";
+    s << "            i = j;\n";
+    s << "        }\n";
+    s << "    }\n";
+    s << "    out\n}\n\n";
+
+    s << "// The closing quote is the next one of the same kind followed by whitespace\n";
+    s << "// or the end of the text, which is what lets a nested Entity, itself single\n";
+    s << "// quoted, sit inside a single quoted value.\n";
+    s << "fn closing_quote(r: &[char], open: usize, quote: char) -> Option<usize> {\n";
+    s << "    for j in (open + 1)..r.len() {\n";
+    s << "        if r[j] != quote { continue; }\n";
+    s << "        if j + 1 == r.len() || r[j + 1].is_whitespace() { return Some(j); }\n";
+    s << "    }\n";
+    s << "    None\n}\n\n";
+
+    s << "pub fn token(value: &str) -> String {\n";
+    s << "    if value.is_empty() { return \"\\\"\\\"\".to_string(); }\n";
+    s << "    if value.chars().any(|c| c.is_whitespace()) {\n";
+    s << "        return format!(\"\\\"{}\\\"\", value);\n";
+    s << "    }\n";
+    s << "    value.to_string()\n}\n\n";
+
+    s << "pub fn nested(text: &str) -> String {\n";
+    s << "    format!(\"'{}'\", text)\n}\n\n";
+
+    s << "pub fn require(text: &str, expected: usize, type_name: &str) -> Vec<String> {\n";
+    s << "    let parts = split(text);\n";
+    s << "    if parts.len() != expected {\n";
+    s << "        panic!(\"{} takes {} values but got {}: {}\",\n";
+    s << "               type_name, expected, parts.len(), text);\n";
+    s << "    }\n";
+    s << "    parts\n}\n";
+    return out;
+}
+
 QString RustGenerator::genStringStruct(const AttrSet& as, const SpectableFile& file) const
 {
     const QString typeName = toTypeName(as.name) + "String";
@@ -472,24 +557,37 @@ QString RustGenerator::genStringStruct(const AttrSet& as, const SpectableFile& f
         s << "            " << toIdentifier(f.name)
           << ": v.get(" << i << ").copied().unwrap_or(\"\").to_string(),\n";
     }
+    s << "        }\n    }\n\n";
+
+    // from_text — the Entity's text form, values as space separated tokens.
+    s << "    /// Builds from the text form, e.g. Money as \"25 USD\".\n";
+    s << "    pub fn from_text(text: &str) -> Self {\n";
+    s << "        let parts = crate::common::tokens::require(text, "
+      << as.fields.size() << ", \"" << as.name << "\");\n";
+    s << "        Self {\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f = as.fields[i];
+        s << "            " << toIdentifier(f.name) << ": ";
+        if (isAttrSetType(f.type, file))
+            s << toTypeName(f.type) << "String::from_text(&parts[" << i << "]),\n";
+        else
+            s << "parts[" << i << "].clone(),\n";
+    }
     s << "        }\n    }\n}\n\n";
 
+    // Display — the text form, so that it round-trips with from_text.
     s << "impl std::fmt::Display for " << typeName << " {\n";
     s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
-    s << "        write!(f,\n";
-
-    QStringList placeholders, args;
-    for (const Field& field : as.fields) {
-        placeholders << (field.name + (isAttrSetType(field.type, file) ? "={:?}" : "={}"));
-        args << "self." + toIdentifier(field.name);
+    s << "        write!(f, \"{}\", [";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        if (i) s << ", ";
+        const QString fid = toIdentifier(as.fields[i].name);
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "crate::common::tokens::nested(&self." << fid << ".to_string())";
+        else
+            s << "crate::common::tokens::token(&self." << fid << ")";
     }
-    s << "            \"" << placeholders.join(", ") << "\",\n";
-    for (int i = 0; i < args.size(); ++i) {
-        s << "            " << args[i];
-        if (i < args.size() - 1) s << ",";
-        s << "\n";
-    }
-    s << "        )\n    }\n}\n\n";
+    s << "].join(\" \"))\n    }\n}\n\n";
 
     // A field holding the Do-Not-Care marker on either side matches whatever
     // the other side holds — that is what lets a CompareOnly step name only the
@@ -657,6 +755,7 @@ QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
         const QString t = line.trimmed();
         if (t.startsWith("pub mod ") || t.startsWith("pub use ")) {
             if (t == "pub mod json;" || t == "pub use json::*;") continue;
+            if (t == "pub mod tokens;") continue;
             if (!mods.contains(t)) mods << t;
         }
     }
@@ -679,6 +778,10 @@ QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
     s << "#![allow(unused_imports, dead_code)]\n\n";
     s << "pub mod json;\n";
     s << "pub use json::*;\n";
+    // tokens is referenced by path (crate::common::tokens) rather than
+    // re-exported, so that `token` and `nested` do not collide with a field
+    // or helper of the same name in a user crate.
+    s << "pub mod tokens;\n";
     for (const QString& l : mods) s << l << "\n";
 
     s << "\n/// The Do-Not-Care marker a CompareOnly step puts in every column\n";
@@ -1782,6 +1885,7 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.rs"), genRustJsonMod(),          msgs);
+    writeFile(commonDir.filePath("tokens.rs"), genTokensRs(),           msgs);
     {
         // Read the existing index so structs from the other .spectable files survive.
         QString existingMod;

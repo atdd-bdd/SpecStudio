@@ -1,6 +1,7 @@
 #include "CppGenerator.h"
 #include "TagFilter.h"
 #include "SourceScan.h"
+#include "TextForm.h"
 
 #include <QDir>
 #include <QFile>
@@ -103,6 +104,16 @@ QString CppGenerator::nestedLiteral(const QString& cellValue, const QString& fie
         QStringList row(subAs.fields.size());
         for (int i = 0; i < subAs.fields.size(); ++i)
             row[i] = subAs.fields[i].defaultValue;
+
+        // A cell that is not a =Define reference is the Entity's own text form --
+        // `25 USD` is a Money. Split it and use those values, rather than keeping
+        // the defaults, which silently turned a row saying 25 USD into 0.0 USD.
+        // Each token goes back through this function, so a nested Entity works.
+        if (!cellValue.trimmed().isEmpty() && !cellValue.startsWith('=')) {
+            const QStringList parts = textform::split(cellValue);
+            for (int i = 0; i < row.size() && i < parts.size(); ++i)
+                row[i] = parts[i];
+        }
 
         if (cellValue.startsWith('=')) {
             const QString defineName = cellValue.mid(1).trimmed();
@@ -386,6 +397,87 @@ QVector<QStringList> CppGenerator::resolveExamplesRows(
 // String header generator
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// common/tokens.h — the text form of an Entity
+// ---------------------------------------------------------------------------
+
+static QString genTokensHeader()
+{
+    QString out;
+    QTextStream s(&out);
+    s << "#pragma once\n\n";
+    s << "#include <cctype>\n";
+    s << "#include <stdexcept>\n";
+    s << "#include <string>\n";
+    s << "#include <vector>\n\n";
+    s << "// The text form of an Entity: its attribute values as space separated tokens,\n";
+    s << "// in the order the attributes are declared. A value containing a space is\n";
+    s << "// wrapped in double quotes; a nested Entity's own text form is wrapped in\n";
+    s << "// single quotes. A run of spaces separates exactly as a single space does.\n\n";
+    s << "namespace tokens {\n\n";
+
+    s << "inline bool is_space(char c) {\n";
+    s << "    return std::isspace(static_cast<unsigned char>(c)) != 0;\n";
+    s << "}\n\n";
+
+    s << "// The closing quote is the next one of the same kind followed by whitespace\n";
+    s << "// or the end of the text, which is what lets a nested Entity, itself single\n";
+    s << "// quoted, sit inside a single quoted value.\n";
+    s << "inline std::string::size_type closing_quote(const std::string& text,\n";
+    s << "                                           std::string::size_type open,\n";
+    s << "                                           char quote) {\n";
+    s << "    for (std::string::size_type j = open + 1; j < text.size(); ++j) {\n";
+    s << "        if (text[j] != quote) continue;\n";
+    s << "        if (j + 1 == text.size() || is_space(text[j + 1])) return j;\n";
+    s << "    }\n";
+    s << "    return std::string::npos;\n";
+    s << "}\n\n";
+
+    s << "inline std::vector<std::string> split(const std::string& text) {\n";
+    s << "    std::vector<std::string> out;\n";
+    s << "    std::string::size_type i = 0;\n";
+    s << "    while (i < text.size()) {\n";
+    s << "        while (i < text.size() && is_space(text[i])) ++i;\n";
+    s << "        if (i >= text.size()) break;\n";
+    s << "        const char c = text[i];\n";
+    s << "        if (c == '\"' || c == '\\'') {\n";
+    s << "            const std::string::size_type close = closing_quote(text, i, c);\n";
+    s << "            if (close == std::string::npos) { out.push_back(text.substr(i + 1)); break; }\n";
+    s << "            out.push_back(text.substr(i + 1, close - i - 1));\n";
+    s << "            i = close + 1;\n";
+    s << "        } else {\n";
+    s << "            std::string::size_type j = i;\n";
+    s << "            while (j < text.size() && !is_space(text[j])) ++j;\n";
+    s << "            out.push_back(text.substr(i, j - i));\n";
+    s << "            i = j;\n";
+    s << "        }\n";
+    s << "    }\n";
+    s << "    return out;\n";
+    s << "}\n\n";
+
+    s << "inline std::string token(const std::string& value) {\n";
+    s << "    if (value.empty()) return \"\\\"\\\"\";\n";
+    s << "    for (char c : value) if (is_space(c)) return \"\\\"\" + value + \"\\\"\";\n";
+    s << "    return value;\n";
+    s << "}\n\n";
+
+    s << "inline std::string nested(const std::string& text) {\n";
+    s << "    return \"'\" + text + \"'\";\n";
+    s << "}\n\n";
+
+    s << "inline std::vector<std::string> require(const std::string& text, std::size_t expected,\n";
+    s << "                                       const std::string& type_name) {\n";
+    s << "    std::vector<std::string> parts = split(text);\n";
+    s << "    if (parts.size() != expected)\n";
+    s << "        throw std::invalid_argument(type_name + \" takes \" + std::to_string(expected)\n";
+    s << "            + \" values but got \" + std::to_string(parts.size()) + \": \" + text);\n";
+    s << "    return parts;\n";
+    s << "}\n\n";
+    s << "} // namespace tokens\n";
+    return out;
+}
+
 QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& file) const
 {
     const QString typeName = toTypeName(as.name) + "String";
@@ -397,6 +489,7 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
     s << "#include <string>\n";
     s << "#include <vector>\n";
     s << "#include <sstream>\n";
+    s << "#include \"tokens.h\"\n";
     // A nested Attributes block is held as that block's own String struct.
     QSet<QString> seenIncludes;
     for (const Field& f : as.fields) {
@@ -447,17 +540,34 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
     s << "        return obj;\n";
     s << "    }\n\n";
 
-    // to_string
+    // from_text — the Entity's text form, values as space separated tokens.
+    s << "    /// Builds from the text form, e.g. Money as \"25 USD\".\n";
+    s << "    static " << typeName << " from_text(const std::string& text) {\n";
+    s << "        const std::vector<std::string> parts = tokens::require(text, "
+      << as.fields.size() << ", \"" << as.name << "\");\n";
+    s << "        " << typeName << " obj;\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const QString fid = toIdentifier(as.fields[i].name);
+        s << "        obj." << fid << " = ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << toTypeName(as.fields[i].type) << "String::from_text(parts[" << i << "]);\n";
+        else
+            s << "parts[" << i << "];\n";
+    }
+    s << "        return obj;\n";
+    s << "    }\n\n";
+
+    // to_string — the text form, so that it round-trips with from_text.
     s << "    std::string to_string() const {\n";
     s << "        std::ostringstream ss;\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << "        ss << \", \";\n";
+        if (i) s << "        ss << \" \";\n";
         const QString fid = toIdentifier(as.fields[i].name);
-        s << "        ss << \"" << as.fields[i].name << "=\" << ";
+        s << "        ss << ";
         if (isAttrSetType(as.fields[i].type, file))
-            s << fid << ".to_string();\n";
+            s << "tokens::nested(" << fid << ".to_string());\n";
         else
-            s << fid << ";\n";
+            s << "tokens::token(" << fid << ");\n";
     }
     s << "        return ss.str();\n";
     s << "    }\n\n";
@@ -1707,6 +1817,7 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
         domainSets.push_back(as);
     }
     writeFile(commonDir.filePath("json.h"),   genJsonHeader(),                 msgs);
+    writeFile(commonDir.filePath("tokens.h"), genTokensHeader(),               msgs);
     {
         // Read the existing header so structs from the other .spectable files survive.
         QString existingCommon;
