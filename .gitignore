@@ -22,6 +22,15 @@ dist/
 build-linux/
 build-mac/
 
+# Visual Studio's "Open Folder" CMake support writes these itself: out/ is the
+# build tree it configures into, and it generates both preset files rather than
+# being given them. CMakePresets.json is normally a shared file that a project
+# writes on purpose — this repository does not, so it is ignored with the rest.
+# If a hand-written one is ever added, remove that line before committing it.
+out/
+CMakePresets.json
+CMakeUserPresets.json
+
 # The alignthree.com website: generator, templates, stylesheet and the pages it
 # produces. The pages are uploaded by FTP rather than committed, and the site is
 # kept out of the product repository entirely.
