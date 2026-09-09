@@ -20,17 +20,41 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+// A cell may name a Define with =Name. A scalar Define contributes its value; a
+// docstring Define contributes its whole text, newlines and all, which is how a
+// multi-line value is compared in a table. Tilde-for-space substitution applies
+// only to the scalar form: a table cell is trimmed, so `~` is how a value keeps
+// a leading or trailing space, while a docstring is already verbatim and a `~`
+// inside one is a tilde.
 static QString resolveValue(const QString& cell, const SpectableFile& file)
 {
     if (cell.startsWith('=')) {
         const QString name = cell.mid(1).trimmed();
-        for (const Define& d : file.defines)
-            if (d.name.compare(name, Qt::CaseInsensitive) == 0 && !d.isTable && !d.hasDocString) {
-                QString v = d.scalarValue;
-                return v.replace('~', ' ');
-            }
+        for (const Define& d : file.defines) {
+            if (d.name.compare(name, Qt::CaseInsensitive) != 0 || d.isTable)
+                continue;
+            if (d.hasDocString)
+                return d.docString;
+            QString v = d.scalarValue;
+            return v.replace('~', ' ');
+        }
     }
     return resolveCell(cell);
+}
+
+// Cell values reach the generated code from the specification unaltered, so
+// anything in them has to survive: a docstring Define carries newlines, and a
+// quote or backslash in any cell would otherwise end the literal early and
+// produce code that does not compile.
+static QString csEscape(const QString& s)
+{
+    QString r = s;
+    r.replace('\\', "\\\\");
+    r.replace('"',  "\\\"");
+    r.replace('\n', "\\n");
+    r.replace('\r', "\\r");
+    r.replace('\t', "\\t");
+    return r;
 }
 
 // Join a namespace prefix with a suffix; if prefix is empty, return suffix alone.
@@ -963,7 +987,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                         if (!fType.isEmpty() && isAttrSetType(fType, file))
                             s << resolveAttrCellExpr(row[ci], fType, file);
                         else
-                            s << "\"" << row[ci] << "\"";
+                            s << "\"" << csEscape(row[ci]) << "\"";
                     }
                     s << "),\n";
                 }
@@ -990,7 +1014,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     const QStringList& r = tbl.rows[ri];
                     for (int ci = 0; ci < r.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << resolveValue(r[ci], file) << "\"";
+                        s << "\"" << csEscape(resolveValue(r[ci], file)) << "\"";
                     }
                     s << " },\n";
                 }
@@ -1075,7 +1099,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     s << "         new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ",";
-                        s << "\"" << row[ci] << "\"";
+                        s << "\"" << csEscape(row[ci]) << "\"";
                     }
                     s << "),\n";
                 }
@@ -1091,7 +1115,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     s << "         new List<string>{ ";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ", ";
-                        s << "\"" << resolveValue(row[ci], file) << "\"";
+                        s << "\"" << csEscape(resolveValue(row[ci], file)) << "\"";
                     }
                     s << " },\n";
                 }

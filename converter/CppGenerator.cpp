@@ -21,15 +21,24 @@ static QString resolveCell(const QString& cell)
     return s.replace('~', ' ');
 }
 
+// A cell may name a Define with =Name. A scalar Define contributes its value; a
+// docstring Define contributes its whole text, newlines and all, which is how a
+// multi-line value is compared in a table. Tilde-for-space substitution applies
+// only to the scalar form: a table cell is trimmed, so `~` is how a value keeps
+// a leading or trailing space, while a docstring is already verbatim and a `~`
+// inside one is a tilde.
 static QString resolveValue(const QString& cell, const SpectableFile& file)
 {
     if (cell.startsWith('=')) {
         const QString name = cell.mid(1).trimmed();
-        for (const Define& d : file.defines)
-            if (d.name.compare(name, Qt::CaseInsensitive) == 0 && !d.isTable && !d.hasDocString) {
-                QString v = d.scalarValue;
-                return v.replace('~', ' ');
-            }
+        for (const Define& d : file.defines) {
+            if (d.name.compare(name, Qt::CaseInsensitive) != 0 || d.isTable)
+                continue;
+            if (d.hasDocString)
+                return d.docString;
+            QString v = d.scalarValue;
+            return v.replace('~', ' ');
+        }
     }
     return resolveCell(cell);
 }
@@ -40,6 +49,8 @@ static QString cppEscape(const QString& s)
     r.replace('\\', "\\\\");
     r.replace('"',  "\\\"");
     r.replace('\n', "\\n");
+    r.replace('\r', "\\r");
+    r.replace('\t', "\\t");
     return r;
 }
 
