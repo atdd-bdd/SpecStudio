@@ -1409,11 +1409,25 @@ QString TypeScriptGenerator::genProductionEntity(const AttrSet& as)
     for (const Field& f : as.fields)
         s << "  " << toCamelCase(f.name) << ": " << tsType(f.type) << ";\n";
     s << "\n";
+    // A default has to become a TypeScript expression, and only the primitive
+    // types have one. A number is written as it stands, a string is quoted, and
+    // a field whose type is a class of its own -- an Entity, or a DataType the
+    // project supplies -- has no literal form at all: `price: Money = 0 USD`
+    // was being emitted, which does not parse. Such a field becomes required
+    // instead, so the caller passes a real object.
+    auto defaultExpr = [](const Field& f) -> QString {
+        const QString t = tsType(f.type);
+        if (t == "number" || t == "boolean") return f.defaultValue.trimmed();
+        if (t == "string")                   return "\"" + jsStringEscape(f.defaultValue) + "\"";
+        return QString();                    // a class: no literal to write
+    };
+
     // Defaulted parameters must come last: TypeScript rejects a required
     // parameter after an optional one.
     QVector<const Field*> required, defaulted;
     for (const Field& f : as.fields)
-        (f.defaultValue.isEmpty() ? required : defaulted).push_back(&f);
+        (f.defaultValue.isEmpty() || defaultExpr(f).isEmpty() ? required : defaulted)
+            .push_back(&f);
 
     s << "  constructor(";
     bool first = true;
@@ -1426,7 +1440,7 @@ QString TypeScriptGenerator::genProductionEntity(const AttrSet& as)
         if (!first) s << ", ";
         first = false;
         s << toCamelCase(f->name) << ": " << tsType(f->type)
-          << " = " << jsStringEscape(f->defaultValue);
+          << " = " << defaultExpr(*f);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
