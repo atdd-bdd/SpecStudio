@@ -1235,9 +1235,31 @@ bool JavaScriptGenerator::appendMissingStubs(const QString& gluePath,
     if (stubs.isEmpty()) return false;
 
     // Insert before the last closing "}" of the class
-    const int closingBrace = content.lastIndexOf("\n}");
+    // The stubs belong inside the glue class. Taking the last closing brace in
+    // the file put them inside whatever came after it: this generator emits free
+    // helper functions below the class, so a new stub landed in the middle of
+    // one and the module stopped parsing.
+    //
+    // Brace-match from the class declaration instead. Matching runs over the
+    // comment-stripped copy, which blanks comments and string literals in place
+    // and so keeps every offset, meaning a brace inside either cannot be taken
+    // for structure.
+    static const QRegularExpression reClass(R"(\bclass\b[^\{]*\{)");
+    const QRegularExpressionMatch classMatch = reClass.match(scan);
+
+    int closingBrace = -1;
+    if (classMatch.hasMatch()) {
+        int depth = 0;
+        for (int i = classMatch.capturedEnd() - 1; i < scan.size(); ++i) {
+            if (scan[i] == '{') ++depth;
+            else if (scan[i] == '}' && --depth == 0) {
+                closingBrace = content.lastIndexOf('\n', i);
+                break;
+            }
+        }
+    }
     if (closingBrace < 0) {
-        msgs << QString("WARNING:0:Could not locate class closing brace in %1 — stubs not added")
+        msgs << QString("WARNING:0:Could not locate the glue class in %1 — stubs not added")
                 .arg(gluePath);
         return false;
     }

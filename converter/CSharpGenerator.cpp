@@ -1247,7 +1247,17 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                     s << "         new " << listType << "(";
                     for (int ci = 0; ci < row.size(); ++ci) {
                         if (ci) s << ",";
-                        s << "\"" << csEscape(row[ci]) << "\"";
+                        // An Examples: column can name an Entity just as a scenario
+                        // table's can, in which case the cell is that Entity's text
+                        // form and has to be built rather than passed as a string.
+                        // Every other language already did this here; C# emitted the
+                        // raw text and would not compile.
+                        const QString fType = (ci < as->fields.size())
+                                            ? as->fields[ci].type : QString();
+                        if (!fType.isEmpty() && isAttrSetType(fType, file))
+                            s << resolveAttrCellExpr(row[ci], fType, file);
+                        else
+                            s << "\"" << csEscape(row[ci]) << "\"";
                     }
                     s << "),\n";
                 }
@@ -1324,14 +1334,14 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
                 const Define* def = findDefine(step.defineRef, file);
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "", false }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
-                sigs.push_back({ meth, "", false });           // void / no parameter
+                record(meth, { meth, "", false }, step.line);           // void / no parameter
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
                 record(meth, { meth, effectiveName + "String", true }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                sigs.push_back({ meth, "List<List<string>>", false });  // grid
+                record(meth, { meth, "List<List<string>>", false }, step.line);  // grid
             } else {
                 record(meth, { meth, "List<string>", true }, step.line);
             }

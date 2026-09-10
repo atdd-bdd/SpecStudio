@@ -1612,9 +1612,33 @@ bool RustGenerator::appendMissingStubs(const QString& gluePath,
     }
     if (stubs.isEmpty()) return false;
 
-    const int closingBrace = content.lastIndexOf("\n}");
+    // The stubs belong inside the glue struct's impl block. Taking the last
+    // closing brace in the file put them inside whatever came after it: this
+    // generator emits free helper functions -- to_vec_vec_i32 and friends --
+    // below the impl, so a new stub landed in the middle of one and the crate
+    // stopped parsing ("expected `;`, found keyword `pub`").
+    //
+    // Brace-match from the first impl instead. Matching runs over the
+    // comment-stripped copy, which blanks comments and string literals in place
+    // and so keeps every offset, meaning a brace inside either cannot be
+    // mistaken for structure.
+    static const QRegularExpression reImpl(R"(\bimpl\b[^\{]*\{)");
+    const QRegularExpressionMatch implMatch = reImpl.match(scan);
+
+    int closingBrace = -1;
+    if (implMatch.hasMatch()) {
+        int depth = 0;
+        for (int i = implMatch.capturedEnd() - 1; i < scan.size(); ++i) {
+            if (scan[i] == '{') ++depth;
+            else if (scan[i] == '}' && --depth == 0) {
+                // Insert on the line before the brace, as the old code did.
+                closingBrace = content.lastIndexOf('\n', i);
+                break;
+            }
+        }
+    }
     if (closingBrace < 0) {
-        msgs << QString("WARNING:0:Could not locate closing brace in %1 — stubs not added")
+        msgs << QString("WARNING:0:Could not locate the impl block in %1 — stubs not added")
                 .arg(gluePath);
         return false;
     }
