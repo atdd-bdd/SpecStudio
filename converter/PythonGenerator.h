@@ -19,6 +19,13 @@ public:
         QString     productionClassesDir;
         QString     productionClassesPackage;   // reserved
         bool        failEveryTest = true;            // end every generated glue stub with a failure
+        // Append the step's AttributeSet/Entity to its glue method name, so
+        // that two steps reading alike but taking different tables become two
+        // methods instead of one collision. Off unless a .specconfig asks for
+        // it: turning it on renames every affected glue method, and
+        // appendMissingStubs matches by name, so the old ones are left behind
+        // holding their implementations.
+        bool        stepNameIncludesAttrSet = false;
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);
@@ -33,7 +40,9 @@ private:
     static QString parseExpr(const QString& field, const QString& specType);
     static QString toIdentifier(const QString& name);   // snake_case
     static QString toTypeName(const QString& name);     // PascalCase
-    static QString toMethodName(const QString& keyword, const QString& stepText);
+    static QString toMethodName(const QString& keyword, const QString& stepText,
+                                const QString& attrSetName = QString());
+    static QString toMethodName(const Step& step);
     static QString toModuleName(const QString& name);   // snake_case module
 
     // Lookup helpers

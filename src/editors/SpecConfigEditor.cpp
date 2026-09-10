@@ -11,6 +11,8 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
+#include <QSignalBlocker>
 #include <QListWidget>
 #include <QPushButton>
 #include <QPlainTextEdit>
@@ -140,6 +142,26 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     testHint->setStyleSheet("color: gray; font-size: 11px;");
     testLayout->addWidget(m_failEveryTest);
     testLayout->addWidget(testHint);
+
+    m_stepNameAttrSet = new QCheckBox(
+        tr("Include the table type in each glue method name"), testGroup);
+    auto* stepNameHint = new QLabel(
+        tr("When checked, a step's glue method is named after its keyword, its "
+           "text and the AttributeSet or Entity it takes \u2014 Given_the_value_is_Money "
+           "rather than Given_the_value_is. Two steps that read alike but take "
+           "different tables then become two methods instead of colliding. "
+           "Unchecked, they share one method and the build warns about the clash."),
+        testGroup);
+    stepNameHint->setWordWrap(true);
+    stepNameHint->setStyleSheet("color: gray; font-size: 11px;");
+    testLayout->addWidget(m_stepNameAttrSet);
+    testLayout->addWidget(stepNameHint);
+
+    // Changing this renames glue methods that already exist, and nothing
+    // renames the old ones -- appendMissingStubs only adds. Say so at the
+    // moment of the change rather than in the hint, which is easy to skim.
+    connect(m_stepNameAttrSet, &QCheckBox::toggled, this,
+            &SpecConfigEditor::warnStepNameChanged);
 
     root->addWidget(testGroup);
 
@@ -429,6 +451,13 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_namespace->setEnabled(cfg.language == "CSharp" || cfg.language == "Java");
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
     m_failEveryTest->setChecked(cfg.failEveryTest);
+    // Record what was loaded and set without a signal, so opening the file
+    // never raises the warning -- only a change by hand does.
+    m_stepNameAttrSetLoaded = cfg.stepNameIncludesAttrSet;
+    {
+        QSignalBlocker block(m_stepNameAttrSet);
+        m_stepNameAttrSet->setChecked(cfg.stepNameIncludesAttrSet);
+    }
     m_copySpectable->setChecked(cfg.copySpectable);
     m_converterPath->setText(cfg.converterPath);
     m_imports->setPlainText(cfg.imports.join("\n"));
@@ -466,6 +495,7 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.namespacePrefix = m_namespace->text().trimmed();
     cfg.overwriteGlue   = m_overwriteGlue->isChecked();
     cfg.failEveryTest   = m_failEveryTest->isChecked();
+    cfg.stepNameIncludesAttrSet = m_stepNameAttrSet->isChecked();
     cfg.copySpectable   = m_copySpectable->isChecked();
     cfg.converterPath   = m_converterPath->text().trimmed();
     const QString impText = m_imports->toPlainText();
@@ -616,4 +646,38 @@ void SpecConfigEditor::onBrowseExtSpecProdDir()
         current.isEmpty() ? QString() : current);
     if (!dir.isEmpty())
         m_extSpecProdDir->setText(dir);
+}
+
+// A glue method is named after its step. Renaming every affected one is not
+// something a rebuild puts right: appendMissingStubs adds the new name and
+// leaves the old method behind, still compiling, still holding whatever was
+// written in it, and never called again. Say that plainly, before the change is
+// saved, and let it be refused.
+void SpecConfigEditor::warnStepNameChanged(bool on)
+{
+    if (on == m_stepNameAttrSetLoaded) return;   // back to where it started
+
+    const QString what = on
+        ? tr("Glue methods will be renamed to include the table type, for example "
+             "Given_the_value_is becomes Given_the_value_is_Money.")
+        : tr("Glue methods will be renamed to drop the table type, for example "
+             "Given_the_value_is_Money becomes Given_the_value_is.");
+
+    const auto answer = QMessageBox::warning(
+        this, tr("Glue methods will be renamed"),
+        what + "\n\n" +
+        tr("The next build writes the new names and adds an empty stub for each. "
+           "Your existing methods are not renamed and not deleted — they stay in "
+           "the glue file under their old names, holding their implementations, "
+           "and nothing calls them. Every affected step will report as not "
+           "implemented until its code is moved across.\n\n"
+           "Change the setting anyway?"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+    if (answer != QMessageBox::Yes) {
+        QSignalBlocker block(m_stepNameAttrSet);
+        m_stepNameAttrSet->setChecked(m_stepNameAttrSetLoaded);
+        return;
+    }
+    markDirty();
 }

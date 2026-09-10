@@ -33,6 +33,9 @@ private slots:
     void onBrowseExtSpecFile();
     void onBrowseExtSpecProdDir();
     void markDirty();
+    // Renaming glue methods is not undoable by rebuilding, so warn at the
+    // moment of the change rather than leaving it to the hint text.
+    void warnStepNameChanged(bool on);
 
 private:
     void populateFromConfig(const SpecConfig& cfg);
@@ -45,6 +48,8 @@ private:
     QLineEdit*    m_namespace      = nullptr;
     QCheckBox*    m_overwriteGlue  = nullptr;
     QCheckBox*    m_failEveryTest  = nullptr;
+    QCheckBox*    m_stepNameAttrSet = nullptr;
+    bool          m_stepNameAttrSetLoaded = false;  // value as loaded, for the warning
     QCheckBox*    m_copySpectable  = nullptr;
     QLineEdit*    m_converterPath  = nullptr;
     QPushButton*  m_browseConverter = nullptr;

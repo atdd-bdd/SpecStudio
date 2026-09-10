@@ -91,6 +91,15 @@ int main(int argc, char* argv[])
         "all-red until each step is implemented. This is the default.");
     cli.addOption(failEveryTestOpt);
 
+    // Off unless asked for. Turning it on renames every glue method whose step
+    // names a table, and appendMissingStubs matches by name, so the old methods
+    // are left behind still holding their implementations.
+    QCommandLineOption stepNameAttrSetOpt("step-name-attrset",
+        "Append the step's AttributeSet or Entity to its glue method name, so "
+        "that two steps reading alike but taking different tables become two "
+        "methods rather than one collision.");
+    cli.addOption(stepNameAttrSetOpt);
+
     QCommandLineOption noFailEveryTestOpt("no-fail-every-test",
         "Generate glue stubs that print their arguments and return, without a "
         "trailing failure. An unimplemented step will then report success.");
@@ -190,6 +199,7 @@ int main(int argc, char* argv[])
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {
@@ -204,6 +214,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         RustGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Python", Qt::CaseInsensitive) == 0) {
@@ -219,6 +230,7 @@ int main(int argc, char* argv[])
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         PythonGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Cpp", Qt::CaseInsensitive) == 0
@@ -233,6 +245,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         CppGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("JavaScript", Qt::CaseInsensitive) == 0
@@ -247,6 +260,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         JavaScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("TypeScript", Qt::CaseInsensitive) == 0
@@ -261,6 +275,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         TypeScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
@@ -275,6 +290,7 @@ int main(int argc, char* argv[])
         opts.productionClassesPackage = cli.value(prodPkgOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         GoGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Swift", Qt::CaseInsensitive) == 0) {
@@ -288,6 +304,7 @@ int main(int argc, char* argv[])
         opts.productionClassesDir     = cli.value(prodDirOpt);
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
         SwiftGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
@@ -305,6 +322,7 @@ int main(int argc, char* argv[])
         opts.productionClassesNamespace  = cli.value(prodPkgOpt);
         opts.createProductionClasses     = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest               = !cli.isSet(noFailEveryTestOpt);
+        opts.stepNameIncludesAttrSet     = cli.isSet(stepNameAttrSetOpt);
         CSharpGenerator gen;
         genMsgs = gen.generate(file, opts);
     }

@@ -19,6 +19,13 @@ public:
         QString     productionClassesDir;               // output folder for production classes
         QString     productionClassesNamespace;         // C# namespace for production classes
         bool        failEveryTest = true;            // end every generated glue stub with a failure
+        // Append the step's AttributeSet/Entity to its glue method name, so
+        // that two steps reading alike but taking different tables become two
+        // methods instead of one collision. Off unless a .specconfig asks for
+        // it: turning it on renames every affected glue method, and
+        // appendMissingStubs matches by name, so the old ones are left behind
+        // holding their implementations.
+        bool        stepNameIncludesAttrSet = false;
     };
 
     // Generate all output files; returns list of "SEVERITY:LINE:message" strings
@@ -35,7 +42,9 @@ private:
 
     // Identifier helpers
     static QString toClassName(const QString& name);
-    static QString toMethodName(const QString& keyword, const QString& stepText);
+    static QString toMethodName(const QString& keyword, const QString& stepText,
+                                const QString& attrSetName = QString());
+    static QString toMethodName(const Step& step);
 
     // Table resolution: given a step and the file context,
     // returns a list of rows (each row = ordered values matching the AttrSet fields)

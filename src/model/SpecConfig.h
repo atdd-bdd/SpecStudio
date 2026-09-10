@@ -36,6 +36,13 @@ struct SpecConfig
     // choice to let a fresh scaffold pass green.
     bool    failEveryTest = true;
 
+    // Append the step's AttributeSet/Entity to its glue method name. Absent
+    // from a .specconfig means false, so no existing project changes when it
+    // is upgraded: turning it on renames every affected glue method, and
+    // appendMissingStubs matches by name, so the old ones stay behind holding
+    // their implementations. New Project writes it true.
+    bool    stepNameIncludesAttrSet = false;
+
     // Cross-project type imports — external .spectable files whose types are visible here
     QList<ExternalSpectable> externalSpectables;
 

@@ -251,9 +251,29 @@ QString SwiftGenerator::toTypeName(const QString& name)
     return result;
 }
 
-QString SwiftGenerator::toFnName(const QString& keyword, const QString& stepText)
+// Set for the duration of generate() from Options. A file-static rather than
+// a member because the name function is static, and threading one flag through
+// every call site in nine generators buys nothing.
+static bool s_stepNameIncludesAttrSet = false;
+
+// The name a step's glue method gets, honouring the configured naming. A step
+// with no table is unaffected either way -- there is no type to append.
+QString SwiftGenerator::toFnName(const Step& step)
 {
-    QString combined = (keyword + " " + stepText).toLower();
+    return toFnName(step.keyword, step.text,
+              s_stepNameIncludesAttrSet ? step.attrSetName : QString());
+}
+
+QString SwiftGenerator::toFnName(const QString& keyword, const QString& stepText,
+               const QString& attrSetName)
+{
+    // The attribute set joins before the lowercasing, not after: this function
+    // strips anything outside [a-z0-9], so an upper case letter arriving late --
+    // the M of Money -- would be replaced by a space and the word would lose its
+    // first letter.
+    QString combined = keyword + " " + stepText;
+    if (!attrSetName.isEmpty()) combined += " " + attrSetName;
+    combined = combined.toLower();
     combined.replace(QRegularExpression(R"([^a-z0-9]+)"), " ");
     const QStringList parts = combined.split(' ', Qt::SkipEmptyParts);
     if (parts.isEmpty()) return "step";
@@ -1009,7 +1029,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
     auto emitSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
             if (step.hasDocString) {
-                const QString meth = toFnName(step.keyword, step.text);
+                const QString meth = toFnName(step);
                 QString esc = step.docString;
                 esc.replace("\\", "\\\\");
                 esc.replace("\"", "\\\"");
@@ -1020,7 +1040,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
             if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
                 if (def && def->hasDocString) {
-                    const QString meth = toFnName(step.keyword, step.text);
+                    const QString meth = toFnName(step);
                     QString esc = def->docString;
                     esc.replace("\\", "\\\\");
                     esc.replace("\"", "\\\"");
@@ -1030,7 +1050,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                 }
             }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
-                const QString meth = toFnName(step.keyword, step.text);
+                const QString meth = toFnName(step);
                 s << "        glue." << meth << "()\n";
                 continue;
             }
@@ -1047,7 +1067,7 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                 }
             }
 
-            const QString meth = toFnName(step.keyword, step.text);
+            const QString meth = toFnName(step);
 
             if (!step.attrSetName.isEmpty() && as) {
                 QStringList localErrs;
@@ -1152,7 +1172,7 @@ QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const Spectable
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            const QString meth = toFnName(step.keyword, step.text);
+            const QString meth = toFnName(step);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
             if (step.hasDocString) {
@@ -1448,6 +1468,7 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
+    s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";

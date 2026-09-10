@@ -197,9 +197,24 @@ QString GoGenerator::toExported(const QString& name)
     return result;
 }
 
-QString GoGenerator::toMethodName(const QString& keyword, const QString& stepText)
+// Set for the duration of generate() from Options. A file-static rather than
+// a member because the name function is static, and threading one flag through
+// every call site in nine generators buys nothing.
+static bool s_stepNameIncludesAttrSet = false;
+
+// The name a step's glue method gets, honouring the configured naming. A step
+// with no table is unaffected either way -- there is no type to append.
+QString GoGenerator::toMethodName(const Step& step)
+{
+    return toMethodName(step.keyword, step.text,
+              s_stepNameIncludesAttrSet ? step.attrSetName : QString());
+}
+
+QString GoGenerator::toMethodName(const QString& keyword, const QString& stepText,
+               const QString& attrSetName)
 {
     QString s = keyword + " " + stepText;
+    if (!attrSetName.isEmpty()) s += " " + attrSetName;
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), " ");
     const QStringList parts = s.split(' ', Qt::SkipEmptyParts);
     QString result;
@@ -910,7 +925,7 @@ QVector<GoGenerator::GlueSig> GoGenerator::collectGlueSigs(const SpectableFile& 
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            const QString meth = toMethodName(step.keyword, step.text);
+            const QString meth = toMethodName(step);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
             if (step.hasDocString) {
@@ -1075,7 +1090,7 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
             if (step.hasDocString) {
-                const QString meth = toMethodName(step.keyword, step.text);
+                const QString meth = toMethodName(step);
                 QString esc = step.docString;
                 esc.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n");
                 s << "\t" << glueVar << "." << meth << "(t, \"" << esc << "\")\n";
@@ -1084,7 +1099,7 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
             if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
                 if (def && def->hasDocString) {
-                    const QString meth = toMethodName(step.keyword, step.text);
+                    const QString meth = toMethodName(step);
                     QString esc = def->docString;
                     esc.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n");
                     s << "\t" << glueVar << "." << meth << "(t, \"" << esc << "\")\n";
@@ -1092,7 +1107,7 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
                 }
             }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
-                s << "\t" << glueVar << "." << toMethodName(step.keyword, step.text) << "(t)\n";
+                s << "\t" << glueVar << "." << toMethodName(step) << "(t)\n";
                 continue;
             }
 
@@ -1109,7 +1124,7 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
                 }
             }
 
-            const QString meth = toMethodName(step.keyword, step.text);
+            const QString meth = toMethodName(step);
 
             if (!step.attrSetName.isEmpty() && as) {
                 ++objectCounter;
@@ -1368,6 +1383,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
+    s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";

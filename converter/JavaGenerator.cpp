@@ -284,12 +284,27 @@ QString JavaGenerator::toClassName(const QString& name)
     return s;
 }
 
-QString JavaGenerator::toMethodName(const QString& keyword, const QString& stepText)
+// Set for the duration of generate() from Options. A file-static rather than a
+// member because toMethodName and collectGlueSigs are both static, and threading
+// one flag through every call site in nine generators buys nothing.
+static bool s_stepNameIncludesAttrSet = false;
+
+QString JavaGenerator::toMethodName(const QString& keyword, const QString& stepText,
+                                    const QString& attrSetName)
 {
     QString s = keyword + "_" + stepText;
+    if (!attrSetName.isEmpty()) s += "_" + attrSetName;
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
     s = s.remove(QRegularExpression("^_+|_+$"));
     return s;
+}
+
+// The name a step's glue method gets, honouring the configured naming. A step
+// with no table is unaffected either way -- there is no type to append.
+QString JavaGenerator::toMethodName(const Step& step)
+{
+    return toMethodName(step.keyword, step.text,
+                        s_stepNameIncludesAttrSet ? step.attrSetName : QString());
 }
 
 QString JavaGenerator::toCamelCase(const QString& fieldName)
@@ -1137,7 +1152,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
             if (step.hasDocString) {
-                const QString meth = toMethodName(step.keyword, step.text);
+                const QString meth = toMethodName(step);
                 s << "        " << glueVar << "." << meth << "(";
                 emitTextBlock(step.docString, "        ", step.line);
                 s << ");\n\n";
@@ -1146,7 +1161,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
                 if (def && def->hasDocString) {
-                    const QString meth = toMethodName(step.keyword, step.text);
+                    const QString meth = toMethodName(step);
                     s << "        " << glueVar << "." << meth << "(";
                     emitTextBlock(def->docString, "        ", step.line);
                     s << ");\n\n";
@@ -1155,7 +1170,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
             }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
                 // Bare step — call with no arguments
-                const QString meth = toMethodName(step.keyword, step.text);
+                const QString meth = toMethodName(step);
                 s << "        " << glueVar << "." << meth << "();\n\n";
                 continue;
             }
@@ -1211,7 +1226,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                         s << "));\n";
                     }
                 }
-                const QString meth = toMethodName(step.keyword, step.text);
+                const QString meth = toMethodName(step);
                 s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
 
             } else if (step.hasTable && as == nullptr) {
@@ -1221,7 +1236,7 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && isDataType(step.attrSetName, file);
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
-                const QString meth = toMethodName(step.keyword, step.text);
+                const QString meth = toMethodName(step);
 
                 s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";
                 for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
@@ -1388,7 +1403,7 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            const QString meth = toMethodName(step.keyword, step.text);
+            const QString meth = toMethodName(step);
             if (step.hasDocString) {
                 recordSig(meth, { meth, "docstring" }, step.line);
             } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
@@ -2620,6 +2635,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     m_extraImports  = opts.extraImports;
     m_tagFilter     = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
+    s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
 
     // Inject production package import into Typed/glue files whenever the package is configured
     if (!opts.productionClassesPackage.isEmpty()) {

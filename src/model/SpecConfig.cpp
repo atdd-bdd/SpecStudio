@@ -36,6 +36,9 @@ SpecConfig SpecConfig::load(const QString& filePath)
         cfg.productionClassesPackage = o["productionClassesPackage"].toString();
     if (o.contains("failEveryTest"))
         cfg.failEveryTest = o["failEveryTest"].toBool();
+    // Absent means false, deliberately: see the note on the field.
+    if (o.contains("stepNameIncludesAttrSet"))
+        cfg.stepNameIncludesAttrSet = o["stepNameIncludesAttrSet"].toBool();
     if (o.contains("externalSpectables")) {
         for (const QJsonValue& v : o["externalSpectables"].toArray()) {
             const QJsonObject ev = v.toObject();
@@ -81,6 +84,7 @@ bool SpecConfig::save(const QString& filePath) const
     // Always written: the default is true, so omitting the key when false
     // would silently re-enable it on the next load.
     o["failEveryTest"] = failEveryTest;
+    o["stepNameIncludesAttrSet"] = stepNameIncludesAttrSet;
     if (!externalSpectables.isEmpty()) {
         QJsonArray extArr;
         for (const ExternalSpectable& es : externalSpectables) {

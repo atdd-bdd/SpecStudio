@@ -212,9 +212,24 @@ QString CppGenerator::toTypeName(const QString& name)
     return result;
 }
 
-QString CppGenerator::toFnName(const QString& keyword, const QString& stepText)
+// Set for the duration of generate() from Options. A file-static rather than
+// a member because the name function is static, and threading one flag through
+// every call site in nine generators buys nothing.
+static bool s_stepNameIncludesAttrSet = false;
+
+// The name a step's glue method gets, honouring the configured naming. A step
+// with no table is unaffected either way -- there is no type to append.
+QString CppGenerator::toFnName(const Step& step)
+{
+    return toFnName(step.keyword, step.text,
+              s_stepNameIncludesAttrSet ? step.attrSetName : QString());
+}
+
+QString CppGenerator::toFnName(const QString& keyword, const QString& stepText,
+               const QString& attrSetName)
 {
     QString s = keyword + "_" + stepText;
+    if (!attrSetName.isEmpty()) s += " " + attrSetName;
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
     s.remove(QRegularExpression("^_+|_+$"));
     return s.toLower();
@@ -1315,20 +1330,20 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
             if (step.hasDocString) {
-                const QString meth = toFnName(step.keyword, step.text);
+                const QString meth = toFnName(step);
                 s << "    " << glueVar << "." << meth << "(\"" << cppEscape(step.docString) << "\");\n";
                 continue;
             }
             if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
                 if (def && def->hasDocString) {
-                    const QString meth = toFnName(step.keyword, step.text);
+                    const QString meth = toFnName(step);
                     s << "    " << glueVar << "." << meth << "(\"" << cppEscape(def->docString) << "\");\n";
                     continue;
                 }
             }
             if (step.attrSetName.isEmpty() && step.defineRef.isEmpty() && !step.hasTable) {
-                s << "    " << glueVar << "." << toFnName(step.keyword, step.text) << "();\n";
+                s << "    " << glueVar << "." << toFnName(step) << "();\n";
                 continue;
             }
 
@@ -1345,7 +1360,7 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
                 }
             }
 
-            const QString meth = toFnName(step.keyword, step.text);
+            const QString meth = toFnName(step);
 
             if (!step.attrSetName.isEmpty() && as) {
                 QStringList localErrs;
@@ -1441,7 +1456,7 @@ QVector<CppGenerator::GlueSig> CppGenerator::collectGlueSigs(const SpectableFile
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            const QString meth = toFnName(step.keyword, step.text);
+            const QString meth = toFnName(step);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
             if (step.hasDocString) {
@@ -1735,6 +1750,7 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
     m_extraIncludes = opts.extraIncludes;
     m_tagFilter     = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
+    s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";

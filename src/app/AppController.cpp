@@ -332,6 +332,15 @@ void AppController::onNewProject()
             cfg.productionClassesDir     = "src/main/java/production";
             cfg.productionClassesPackage = "production";
 
+            // On for new work, off for anything that already exists. Naming a
+            // glue method after the table it takes is the better default -- two
+            // steps that read alike stop colliding -- but switching an existing
+            // project to it renames every affected method, and appendMissingStubs
+            // adds the new name rather than renaming, so the old one is left
+            // holding its implementation. A project with no glue yet has nothing
+            // to lose, which is the only moment this is free.
+            cfg.stepNameIncludesAttrSet  = true;
+
             if (!cfg.save(cfgPath))
                 QMessageBox::warning(m_mainWindow, tr("Configuration Not Written"),
                     tr("Could not write the build configuration:\n%1\n\n"
@@ -1533,6 +1542,7 @@ void AppController::onBuildCurrentFile()
     if (!cfg.productionClassesPackage.isEmpty())
         args << "--prod-package" << cfg.productionClassesPackage;
     if (!cfg.failEveryTest)             args << "--no-fail-every-test";
+    if (cfg.stepNameIncludesAttrSet)    args << "--step-name-attrset";
     // Pass other .spectable files from the same project as context
     if (m_solution) {
         auto* ownerProj = m_solution->projectForFile(ed->filePath());
@@ -1653,6 +1663,7 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 if (!cfg.productionClassesPackage.isEmpty())
                     args << "--prod-package" << cfg.productionClassesPackage;
                 if (!cfg.failEveryTest)       args << "--no-fail-every-test";
+                if (cfg.stepNameIncludesAttrSet) args << "--step-name-attrset";
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();

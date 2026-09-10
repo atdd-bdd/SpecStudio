@@ -243,10 +243,25 @@ QString TypeScriptGenerator::toPascalCase(const QString& name)
     return result;
 }
 
-QString TypeScriptGenerator::toMethodName(const QString& keyword, const QString& stepText)
+// Set for the duration of generate() from Options. A file-static rather than
+// a member because the name function is static, and threading one flag through
+// every call site in nine generators buys nothing.
+static bool s_stepNameIncludesAttrSet = false;
+
+// The name a step's glue method gets, honouring the configured naming. A step
+// with no table is unaffected either way -- there is no type to append.
+QString TypeScriptGenerator::toMethodName(const Step& step)
+{
+    return toMethodName(step.keyword, step.text,
+              s_stepNameIncludesAttrSet ? step.attrSetName : QString());
+}
+
+QString TypeScriptGenerator::toMethodName(const QString& keyword, const QString& stepText,
+               const QString& attrSetName)
 {
     // "Given" + "check account balance" → "givenCheckAccountBalance"
     QString combined = keyword + "_" + stepText;
+    if (!attrSetName.isEmpty()) combined += " " + attrSetName;
     combined.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
     combined.remove(QRegularExpression("^_+|_+$"));
     const QStringList parts = combined.split('_', Qt::SkipEmptyParts);
@@ -995,7 +1010,7 @@ QString TypeScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
 
     auto emitSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            const QString meth = toMethodName(step.keyword, step.text);
+            const QString meth = toMethodName(step);
 
             if (step.hasDocString) {
                 QString esc = step.docString;
@@ -1189,7 +1204,7 @@ QVector<TypeScriptGenerator::GlueSig> TypeScriptGenerator::collectGlueSigs(const
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
-            const QString meth = toMethodName(step.keyword, step.text);
+            const QString meth = toMethodName(step);
             if (seen.contains(meth)) continue;
             seen.insert(meth);
             if (step.hasDocString) {
@@ -1433,6 +1448,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
+    s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
