@@ -140,6 +140,36 @@ int main(int argc, char* argv[])
         std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
         if (!m.warning) hasError = true;
     }
+
+    // A Collection holds domain objects, so its element has to be an Entity. A
+    // production class is written for an Entity and not for an Attributes block,
+    // so a Collection of the latter generates a collection class referencing a
+    // type nothing ever writes, and the module does not compile. The generated
+    // code gives no clue why -- the error lands in a file the author never wrote
+    // -- so say it here, once, for every language.
+    //
+    // Checked after the context merge, because the element may be declared in a
+    // sibling specification.
+    for (const Collection& col : file.collections) {
+        if (col.isContext || col.elementType.isEmpty()) continue;
+
+        const AttrSet* elem = nullptr;
+        for (const AttrSet& as : file.attrSets)
+            if (as.name.compare(col.elementType, Qt::CaseInsensitive) == 0) { elem = &as; break; }
+
+        if (!elem) continue;   // an unknown type is already reported elsewhere
+        if (elem->kind.compare("Entity", Qt::CaseInsensitive) == 0) continue;
+
+        std::cout << "ERROR:" << col.line << ":Collection " << col.name.toStdString()
+                  << " holds " << col.elementType.toStdString()
+                  << ", which is declared with Attributes. A Collection's type must be"
+                     " an Entity: no production class is written for an Attributes block,"
+                     " so the generated collection would reference a type that does not"
+                     " exist. Change it to \"Entity "
+                  << col.elementType.toStdString() << "\".\n";
+        hasError = true;
+    }
+
     if (hasError) return 1;
 
     // Generate
