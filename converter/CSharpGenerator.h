@@ -73,7 +73,8 @@ private:
     QString     m_commonNs;
 
     struct GlueSig { QString method; QString paramType; bool isList; };
-    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
+    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
+                                        QStringList* conflicts = nullptr);
     static QString genStubMethod(const GlueSig& sig,
                                    bool failEveryTest);
     static bool appendMissingStubs(const QString& gluePath,

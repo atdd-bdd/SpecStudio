@@ -77,7 +77,8 @@ private:
         QString method;
         QString paramType; // "" = void, "docstring", "grid", or "{Name}String"
     };
-    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file);
+    static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
+                                        QStringList* conflicts = nullptr);
     static QString genStubFn(const GlueSig& sig, const QString& glueType,
                                    bool failEveryTest);
     static bool appendMissingStubs(const QString& gluePath,

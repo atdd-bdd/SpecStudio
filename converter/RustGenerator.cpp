@@ -1489,28 +1489,54 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
 // Glue file
 // ---------------------------------------------------------------------------
 
-QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFile& file)
+QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFile& file, QStringList* conflicts)
 {
     QVector<GlueSig> sigs;
-    QSet<QString> seen;
+    QMap<QString, GlueSig> seen;
+    // Two steps that read alike but take different tables want the same glue
+    // method. This used to keep the first and silently drop the second, so the
+    // second step's rows were handed to a method written for the first. Report
+    // it instead; naming the method after its table (stepNameIncludesAttrSet)
+    // makes the two distinct rather than colliding.
+    auto describe = [](const GlueSig& s) -> QString {
+        if (s.paramType.isEmpty())      return QStringLiteral("no parameter");
+        if (s.paramType == "docstring") return QStringLiteral("a docstring");
+        if (s.paramType.endsWith("String"))
+            return QStringLiteral("a %1 table").arg(s.paramType.left(s.paramType.size() - 6));
+        return QStringLiteral("a %1").arg(s.paramType);
+    };
+    auto record = [&](const QString& meth, const GlueSig& sig, int line) {
+        auto it = seen.find(meth);
+        if (it == seen.end()) {
+            seen.insert(meth, sig);
+            sigs.push_back(sig);
+            return;
+        }
+        if (conflicts && (it.value().paramType != sig.paramType))
+            *conflicts << QString(
+                "WARNING:%1:Step '%2' expects %3 here, but the same glue method elsewhere "
+                "in this project expects %4 \u2014 rename one of the steps, or switch this "
+                "project to naming glue methods after the table they take")
+                .arg(line).arg(meth, describe(sig), describe(it.value()));
+        // The first signature stands; a later one does not get a second entry.
+    };
+
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
             const QString meth = toFnName(step);
-            if (seen.contains(meth)) continue;
-            seen.insert(meth);
             if (step.hasDocString) {
-                sigs.push_back({ meth, "docstring" });
+                record(meth, { meth, "docstring" }, step.line);
             } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
-                sigs.push_back({ meth, (def && def->hasDocString) ? "docstring" : "" });
+                record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
-                sigs.push_back({ meth, "" });
+                record(meth, { meth, "" }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 // A Collection step takes a slice of its element type.
-                sigs.push_back({ meth, effectiveAttrSetName(step.attrSetName, file) + "String" });
+                record(meth, { meth, effectiveAttrSetName(step.attrSetName, file) + "String" }, step.line);
             } else {
-                sigs.push_back({ meth, "grid" });
+                record(meth, { meth, "grid" }, step.line);
             }
         }
     };
@@ -1525,12 +1551,10 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
         // generating a stub for it here produces a method no test ever calls.
         if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "examples_" + kindToSnake(nb.kind) + "_" + toIdentifier(nb.name);
-        if (seen.contains(meth)) continue;
-        seen.insert(meth);
         const AttrSet* as = nb.examples.attrSetName.isEmpty()
             ? nullptr
             : findAttrSet(nb.examples.attrSetName, file);
-        sigs.push_back({ meth, as ? (nb.examples.attrSetName + "String") : "grid" });
+        record(meth, { meth, as ? (nb.examples.attrSetName + "String") : "grid" }, nb.line);
     }
 
     return sigs;
@@ -1934,10 +1958,12 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
     // Glue file
     {
         const QString gluePath = dir.filePath(specSnake + "_glue.rs");
+        QStringList sigConflicts;
+        const QVector<GlueSig> sigs = collectGlueSigs(augmented, &sigConflicts);
+        msgs << sigConflicts;
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, glueStruct), msgs);
         } else {
-            const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }

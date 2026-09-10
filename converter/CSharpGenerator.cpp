@@ -1282,32 +1282,58 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
 // Glue file generator
 // ---------------------------------------------------------------------------
 
-QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const SpectableFile& file)
+QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const SpectableFile& file, QStringList* conflicts)
 {
     QVector<GlueSig> sigs;
-    QSet<QString> seen;
+    QMap<QString, GlueSig> seen;
+    // Two steps that read alike but take different tables want the same glue
+    // method. This used to keep the first and silently drop the second, so the
+    // second step's rows were handed to a method written for the first. Report
+    // it instead; naming the method after its table (stepNameIncludesAttrSet)
+    // makes the two distinct rather than colliding.
+    auto describe = [](const GlueSig& s) -> QString {
+        if (s.paramType.isEmpty())      return QStringLiteral("no parameter");
+        if (s.paramType == "docstring") return QStringLiteral("a docstring");
+        if (s.paramType.endsWith("String"))
+            return QStringLiteral("a %1 table").arg(s.paramType.left(s.paramType.size() - 6));
+        return QStringLiteral("a %1").arg(s.paramType);
+    };
+    auto record = [&](const QString& meth, const GlueSig& sig, int line) {
+        auto it = seen.find(meth);
+        if (it == seen.end()) {
+            seen.insert(meth, sig);
+            sigs.push_back(sig);
+            return;
+        }
+        if (conflicts && (it.value().paramType != sig.paramType || it.value().isList != sig.isList))
+            *conflicts << QString(
+                "WARNING:%1:Step '%2' expects %3 here, but the same glue method elsewhere "
+                "in this project expects %4 \u2014 rename one of the steps, or switch this "
+                "project to naming glue methods after the table they take")
+                .arg(line).arg(meth, describe(sig), describe(it.value()));
+        // The first signature stands; a later one does not get a second entry.
+    };
+
 
     auto collectSteps = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
             const QString meth = toMethodName(step);
-            if (seen.contains(meth)) continue;
-            seen.insert(meth);
             if (step.hasDocString) {
-                sigs.push_back({ meth, "docstring", false });
+                record(meth, { meth, "docstring", false }, step.line);
             } else if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
                 const Define* def = findDefine(step.defineRef, file);
-                sigs.push_back({ meth, (def && def->hasDocString) ? "docstring" : "", false });
+                record(meth, { meth, (def && def->hasDocString) ? "docstring" : "", false }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 sigs.push_back({ meth, "", false });           // void / no parameter
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
-                sigs.push_back({ meth, effectiveName + "String", true });
+                record(meth, { meth, effectiveName + "String", true }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
                 sigs.push_back({ meth, "List<List<string>>", false });  // grid
             } else {
-                sigs.push_back({ meth, "List<string>", true });
+                record(meth, { meth, "List<string>", true }, step.line);
             }
         }
     };
@@ -1323,15 +1349,13 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
         // Emitting stubs for them here produced glue methods no test calls.
         if (!nb.hasExamples || nb.isContext) continue;
         const QString meth = "Examples_" + nb.kind + "_" + toClassName(nb.name);
-        if (seen.contains(meth)) continue;
-        seen.insert(meth);
         const AttrSet* as = nb.examples.attrSetName.isEmpty()
             ? nullptr
             : findAttrSet(nb.examples.attrSetName, file);
         if (as)
-            sigs.push_back({ meth, nb.examples.attrSetName + "String", true });
+            record(meth, { meth, nb.examples.attrSetName + "String", true }, nb.line);
         else
-            sigs.push_back({ meth, "List<List<string>>", false });
+            record(meth, { meth, "List<List<string>>", false }, nb.line);
     }
 
     return sigs;
@@ -1774,10 +1798,12 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     // 3. Glue file: write fresh if absent/overwrite; otherwise append any missing stubs
     {
         const QString gluePath = dir.filePath(className + "_glue.cs");
+        QStringList sigConflicts;
+        const QVector<GlueSig> sigs = collectGlueSigs(augmented, &sigConflicts);
+        msgs << sigConflicts;
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, ns, className), msgs);
         } else {
-            const QVector<GlueSig> sigs = collectGlueSigs(augmented);
             if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
