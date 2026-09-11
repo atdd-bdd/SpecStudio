@@ -174,6 +174,25 @@ QString PythonGenerator::parseExpr(const QString& field, const QString& specType
 // Identifier helpers
 // ---------------------------------------------------------------------------
 
+// A specification is free to name an attribute From, Class or Import. Python
+// has no way to quote a keyword the way Swift's backticks do, so the convention
+// is a trailing underscore -- the same shape Rust uses for where_. Without this
+// an Entity with a From field generated `def __init__(self, from: ...)`, which
+// is a syntax error, and nothing in the module could even be collected.
+static bool isPythonKeyword(const QString& s)
+{
+    static const QSet<QString> keywords = {
+        "false", "none", "true", "and", "as", "assert", "async", "await",
+        "break", "class", "continue", "def", "del", "elif", "else", "except",
+        "finally", "for", "from", "global", "if", "import", "in", "is",
+        "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
+        "while", "with", "yield",
+        // Soft keywords and names that shadow a builtin badly enough to matter
+        "match", "case", "type", "self"
+    };
+    return keywords.contains(s);
+}
+
 QString PythonGenerator::toIdentifier(const QString& name)
 {
     // Convert to snake_case: split on non-alnum, lowercase
@@ -184,7 +203,9 @@ QString PythonGenerator::toIdentifier(const QString& name)
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
     s.remove(QRegularExpression("^_+|_+$"));
     if (!s.isEmpty() && s[0].isDigit()) s.prepend('_');
-    return s.toLower();
+    s = s.toLower();
+    if (isPythonKeyword(s)) s += "_";
+    return s;
 }
 
 QString PythonGenerator::toTypeName(const QString& name)

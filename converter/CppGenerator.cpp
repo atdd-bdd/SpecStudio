@@ -1581,7 +1581,12 @@ bool CppGenerator::appendMissingStubs(const QString& gluePath,
         return false;
     }
 
-    content.insert(closingBrace, "\n" + stubs);
+    // A stub goes in just before the closing brace, which in a class means it
+    // inherits whatever access section happens to be last -- and this generator
+    // puts private members at the bottom, so an added stub came out private and
+    // the test could not call it. Reassert public, which is harmless when the
+    // stub would have been public anyway.
+    content.insert(closingBrace, "\npublic:\n" + stubs);
 
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         msgs << QString("ERROR:0:Cannot update glue file: %1").arg(gluePath);
