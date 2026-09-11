@@ -1316,16 +1316,42 @@ QString JavaScriptGenerator::genProductionEntity(const AttrSet& as)
     QString out;
     QTextStream s(&out);
 
+    // A default has to become a JavaScript expression, and only the primitive
+    // types have one. A number or a boolean is written as it stands, a string is
+    // quoted, and a field whose type is a class of its own -- an Entity, or a
+    // DataType the project supplies -- has no literal form at all:
+    // `currency = USD` was being emitted, a bare identifier that is not defined
+    // anywhere and throws a ReferenceError the moment the default is used. Such
+    // a field becomes required instead, so the caller passes a real object.
+    static const QSet<QString> numeric = {"integer", "int", "float", "decimal", "scientific"};
+    static const QSet<QString> boolean = {"boolean", "yesno", "bool"};
+    static const QSet<QString> text    = {"string", "text", "character", "char",
+                                          "date", "time", "datetime", "duration"};
+    auto defaultExpr = [](const Field& f) -> QString {
+        const QString t = f.type.trimmed().toLower();
+        if (numeric.contains(t) || boolean.contains(t)) return f.defaultValue.trimmed();
+        if (text.contains(t)) return "\"" + jsStringEscape(f.defaultValue) + "\"";
+        return QString();                    // a class: no literal to write
+    };
+
+    // Defaulted parameters last, so a required one never follows an optional.
+    QVector<const Field*> required, defaulted;
+    for (const Field& f : as.fields)
+        (f.defaultValue.isEmpty() || defaultExpr(f).isEmpty() ? required : defaulted)
+            .push_back(&f);
+
     s << "export class " << as.name << " {\n";
     s << "  constructor(";
-    for (int i = 0; i < as.fields.size(); ++i) {
-        if (i) s << ", ";
-        const Field& f = as.fields[i];
-        const QString fn = toCamelCase(f.name);
-        if (!f.defaultValue.isEmpty())
-            s << fn << " = " << jsStringEscape(f.defaultValue);
-        else
-            s << fn;
+    bool first = true;
+    for (const Field* f : required) {
+        if (!first) s << ", ";
+        first = false;
+        s << toCamelCase(f->name);
+    }
+    for (const Field* f : defaulted) {
+        if (!first) s << ", ";
+        first = false;
+        s << toCamelCase(f->name) << " = " << defaultExpr(*f);
     }
     s << ") {\n";
     for (const Field& f : as.fields)
