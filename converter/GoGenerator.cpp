@@ -1013,8 +1013,11 @@ QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType, bool
             s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
         s << "}\n";
     } else {
+        // Qualified, because the String structs live in the common package.
+        // This used to be written bare here and qualified in genGlueFile's own
+        // inline copy, so a stub added later did not compile.
         const QString pt = toExported(sig.paramType);
-        s << recv << sig.method << "(t *testing.T, values []" << pt << ") {\n";
+        s << recv << sig.method << "(t *testing.T, values []common." << pt << ") {\n";
         s << "\t_ = values\n";
         if (failEveryTest)
             s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
@@ -1026,6 +1029,7 @@ QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType, bool
 bool GoGenerator::appendMissingStubs(const QString& gluePath,
                                       const QVector<GlueSig>& sigs,
                                       const QString& glueType,
+                                      const QString& modulePath,
                                       QStringList& msgs,
                                        bool failEveryTest)
 {
@@ -1037,12 +1041,28 @@ bool GoGenerator::appendMissingStubs(const QString& gluePath,
     // concerned, so search a copy with comments blanked out.
     const QString scan = sourcescan::stripCStyleComments(content);
 
+    // A stub taking a String struct needs the common package in scope. The file
+    // may not import it yet -- nothing in it needed the package until now.
+    bool needsCommon = false;
+
     QString stubs;
     for (const GlueSig& sig : sigs) {
         if (!scan.contains(QStringLiteral("func (g *%1) %2(").arg(glueType, sig.method)))
             stubs += "\n" + genStubFn(sig, glueType, failEveryTest);
+            if (!sig.paramType.isEmpty() && sig.paramType != "grid"
+                                         && sig.paramType != "docstring")
+                needsCommon = true;
     }
     if (stubs.isEmpty()) return false;
+
+    if (needsCommon && !scan.contains("/common\"")) {
+        const int importAt = content.indexOf("import (\n");
+        if (importAt >= 0)
+            content.insert(importAt + 9, "\t\"" + modulePath + "/common\"\n");
+        else
+            msgs << QString("WARNING:0:%1 needs the common package imported for the "
+                            "stubs just added").arg(gluePath);
+    }
 
     content += stubs;
 
@@ -1082,13 +1102,7 @@ QString GoGenerator::genGlueFile(const SpectableFile& file, const QString& specP
     for (const GlueSig& sig : sigs) {
         s << "\n";
         if (!sig.paramType.isEmpty() && sig.paramType != "grid" && sig.paramType != "docstring") {
-            const QString pt = toExported(sig.paramType);
-            s << "func (g *" << glueType << ") " << sig.method
-              << "(t *testing.T, values []common." << pt << ") {\n";
-            s << "\t_ = values\n";
-            if (m_failEveryTest)
-                s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
-            s << "}\n";
+            s << genStubFn(sig, glueType, m_failEveryTest);
         } else {
             s << genStubFn(sig, glueType, m_failEveryTest);
         }
@@ -1212,9 +1226,22 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
 
         s << "func Test" << toExported(file.specName) << "_Scenario_"
           << toExported(sc.name) << "(t *testing.T) {\n";
-        s << "\tglue := New" << glueType << "()\n";
-        emitSteps(file.backgroundSteps, "glue");
-        emitSteps(sc.steps, "glue");
+        // A Scenario can carry nothing but an Examples: table, in which case no
+        // step is emitted and the glue is never touched. Go rejects an unused
+        // variable, so the declaration has to follow the body: emit the steps
+        // into the stream, take back what they wrote, and put the declaration in
+        // front of them only if there were any.
+        {
+            s.flush();
+            const int bodyStart = out.size();
+            emitSteps(file.backgroundSteps, "glue");
+            emitSteps(sc.steps, "glue");
+            s.flush();
+            const QString steps = out.mid(bodyStart);
+            out.truncate(bodyStart);
+            if (!steps.isEmpty())
+                s << "\tglue := New" << glueType << "()\n" << steps;
+        }
         s << "}\n\n";
     }
 
@@ -1308,6 +1335,87 @@ QString GoGenerator::goParamName(const QString& fieldName)
     };
     const QString id = toIdentifier(fieldName);
     return keywords.contains(id) ? id + "Value" : id;
+}
+
+
+// ---------------------------------------------------------------------------
+// Production DataType
+//
+// An Entity field may name a DataType, and the production Entity then refers to
+// a type of that name. Nothing was generating it, so production/exchangerates.go
+// referred to CurrencyList and the package did not build.
+//
+// Go has no enum. A fixed set of values is idiomatically a named string type
+// with constants, which keeps the value readable in output and comparable with
+// ==; a DataType with its own rules becomes a struct carrying the text, so
+// validation has somewhere to live.
+// ---------------------------------------------------------------------------
+
+static int goExampleCol(const NamedBlock& nb, const QString& header)
+{
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare(header, Qt::CaseInsensitive) == 0)
+            return i;
+    return -1;
+}
+
+QString GoGenerator::genProductionDataTypeEnum(const NamedBlock& nb, const QString& pkg)
+{
+    const QString name     = toExported(nb.name);
+    const int     valueCol = goExampleCol(nb, "Value");
+    const int     notesCol = goExampleCol(nb, "Notes");
+
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << "\n\n";
+    s << "// " << name << " takes one of a fixed set of values.\n";
+    s << "type " << name << " string\n\n";
+    s << "const (\n";
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            // Constants share the package namespace, so each is prefixed with
+            // its type -- two DataTypes may well both offer "Yes".
+            QString ident = v;
+            ident.replace(QRegularExpression(R"([^A-Za-z0-9])"), " ");
+            QString camel;
+            for (const QString& part : ident.split(' ', Qt::SkipEmptyParts))
+                camel += part[0].toUpper() + part.mid(1);
+            if (camel.isEmpty()) continue;
+            s << "\t" << name << camel << " " << name << " = \"" << v << "\"";
+            const QString note = (notesCol >= 0 && notesCol < row.size())
+                                 ? row[notesCol].trimmed() : QString();
+            if (!note.isEmpty()) s << " // " << note;
+            s << "\n";
+        }
+    }
+    s << ")\n\n";
+    s << "func (v " << name << ") String() string {\n";
+    s << "\treturn string(v)\n";
+    s << "}\n";
+    return out;
+}
+
+QString GoGenerator::genProductionDataTypeStruct(const NamedBlock& nb, const QString& pkg)
+{
+    const QString name = toExported(nb.name);
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << "\n\n";
+    s << "// " << name << " is a value with its own rules. The generated form only\n";
+    s << "// carries the text; add the validation this specification describes.\n";
+    s << "type " << name << " struct {\n";
+    s << "\tValue string\n";
+    s << "}\n\n";
+    s << "func New" << name << "(value string) " << name << " {\n";
+    s << "\treturn " << name << "{Value: value}\n";
+    s << "}\n\n";
+    s << "func (v " << name << ") String() string {\n";
+    s << "\treturn v.Value\n";
+    s << "}\n";
+    return out;
 }
 
 QString GoGenerator::genProductionEntity(const AttrSet& as, const QString& pkg) const
@@ -1558,7 +1666,7 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
             writeFile(gluePath, genGlueFile(augmented, specPkg, glueType), msgs);
         } else {
-            if (appendMissingStubs(gluePath, sigs, glueType, msgs, m_failEveryTest))
+            if (appendMissingStubs(gluePath, sigs, glueType, m_modulePath, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
         }
     }
@@ -1586,6 +1694,19 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
                             "- no template written").arg(typeName, other);
             return true;
         };
+
+        // DataType -> named string type for EnumerationValues, struct otherwise.
+        // An Entity field may name one, so these have to exist or the package
+        // does not build.
+        for (const NamedBlock& nb : file.namedBlocks) {
+            if (nb.isContext || nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+            const QString prodPath = prodDir.filePath(toIdentifier(nb.name) + ".go");
+            if (alreadyImplemented(prodPath, toExported(nb.name))) continue;
+            const bool isEnum = nb.hasExamples &&
+                nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+            writeFile(prodPath, isEnum ? genProductionDataTypeEnum(nb, prodPkg)
+                                       : genProductionDataTypeStruct(nb, prodPkg), msgs);
+        }
 
         for (const AttrSet& as : file.attrSets) {
             if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;

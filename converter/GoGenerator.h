@@ -84,9 +84,12 @@ private:
     static bool appendMissingStubs(const QString& gluePath,
                                    const QVector<GlueSig>& sigs,
                                    const QString& glueType,
+                                   const QString& modulePath,
                                    QStringList& msgs,
                                    bool failEveryTest);
 
+    static QString genProductionDataTypeEnum(const NamedBlock& nb, const QString& pkg);
+    static QString genProductionDataTypeStruct(const NamedBlock& nb, const QString& pkg);
     QString genProductionEntity(const AttrSet& as, const QString& pkg) const;
     QString genProductionCollection(const Collection& col, const QString& pkg) const;
 

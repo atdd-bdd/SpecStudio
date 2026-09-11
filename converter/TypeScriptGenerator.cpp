@@ -1316,12 +1316,37 @@ bool TypeScriptGenerator::appendMissingStubs(const QString& gluePath,
     const QString scan = sourcescan::stripCStyleComments(content);
 
     QString stubs;
+    QStringList neededTypes;      // String classes the new stubs name
     for (const GlueSig& sig : sigs) {
         // Check for "methodName(" in the file
-        if (!scan.contains(sig.method + "("))
-            stubs += "\n" + genStubMethod(sig, failEveryTest);
+        if (scan.contains(sig.method + "(")) continue;
+        stubs += "\n" + genStubMethod(sig, failEveryTest);
+        if (sig.paramType.endsWith("String") && !neededTypes.contains(sig.paramType))
+            neededTypes << sig.paramType;
     }
     if (stubs.isEmpty()) return false;
+
+    // A stub added later has to bring its parameter type into scope. A fresh
+    // glue file imports what it needs from ./common/index.js; one appended into
+    // did not, and stopped compiling on a name it had never imported.
+    QStringList missing;
+    for (const QString& t : neededTypes) {
+        static const QString boundary = QStringLiteral("[^A-Za-z0-9_]");
+        const QRegularExpression re("(^|" + boundary + ")" + QRegularExpression::escape(t)
+                                    + "(" + boundary + "|$)");
+        const int importsEnd = scan.lastIndexOf("from \"./common/index.js\";");
+        const QString head = importsEnd >= 0 ? scan.left(importsEnd) : QString();
+        if (!re.match(head).hasMatch()) missing << t;
+    }
+    // Built now, written after the stubs: the insertion point below is a
+    // position in the comment-stripped copy, and prepending to content first
+    // would shift every offset past it.
+    QString importLine;
+    if (!missing.isEmpty()) {
+        missing.sort();
+        importLine = QString("import { %1 } from \"./common/index.js\";\n")
+                         .arg(missing.join(", "));
+    }
 
     // Insert before the last closing "}" of the class
     // The stubs belong inside the glue class. Taking the last closing brace in
@@ -1353,6 +1378,8 @@ bool TypeScriptGenerator::appendMissingStubs(const QString& gluePath,
         return false;
     }
     content.insert(closingBrace, stubs);
+    // Above everything, so it cannot land inside an existing import list.
+    if (!importLine.isEmpty()) content.insert(0, importLine);
 
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         msgs << QString("ERROR:0:Cannot update glue file: %1").arg(gluePath);
@@ -1400,10 +1427,106 @@ QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
 // Production class generators
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// Production DataType: a class for ValidValues, an enum for EnumerationValues
+//
+// An Entity field may name a DataType, and the production Entity then refers to
+// a class of that name. Nothing was generating it, so production/ExchangeRates.ts
+// referred to CurrencyList and the module did not compile.
+// ---------------------------------------------------------------------------
+
+// Column index of a header, or -1.
+static int tsExampleCol(const NamedBlock& nb, const QString& header)
+{
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare(header, Qt::CaseInsensitive) == 0)
+            return i;
+    return -1;
+}
+
+QString TypeScriptGenerator::genProductionDataTypeEnum(const NamedBlock& nb)
+{
+    const int valueCol = tsExampleCol(nb, "Value");
+    const int notesCol = tsExampleCol(nb, "Notes");
+
+    QString out;
+    QTextStream s(&out);
+    s << "// " << nb.name << " takes one of a fixed set of values.\n";
+    s << "export enum " << nb.name << " {\n";
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            // A member name has to be an identifier; the value keeps the text.
+            QString member = v;
+            member.replace(QRegularExpression(R"([^A-Za-z0-9_])"), "_");
+            if (!member.isEmpty() && member[0].isDigit()) member.prepend('_');
+            s << "  " << member << " = \"" << jsStringEscape(v) << "\",";
+            const QString note = (notesCol >= 0 && notesCol < row.size())
+                                 ? row[notesCol].trimmed() : QString();
+            if (!note.isEmpty()) s << "  // " << note;
+            s << "\n";
+        }
+    }
+    s << "}\n";
+    return out;
+}
+
+QString TypeScriptGenerator::genProductionDataTypeClass(const NamedBlock& nb)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "// " << nb.name << " is a value with its own rules. The generated form only\n";
+    s << "// carries the text; add the validation this specification describes.\n";
+    s << "export class " << nb.name << " {\n";
+    s << "  readonly value: string;\n\n";
+    s << "  constructor(value: string) {\n";
+    s << "    this.value = value ?? \"\";\n";
+    s << "  }\n\n";
+    s << "  equals(other: " << nb.name << "): boolean {\n";
+    s << "    return this.value === other.value;\n";
+    s << "  }\n\n";
+    s << "  toString(): string {\n";
+    s << "    return this.value;\n";
+    s << "  }\n";
+    s << "}\n";
+    return out;
+}
+
+// The production types a block refers to, so its file can import them. A field
+// naming a built-in maps to a TypeScript primitive and needs no import.
+QStringList TypeScriptGenerator::productionImports(const QStringList& fieldTypes,
+                                                   const QString& selfName)
+{
+    QStringList names;
+    for (const QString& t : fieldTypes) {
+        const QString mapped = tsType(t);
+        if (mapped == "number" || mapped == "string" || mapped == "boolean") continue;
+        if (mapped == selfName || names.contains(mapped)) continue;
+        names << mapped;
+    }
+    names.sort();
+    QString out;
+    QStringList lines;
+    for (const QString& n : names)
+        lines << QString("import { %1 } from \"./%1.js\";").arg(n);
+    return lines;
+}
+
 QString TypeScriptGenerator::genProductionEntity(const AttrSet& as)
 {
     QString out;
     QTextStream s(&out);
+
+    // A field naming an Entity or a DataType refers to another production class,
+    // which has to be imported: these files were emitting the bare name.
+    QStringList fieldTypes;
+    for (const Field& f : as.fields) fieldTypes << f.type;
+    const QStringList imports = productionImports(fieldTypes, as.name);
+    for (const QString& line : imports) s << line << "\n";
+    if (!imports.isEmpty()) s << "\n";
 
     s << "export class " << as.name << " {\n";
     for (const Field& f : as.fields)
@@ -1662,6 +1785,18 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
                                 "- no template written").arg(typeName, other);
                 return true;
             };
+            // DataType -> class for ValidValues or a bare DataType, enum for
+            // EnumerationValues. An Entity field may name one, so these have to
+            // exist or the production folder does not compile.
+            for (const NamedBlock& nb : file.namedBlocks) {
+                if (nb.isContext || nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+                const QString prodPath = prodDir.filePath(nb.name + ".ts");
+                if (alreadyImplemented(prodPath, nb.name)) continue;
+                const bool isEnum = nb.hasExamples &&
+                    nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+                writeFile(prodPath, isEnum ? genProductionDataTypeEnum(nb)
+                                           : genProductionDataTypeClass(nb), msgs);
+            }
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
                 const QString prodPath = prodDir.filePath(as.name + ".ts");
