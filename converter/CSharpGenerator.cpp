@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QRegularExpression>
+#include <QSet>
 #include <QMap>
 #include <algorithm>
 
@@ -260,6 +261,23 @@ QString CSharpGenerator::toCamelCase(const QString& fieldName)
     QString result = parts[0][0].toLower() + parts[0].mid(1);
     for (int i = 1; i < parts.size(); ++i)
         result += parts[i][0].toUpper() + parts[i].mid(1);
+    // A specification may name an attribute Class, Type or Default. Those
+    // lowercase to a reserved word here, which will not parse as an identifier.
+    static const QSet<QString> keywords = {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
+        "char", "checked", "class", "const", "continue", "decimal",
+        "default", "delegate", "do", "double", "else", "enum", "event",
+        "explicit", "extern", "false", "finally", "fixed", "float", "for",
+        "foreach", "goto", "if", "implicit", "in", "int", "interface",
+        "internal", "is", "lock", "long", "namespace", "new", "null",
+        "object", "operator", "out", "override", "params", "private",
+        "protected", "public", "readonly", "ref", "return", "sbyte",
+        "sealed", "short", "sizeof", "stackalloc", "static", "string",
+        "struct", "switch", "this", "throw", "true", "try", "typeof", "uint",
+        "ulong", "unchecked", "unsafe", "ushort", "using", "virtual", "void",
+        "volatile", "while"
+    };
+    if (keywords.contains(result)) result = "@" + result;
     return result;
 }
 

@@ -197,7 +197,30 @@ QString CppGenerator::toIdentifier(const QString& name)
     s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
     s.remove(QRegularExpression("^_+|_+$"));
     if (!s.isEmpty() && s[0].isDigit()) s.prepend('_');
-    return s.toLower();
+    QString result = s.toLower();
+
+    // A specification may name an attribute Class, Template, New or Operator.
+    // Those lowercase to a reserved word, which will not parse as an identifier.
+    // A trailing underscore is the convention Rust and Python already use here;
+    // C++ has no way to quote a keyword.
+    static const QSet<QString> keywords = {
+        "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
+        "bool", "break", "case", "catch", "char", "char16_t", "char32_t",
+        "char8_t", "class", "compl", "concept", "const", "const_cast",
+        "consteval", "constexpr", "constinit", "continue", "co_await",
+        "co_return", "co_yield", "decltype", "default", "delete", "do", "double",
+        "dynamic_cast", "else", "enum", "explicit", "export", "extern", "false",
+        "float", "for", "friend", "goto", "if", "inline", "int", "long",
+        "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+        "operator", "or", "or_eq", "private", "protected", "public", "register",
+        "reinterpret_cast", "requires", "return", "short", "signed", "sizeof",
+        "static", "static_assert", "static_cast", "struct", "switch",
+        "template", "this", "thread_local", "throw", "true", "try", "typedef",
+        "typeid", "typename", "union", "unsigned", "using", "virtual", "void",
+        "volatile", "wchar_t", "while", "xor", "xor_eq"
+    };
+    if (keywords.contains(result)) result += "_";
+    return result;
 }
 
 QString CppGenerator::toTypeName(const QString& name)

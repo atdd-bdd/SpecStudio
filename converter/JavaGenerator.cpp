@@ -19,6 +19,20 @@ static QString toCamelCase(const QString& fieldName)
     QString result = parts[0][0].toLower() + parts[0].mid(1);
     for (int i = 1; i < parts.size(); ++i)
         result += parts[i][0].toUpper() + parts[i].mid(1);
+    // A specification may name an attribute Class, Type or Default. Those
+    // lowercase to a reserved word here, which will not parse as an identifier.
+    static const QSet<QString> keywords = {
+        "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+        "char", "class", "const", "continue", "default", "do", "double",
+        "else", "enum", "extends", "false", "final", "finally", "float",
+        "for", "goto", "if", "implements", "import", "instanceof", "int",
+        "interface", "long", "native", "new", "non-sealed", "null",
+        "package", "permits", "private", "protected", "public", "record",
+        "return", "sealed", "short", "static", "strictfp", "super", "switch",
+        "synchronized", "this", "throw", "throws", "transient", "true",
+        "try", "var", "void", "volatile", "while", "yield"
+    };
+    if (keywords.contains(result)) result += "_";
     return result;
 }
 

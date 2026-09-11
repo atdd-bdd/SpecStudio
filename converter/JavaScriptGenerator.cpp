@@ -190,6 +190,18 @@ QString JavaScriptGenerator::toCamelCase(const QString& name)
     for (int i = 1; i < parts.size(); ++i)
         if (!parts[i].isEmpty())
             result += parts[i][0].toUpper() + parts[i].mid(1);
+    // A specification may name an attribute Class, Type or Default. Those
+    // lowercase to a reserved word here, which will not parse as an identifier.
+    static const QSet<QString> keywords = {
+        "await", "break", "case", "catch", "class", "const", "continue",
+        "debugger", "default", "delete", "do", "else", "enum", "export",
+        "extends", "false", "finally", "for", "function", "if", "implements",
+        "import", "in", "instanceof", "interface", "let", "new", "null",
+        "package", "private", "protected", "public", "return", "static",
+        "super", "switch", "this", "throw", "true", "try", "typeof", "var",
+        "void", "while", "with", "yield"
+    };
+    if (keywords.contains(result)) result += "_";
     return result;
 }
 
