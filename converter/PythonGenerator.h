@@ -72,6 +72,8 @@ private:
                         const QString& glueClass, QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& glueClass) const;
     static QString pyDefaultLiteral(const Field& f, const QString& pt);
+    static QString genProductionDataTypeEnum(const NamedBlock& nb);
+    static QString genProductionDataTypeClass(const NamedBlock& nb);
     static QString genProductionEntity(const AttrSet& as);
     static QString genProductionCollection(const Collection& col);
 

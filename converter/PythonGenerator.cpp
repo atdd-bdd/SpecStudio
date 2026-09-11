@@ -1329,6 +1329,79 @@ QString PythonGenerator::pyDefaultLiteral(const Field& f, const QString& pt)
     return "'" + esc + "'";
 }
 
+
+// ---------------------------------------------------------------------------
+// Production DataType: a class for ValidValues, an enumeration for
+// EnumerationValues.
+//
+// An Entity field may name a DataType, and code that uses the production Entity
+// then reaches for a class of that name. Nothing was generating it here.
+// ---------------------------------------------------------------------------
+
+static int pyExampleCol(const NamedBlock& nb, const QString& header)
+{
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare(header, Qt::CaseInsensitive) == 0)
+            return i;
+    return -1;
+}
+
+QString PythonGenerator::genProductionDataTypeEnum(const NamedBlock& nb)
+{
+    const int valueCol = pyExampleCol(nb, "Value");
+    const int notesCol = pyExampleCol(nb, "Notes");
+    const QString cn = toTypeName(nb.name);
+
+    QString out;
+    QTextStream s(&out);
+    s << "import enum\n\n\n";
+    s << "class " << cn << "(enum.Enum):\n";
+    s << "    \"\"\"" << nb.name << " takes one of a fixed set of values.\"\"\"\n\n";
+    bool any = false;
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            any = true;
+            QString member = v.toUpper();
+            member.replace(QRegularExpression(R"([^A-Za-z0-9_])"), "_");
+            if (!member.isEmpty() && member[0].isDigit()) member.prepend('_');
+            s << "    " << member << " = '" << v << "'";
+            const QString note = (notesCol >= 0 && notesCol < row.size())
+                                 ? row[notesCol].trimmed() : QString();
+            if (!note.isEmpty()) s << "  # " << note;
+            s << "\n";
+        }
+    }
+    if (!any) s << "    pass\n";
+    s << "\n";
+    s << "    def __str__(self):\n";
+    s << "        return self.value\n";
+    return out;
+}
+
+QString PythonGenerator::genProductionDataTypeClass(const NamedBlock& nb)
+{
+    const QString cn = toTypeName(nb.name);
+    QString out;
+    QTextStream s(&out);
+    s << "class " << cn << ":\n";
+    s << "    \"\"\"" << nb.name << " is a value with its own rules.\n\n";
+    s << "    The generated form only carries the text; add the validation this\n";
+    s << "    specification describes, raising ValueError for anything it refuses.\n";
+    s << "    \"\"\"\n\n";
+    s << "    def __init__(self, value: str = ''):\n";
+    s << "        self.value = value if value is not None else ''\n\n";
+    s << "    def __eq__(self, other):\n";
+    s << "        return isinstance(other, " << cn << ") and self.value == other.value\n\n";
+    s << "    def __hash__(self):\n";
+    s << "        return hash(self.value)\n\n";
+    s << "    def __str__(self):\n";
+    s << "        return self.value\n";
+    return out;
+}
+
 QString PythonGenerator::genProductionEntity(const AttrSet& as)
 {
     QString out;
@@ -1571,6 +1644,18 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
                                 "- no template written").arg(typeName, other);
                 return true;
             };
+            // DataType -> class for ValidValues or a bare DataType, enumeration
+            // for EnumerationValues. An Entity field may name one, so these have
+            // to exist for the production package to be usable.
+            for (const NamedBlock& nb : file.namedBlocks) {
+                if (nb.isContext || nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+                const QString prodPath = prodDir.filePath(toTypeName(nb.name) + ".py");
+                if (alreadyImplemented(prodPath, toTypeName(nb.name))) continue;
+                const bool isEnum = nb.hasExamples &&
+                    nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+                writeFile(prodPath, isEnum ? genProductionDataTypeEnum(nb)
+                                           : genProductionDataTypeClass(nb), msgs);
+            }
             // Entity production classes
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
