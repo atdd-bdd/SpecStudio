@@ -507,11 +507,16 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
     s << "func New" << typeName << "FromSlice(v []string) " << typeName << " {\n";
     s << "\ts := " << typeName << "{}\n";
     for (int i = 0; i < as.fields.size(); ++i) {
-        // A nested block cannot come from a flat slice; those rows are built
-        // with a struct literal instead.
-        if (isAttrSetType(as.fields[i].type, file)) continue;
+        // A nested block arrives as one cell holding its text form -- "25 USD"
+        // for a Money column -- so read it the way FromText does rather than
+        // leaving the field empty.
         s << "\tif len(v) > " << i << " { s." << toExported(as.fields[i].name)
-          << " = v[" << i << "] }\n";
+          << " = ";
+        if (isAttrSetType(as.fields[i].type, file))
+            s << "New" << toExported(as.fields[i].type) << "StringFromText(v[" << i << "])";
+        else
+            s << "v[" << i << "]";
+        s << " }\n";
     }
     s << "\treturn s\n}\n\n";
 
