@@ -1687,6 +1687,8 @@ static QString genRustProductionClass(const NamedBlock& nb)
     const QString name = RustGenerator::toTypeName(nb.name);
     QString out;
     QTextStream s(&out);
+    s << "/// " << nb.name << " is a value with its own rules. The generated form only\n";
+    s << "/// carries the text; add the validation this specification describes.\n";
     s << "#[derive(Debug, Clone, PartialEq, Eq)]\n";
     s << "pub struct " << name << " {\n";
     s << "    pub value: String,\n";
@@ -1694,35 +1696,12 @@ static QString genRustProductionClass(const NamedBlock& nb)
     s << "impl " << name << " {\n";
     s << "    pub fn new(value: impl Into<String>) -> Self {\n";
     s << "        Self { value: value.into() }\n";
-    s << "    }\n\n";
+    s << "    }\n";
 
-    int valueCol = -1, isValidCol = -1;
-    for (int i = 0; i < nb.examples.header.size(); ++i) {
-        const QString h = nb.examples.header[i].trimmed();
-        if (h.compare("value", Qt::CaseInsensitive) == 0) valueCol = i;
-        if (h.compare("isvalid", Qt::CaseInsensitive) == 0) isValidCol = i;
-    }
-    if (valueCol >= 0) {
-        QStringList vals;
-        for (const QStringList& row : nb.examples.rows) {
-            if (valueCol >= row.size() || row[valueCol].trimmed().isEmpty()) continue;
-            if (isValidCol >= 0 && isValidCol < row.size()) {
-                const QString iv = row[isValidCol].trimmed().toLower();
-                const bool isTrue = (iv == "true" || iv == "t" || iv == "yes"
-                                   || iv == "y" || iv == "1");
-                if (!isTrue) continue;  // skip examples marked invalid
-            }
-            vals << "\"" + row[valueCol].trimmed() + "\"";
-        }
-        if (!vals.isEmpty()) {
-            s << "    pub fn is_valid(&self) -> bool {\n";
-            s << "        matches!(self.value.to_lowercase().as_str(),\n";
-            QStringList lower;
-            for (const QString& v : vals) lower << v.toLower();
-            s << "            " << lower.join(" | ") << "\n";
-            s << "        )\n    }\n";
-        }
-    }
+    // No validation is generated. An is_valid built by listing the table's own
+    // valid values answers the ValidValues test by construction -- the test goes
+    // green while checking nothing, which is worse than having no test. The rule
+    // the specification describes is for the project to write.
     s << "}\n\n";
     // From<String> is the conversion the generated Typed structs use, both in
     // from_str_struct and in from_json_value.

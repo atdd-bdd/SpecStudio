@@ -1333,36 +1333,17 @@ static QString genSwiftProductionClass(const NamedBlock& nb)
     const QString name = SwiftGenerator::toTypeName(nb.name);
     QString out;
     QTextStream s(&out);
+    // No validation is generated. An isValid built by listing the table's own
+    // valid values answers the ValidValues test by construction -- the test goes
+    // green while checking nothing, which is worse than having no test. The rule
+    // the specification describes is for the project to write.
+    s << "/// " << nb.name << " is a value with its own rules. The generated form only\n";
+    s << "/// carries the text; add the validation this specification describes.\n";
     s << "public struct " << name << ": Equatable, CustomStringConvertible {\n";
     s << "    public let value: String\n\n";
     s << "    public init(_ value: String) {\n";
     s << "        self.value = value\n";
     s << "    }\n\n";
-
-    int valueCol = -1, isValidCol = -1;
-    for (int i = 0; i < nb.examples.header.size(); ++i) {
-        const QString h = nb.examples.header[i].trimmed();
-        if (h.compare("value", Qt::CaseInsensitive) == 0) valueCol = i;
-        if (h.compare("isvalid", Qt::CaseInsensitive) == 0) isValidCol = i;
-    }
-    if (valueCol >= 0) {
-        QStringList vals;
-        for (const QStringList& row : nb.examples.rows) {
-            if (valueCol >= row.size() || row[valueCol].trimmed().isEmpty()) continue;
-            if (isValidCol >= 0 && isValidCol < row.size()) {
-                const QString iv = row[isValidCol].trimmed().toLower();
-                const bool isTrue = (iv == "true" || iv == "t" || iv == "yes"
-                                   || iv == "y" || iv == "1");
-                if (!isTrue) continue;  // skip examples marked invalid
-            }
-            vals << "\"" + row[valueCol].trimmed().toLower() + "\"";
-        }
-        if (!vals.isEmpty()) {
-            s << "    public var isValid: Bool {\n";
-            s << "        return [" << vals.join(", ") << "].contains(value.lowercased())\n";
-            s << "    }\n\n";
-        }
-    }
 
     s << "    public var description: String { return value }\n";
     s << "}\n";
