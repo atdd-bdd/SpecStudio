@@ -1275,8 +1275,30 @@ bool PythonGenerator::appendMissingStubs(const QString& gluePath,
     }
     if (stubs.isEmpty()) return false;
 
-    // Append before end of file (Python has no closing brace)
-    content += "\n" + stubs;
+    // Put the stub at the end of the class body, not at the end of the file.
+    // Python has no closing brace, and a glue file may end with module-level
+    // helpers; appending there left the method outside the class. Worse, it did
+    // so silently: an indented def following a module-level def is read as a
+    // nested function, so the file still imported and the method simply did not
+    // exist. The class body runs from the class line to the last indented line
+    // before module level resumes.
+    QStringList lines = content.split('\n');
+    int insertAt = lines.size();
+    for (int i = 0; i < lines.size(); ++i) {
+        if (!lines[i].startsWith("class ")) continue;
+        insertAt = i + 1;
+        for (int j = i + 1; j < lines.size(); ++j) {
+            if (lines[j].trimmed().isEmpty()) continue;   // blanks sit inside a body
+            if (!lines[j][0].isSpace()) break;            // module level again
+            insertAt = j + 1;
+        }
+        break;
+    }
+
+    QStringList block = stubs.split('\n');
+    for (int i = block.size() - 1; i >= 0; --i)
+        lines.insert(insertAt, block[i]);
+    content = lines.join('\n');
 
     if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         msgs << QString("ERROR:0:Cannot update glue file: %1").arg(gluePath);
