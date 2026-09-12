@@ -1504,7 +1504,12 @@ QString CSharpGenerator::genGlueFile(const SpectableFile& file, const QString& n
 // Production class generators
 // ---------------------------------------------------------------------------
 
-// ValidValues DataType → class with IsValid() method
+// ValidValues DataType, or one with no Examples at all → a class carrying the
+// value. No validation is generated: an IsValid built by listing the type's own
+// ValidValues table answers the test by construction, and this one did not even
+// filter by the IsValid column, so every value the table named -- including the
+// ones it marks invalid -- was accepted. The rule the specification describes is
+// for the project to write.
 static QString genCSharpProductionClass(const NamedBlock& nb, const QString& ns)
 {
     const QString name = nb.name;
@@ -1512,28 +1517,16 @@ static QString genCSharpProductionClass(const NamedBlock& nb, const QString& ns)
     QTextStream s(&out);
     s << "namespace " << ns << "\n{\n";
     s << "    using System;\n\n";
+    s << "    /// <summary>\n";
+    s << "    /// " << name << " is a value with its own rules. The generated form only\n";
+    s << "    /// carries the text; add the validation this specification describes.\n";
+    s << "    /// </summary>\n";
     s << "    public class " << name << "\n    {\n";
     s << "        public readonly string Value;\n\n";
     s << "        public " << name << "(string value)\n        {\n";
     s << "            Value = value ?? string.Empty;\n";
     s << "        }\n\n";
-    // Collect valid values from ValidValues table
-    int valueCol = -1;
-    for (int i = 0; i < nb.examples.header.size(); ++i)
-        if (nb.examples.header[i].trimmed().compare("value", Qt::CaseInsensitive) == 0)
-            { valueCol = i; break; }
-    if (valueCol >= 0) {
-        QStringList vals;
-        for (const QStringList& row : nb.examples.rows)
-            if (valueCol < row.size() && !row[valueCol].trimmed().isEmpty())
-                vals << "\"" + row[valueCol].trimmed() + "\"";
-        if (!vals.isEmpty()) {
-            s << "        private static readonly string[] ValidValues = { " << vals.join(", ") << " };\n\n";
-            s << "        public bool IsValid() =>\n";
-            s << "            System.Array.Exists(ValidValues, v => v.Equals(Value, StringComparison.OrdinalIgnoreCase));\n\n";
-        }
-    }
-    s << "        public override string ToString() => $\"" << name << "{{Value}}\";\n";
+    s << "        public override string ToString() => Value;\n";
     s << "        public override bool Equals(object? obj) =>\n";
     s << "            obj is " << name << " other && string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);\n";
     s << "        public override int GetHashCode() => Value.GetHashCode(StringComparison.OrdinalIgnoreCase);\n";
