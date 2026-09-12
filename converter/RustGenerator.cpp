@@ -704,7 +704,11 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
             expr = QString("json::Value::Str(self.%1.clone())").arg(fid);
         else    // nested Attributes block — written as a nested object
             expr = QString("self.%1.to_json_value()").arg(fid);
-        s << "            (\"" << fid << "\".to_string(), " << expr << "),\n";
+        // The JSON key is the attribute name the specification writes, not the
+        // Rust identifier. A key is wire format: userid would not match the
+        // userId a service sends, and a document written by one target has to
+        // be readable by the others.
+        s << "            (\"" << f.name.trimmed() << "\".to_string(), " << expr << "),\n";
     }
     s << "        ])\n";
     s << "    }\n\n";
@@ -718,16 +722,17 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString rt  = rustCommonType(f, file);
-        const QString src = QString("json::require(v, \"%1\")?").arg(fid);
+        const QString key = f.name.trimmed();
+        const QString src = QString("json::require(v, \"%1\")?").arg(key);
         QString expr;
         if (rt == "i32")
-            expr = QString("json::as_i32(%1, \"%2\")?").arg(src, fid);
+            expr = QString("json::as_i32(%1, \"%2\")?").arg(src, key);
         else if (rt == "f64")
-            expr = QString("json::as_f64(%1, \"%2\")?").arg(src, fid);
+            expr = QString("json::as_f64(%1, \"%2\")?").arg(src, key);
         else if (rt == "bool")
-            expr = QString("json::as_bool(%1, \"%2\")?").arg(src, fid);
+            expr = QString("json::as_bool(%1, \"%2\")?").arg(src, key);
         else if (rt == "String")
-            expr = QString("json::as_string(%1, \"%2\")?").arg(src, fid);
+            expr = QString("json::as_string(%1, \"%2\")?").arg(src, key);
         else    // nested Attributes block — read as its own Typed struct
             expr = QString("%1::from_json_value(%2)?").arg(rt, src);
         s << "            " << fid << ": " << expr << ",\n";

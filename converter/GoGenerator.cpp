@@ -847,7 +847,11 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     for (const Field& f : as.fields) {
         const QString fe = toExported(f.name);
         const QString gt = goCommonType(f, file);
-        const QString key = toIdentifier(f.name);
+        // The JSON key is the attribute name the specification writes, not the
+        // Go identifier. A key is wire format: userid would not match the userId
+        // a service sends, and a document written by one target has to be
+        // readable by the others.
+        const QString key = f.name.trimmed();
         if (gt == "int" || gt == "float64" || gt == "bool" || gt == "string")
             s << "\t\t\"" << key << "\": t." << fe << ",\n";
         else    // nested Attributes block
@@ -865,7 +869,7 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     for (const Field& f : as.fields) {
         const QString fe  = toExported(f.name);
         const QString gt  = goCommonType(f, file);
-        const QString key = toIdentifier(f.name);
+        const QString key = f.name.trimmed();
         const bool nested = !(gt == "int" || gt == "float64"
                            || gt == "bool" || gt == "string");
         const QString fn  = nested            ? "JSONAsObject"

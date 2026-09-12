@@ -705,14 +705,19 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
 
     s << "    json::Value to_json_value() const {\n";
     s << "        json::Members m;\n";
+    // The JSON key is the attribute name the specification writes, not the C++
+    // identifier. A key is wire format: userid would not match the userId a
+    // service sends, and a document written by one target has to be readable by
+    // the others.
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
+        const QString key = f.name.trimmed();
         if (isAttrSetType(f.type, file)) {
             // Nested Attributes block — written as a nested object.
-            s << "        m.emplace_back(\"" << fid << "\", " << fid << ".to_json_value());\n";
+            s << "        m.emplace_back(\"" << key << "\", " << fid << ".to_json_value());\n";
             continue;
         }
-        s << "        m.emplace_back(\"" << fid << "\", json::Convert<" << cppCommonType(f, file)
+        s << "        m.emplace_back(\"" << key << "\", json::Convert<" << cppCommonType(f, file)
           << ">::to_json(" << fid << "));\n";
     }
     s << "        return json::Value::make_object(std::move(m));\n";
@@ -724,14 +729,15 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     s << "        " << typedName << " t;\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
+        const QString key = f.name.trimmed();
         if (isAttrSetType(f.type, file)) {
             // Nested Attributes block — read as its own Typed struct.
             s << "        t." << fid << " = " << cppCommonType(f, file)
-              << "::from_json_value(json::require(v, \"" << fid << "\"));\n";
+              << "::from_json_value(json::require(v, \"" << key << "\"));\n";
             continue;
         }
         s << "        t." << fid << " = json::Convert<" << cppCommonType(f, file)
-          << ">::from_json(json::require(v, \"" << fid << "\"), \"" << fid << "\");\n";
+          << ">::from_json(json::require(v, \"" << key << "\"), \"" << key << "\");\n";
     }
     s << "        return t;\n";
     s << "    }\n\n";

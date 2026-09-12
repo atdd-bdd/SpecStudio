@@ -698,13 +698,18 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
 
     s << "    def to_json_value(self) -> dict:\n";
     s << "        return {\n";
+    // The JSON key is the attribute name the specification writes, not the
+    // Python identifier. A key is wire format: user_id would not match the
+    // userId a service sends, and a document written by one target has to be
+    // readable by the others.
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
+        const QString key = f.name.trimmed();
         if (isAttrSetType(f.type, file))
-            s << "            '" << fid << "': self." << fid
+            s << "            '" << key << "': self." << fid
               << ".to_json_value() if self." << fid << " else None,\n";
         else
-            s << "            '" << fid << "': self." << fid << ",\n";
+            s << "            '" << key << "': self." << fid << ",\n";
     }
     s << "        }\n\n";
 
@@ -716,10 +721,10 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     s << "        return cls(\n";
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f    = as.fields[i];
-        const QString fid = toIdentifier(f.name);
+        const QString key = f.name.trimmed();
         if (isAttrSetType(f.type, file)) {
             s << "            " << toTypeName(f.type)
-              << "Typed.from_json_value(_json.require(m, '" << fid << "'))";
+              << "Typed.from_json_value(_json.require(m, '" << key << "'))";
         } else {
             const QString pt  = pythonType(f.type);
             const QString fn  = (pt == "int")             ? "as_int"
@@ -727,7 +732,7 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
                               : (pt == "decimal.Decimal") ? "as_decimal"
                               : (pt == "bool")            ? "as_bool"
                                                           : "as_str";
-            s << "            _json." << fn << "(_json.require(m, '" << fid << "'), '" << fid << "')";
+            s << "            _json." << fn << "(_json.require(m, '" << key << "'), '" << key << "')";
         }
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
