@@ -1649,50 +1649,151 @@ QString CppGenerator::genGlueFile(const SpectableFile& file, const QString& glue
 // Production class generators
 // ---------------------------------------------------------------------------
 
+// The column a DataType's Examples table gives under this heading, or -1.
+static int cppExampleCol(const NamedBlock& nb, const QString& header)
+{
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare(header, Qt::CaseInsensitive) == 0)
+            return i;
+    return -1;
+}
+
+// A DataType declared with EnumerationValues: the fixed set of values it takes.
+static QString genProductionDataTypeEnumCpp(const NamedBlock& nb)
+{
+    const int valueCol = cppExampleCol(nb, "Value");
+    const int notesCol = cppExampleCol(nb, "Notes");
+
+    QString out;
+    QTextStream s(&out);
+    s << "#pragma once\n";
+    s << "// " << nb.name << " takes one of a fixed set of values.\n\n";
+    s << "#include <optional>\n";
+    s << "#include <string>\n\n";
+
+    // An enumerator has to be an identifier; the text form keeps the value as
+    // written, which is what a table cell is compared against.
+    QStringList members, values, notes;
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            QString member = v;
+            member.replace(QRegularExpression(R"([^A-Za-z0-9_])"), "_");
+            if (!member.isEmpty() && member[0].isDigit()) member.prepend('_');
+            members << member;
+            values  << v;
+            notes   << ((notesCol >= 0 && notesCol < row.size()) ? row[notesCol].trimmed()
+                                                                 : QString());
+        }
+    }
+
+    s << "enum class " << nb.name << " {\n";
+    for (int i = 0; i < members.size(); ++i) {
+        s << "    " << members[i] << ",";
+        if (!notes[i].isEmpty()) s << "  // " << notes[i];
+        s << "\n";
+    }
+    s << "};\n\n";
+
+    s << "inline std::string to_text(" << nb.name << " value)\n{\n";
+    s << "    switch (value) {\n";
+    for (int i = 0; i < members.size(); ++i)
+        s << "    case " << nb.name << "::" << members[i]
+          << ": return \"" << cppEscape(values[i]) << "\";\n";
+    s << "    }\n";
+    s << "    return \"\";\n";
+    s << "}\n\n";
+
+    s << "// Reads the text form. Empty when the text names nothing on the list.\n";
+    s << "inline std::optional<" << nb.name << "> parse_"
+      << nb.name.toLower() << "(const std::string& text)\n{\n";
+    for (int i = 0; i < members.size(); ++i)
+        s << "    if (text == \"" << cppEscape(values[i]) << "\") return "
+          << nb.name << "::" << members[i] << ";\n";
+    s << "    return std::nullopt;\n";
+    s << "}\n";
+    return out;
+}
+
+// A DataType declared with ValidValues, or with no Examples at all: a value
+// with rules of its own. Only the text is generated -- the rule the
+// specification describes is for the project to write, and writing the table's
+// own valid values back out as the rule would prove nothing.
+static QString genProductionDataTypeClassCpp(const NamedBlock& nb)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "#pragma once\n";
+    s << "// " << nb.name << " is a value with its own rules. The generated form only\n";
+    s << "// carries the text; add the validation this specification describes,\n";
+    s << "// throwing std::invalid_argument where a value does not satisfy it.\n\n";
+    s << "#include <string>\n\n";
+    s << "class " << nb.name << " {\n";
+    s << "public:\n";
+    s << "    explicit " << nb.name << "(const std::string& value) : text(value) {}\n\n";
+    s << "    const std::string& value() const { return text; }\n";
+    s << "    bool operator==(const " << nb.name << "& o) const { return text == o.text; }\n\n";
+    s << "private:\n";
+    s << "    std::string text;\n";
+    s << "};\n";
+    return out;
+}
+
 static QString genProductionEntityCpp(const AttrSet& as)
 {
     QString out;
     QTextStream s(&out);
 
-    QStringList includes;
+    // A field naming another production type -- an Entity, or a DataType the
+    // project supplies -- needs that type's header. Without it the struct named
+    // a type nothing had declared, and the file did not compile; nothing
+    // included it, so nothing noticed.
+    QStringList includes, siblings;
     for (const Field& f : as.fields) {
-        const QString tl = f.type.trimmed().toLower();
-        if (tl == "string" || tl == "text" || tl == "character" || tl == "char"
-         || tl == "date"   || tl == "time" || tl == "datetime"  || tl == "duration")
+        const QString ctype = CppGenerator::cppType(f.type);
+        if (ctype == "std::string") {
             if (!includes.contains("<string>")) includes << "<string>";
+        } else if (ctype != "int" && ctype != "double" && ctype != "bool") {
+            if (ctype != as.name && !siblings.contains(ctype)) siblings << ctype;
+        }
     }
+    siblings.sort();
 
     s << "#pragma once\n";
     for (const QString& inc : includes) s << "#include " << inc << "\n";
+    for (const QString& sib : siblings) s << "#include \"" << sib << ".h\"\n";
     s << "\n";
+
+    // A member whose name matches its own type -- `Instrument Instrument` for a
+    // Holding -- hides the type name for everything declared after it, so the
+    // constructor below would not parse. Naming production types at global
+    // scope keeps the type reachable whatever a field is called.
+    auto memberType = [](const QString& specType) {
+        const QString ctype = CppGenerator::cppType(specType);
+        return (ctype == "int" || ctype == "double" || ctype == "bool"
+                || ctype == "std::string") ? ctype : "::" + ctype;
+    };
 
     s << "struct " << as.name << " {\n";
     for (const Field& f : as.fields) {
-        const QString ct = CppGenerator::cppType(f.type);  // need to make cppType accessible or inline
-        // We'll inline the logic here
-        const QString tl = f.type.trimmed().toLower();
-        QString ctype;
-        if      (tl == "integer" || tl == "int")                                    ctype = "int";
-        else if (tl == "float"   || tl == "decimal" || tl == "scientific")          ctype = "double";
-        else if (tl == "boolean" || tl == "yesno" || tl == "bool")                  ctype = "bool";
-        else if (tl == "string"  || tl == "text"  || tl == "character" || tl == "char"
-              || tl == "date"    || tl == "time"  || tl == "datetime"  || tl == "duration")
-            ctype = "std::string";
-        else
-            ctype = f.type.trimmed();
+        const QString ctype = CppGenerator::cppType(f.type);
 
-        s << "    " << ctype << " " << f.name;
-        if (!f.defaultValue.isEmpty()) {
-            if (tl == "integer" || tl == "int" || tl == "float" || tl == "decimal" || tl == "scientific")
-                s << " = " << f.defaultValue;
-            else if (tl == "boolean" || tl == "yesno" || tl == "bool")
-                s << " = " << (f.defaultValue.toLower() == "true" || f.defaultValue == "1" || f.defaultValue.toLower() == "yes" ? "true" : "false");
-            else
-                s << " = \"" << f.defaultValue << "\"";
-        } else {
-            if (tl == "integer" || tl == "int") s << " = 0";
-            else if (tl == "float" || tl == "decimal" || tl == "scientific") s << " = 0.0";
-            else if (tl == "boolean" || tl == "yesno" || tl == "bool") s << " = false";
+        s << "    " << memberType(f.type) << " " << f.name;
+        // A default has to become a C++ expression, and only the built-in types
+        // have one. A field whose type is a class of its own has no literal
+        // form: `CurrencyList Currency = "USD"` was being emitted, which does
+        // not compile. Such a field is simply left for the constructor to set.
+        if (ctype == "int" || ctype == "double") {
+            s << " = " << (f.defaultValue.isEmpty()
+                           ? (ctype == "int" ? "0" : "0.0")
+                           : f.defaultValue);
+        } else if (ctype == "bool") {
+            const QString d = f.defaultValue.toLower();
+            s << " = " << (d == "true" || d == "1" || d == "yes" ? "true" : "false");
+        } else if (ctype == "std::string" && !f.defaultValue.isEmpty()) {
+            s << " = \"" << cppEscape(f.defaultValue) << "\"";
         }
         s << ";\n";
     }
@@ -1702,21 +1803,7 @@ static QString genProductionEntityCpp(const AttrSet& as)
     s << "    " << as.name << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
-        const QString tl = as.fields[i].type.trimmed().toLower();
-        QString ctype;
-        if      (tl == "integer" || tl == "int")   ctype = "int";
-        else if (tl == "float"   || tl == "decimal" || tl == "scientific") ctype = "double";
-        else if (tl == "boolean" || tl == "yesno" || tl == "bool") ctype = "bool";
-        else if (tl == "string"  || tl == "text"  || tl == "character" || tl == "char"
-              || tl == "date"    || tl == "time"  || tl == "datetime"  || tl == "duration")
-            ctype = "std::string";
-        else
-            ctype = as.fields[i].type.trimmed();
-
-        if (ctype == "std::string")
-            s << "std::string " << as.fields[i].name << "_";
-        else
-            s << ctype << " " << as.fields[i].name << "_";
+        s << memberType(as.fields[i].type) << " " << as.fields[i].name << "_";
     }
     s << ")\n        : ";
     for (int i = 0; i < as.fields.size(); ++i) {
@@ -1950,6 +2037,19 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
                                 "- no template written").arg(typeName, other);
                 return true;
             };
+            // DataTypes -- an enum where the specification lists the values it
+            // takes, a class with a value of its own otherwise. An Entity field
+            // may name one, so these have to exist or the production folder does
+            // not compile.
+            for (const NamedBlock& nb : file.namedBlocks) {
+                if (nb.isContext || nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+                const QString prodPath = prodDir.filePath(nb.name + ".h");
+                if (alreadyImplemented(prodPath, nb.name)) continue;
+                const bool isEnum = nb.hasExamples &&
+                    nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+                writeFile(prodPath, isEnum ? genProductionDataTypeEnumCpp(nb)
+                                           : genProductionDataTypeClassCpp(nb), msgs);
+            }
             // Entities
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;

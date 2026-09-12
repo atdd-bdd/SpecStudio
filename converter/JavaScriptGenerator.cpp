@@ -1311,6 +1311,78 @@ QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
 // Production class generators
 // ---------------------------------------------------------------------------
 
+// The column a DataType's Examples table gives under this heading, or -1.
+static int jsExampleCol(const NamedBlock& nb, const QString& header)
+{
+    for (int i = 0; i < nb.examples.header.size(); ++i)
+        if (nb.examples.header[i].trimmed().compare(header, Qt::CaseInsensitive) == 0)
+            return i;
+    return -1;
+}
+
+// A DataType declared with EnumerationValues: the fixed set of values it takes.
+// A frozen object rather than a class, so a value compares as the text the
+// table wrote and needs no unwrapping.
+QString JavaScriptGenerator::genProductionDataTypeEnum(const NamedBlock& nb)
+{
+    const int valueCol = jsExampleCol(nb, "Value");
+    const int notesCol = jsExampleCol(nb, "Notes");
+
+    QString out;
+    QTextStream s(&out);
+    s << "// " << nb.name << " takes one of a fixed set of values.\n";
+    s << "export const " << nb.name << " = Object.freeze({\n";
+    if (valueCol >= 0) {
+        for (const QStringList& row : nb.examples.rows) {
+            if (valueCol >= row.size()) continue;
+            const QString v = row[valueCol].trimmed();
+            if (v.isEmpty()) continue;
+            // A key has to be an identifier; the value keeps the text.
+            QString member = v;
+            member.replace(QRegularExpression(R"([^A-Za-z0-9_])"), "_");
+            if (!member.isEmpty() && member[0].isDigit()) member.prepend('_');
+            s << "  " << member << ": \"" << jsStringEscape(v) << "\",";
+            const QString note = (notesCol >= 0 && notesCol < row.size())
+                                 ? row[notesCol].trimmed() : QString();
+            if (!note.isEmpty()) s << "  // " << note;
+            s << "\n";
+        }
+    }
+    s << "});\n\n";
+
+    s << "// Reads the text form. Undefined when the text names nothing on the list.\n";
+    s << "export function parse" << nb.name << "(text) {\n";
+    s << "  const name = String(text ?? \"\").trim();\n";
+    s << "  return Object.values(" << nb.name << ").includes(name) ? name : undefined;\n";
+    s << "}\n";
+    return out;
+}
+
+// A DataType declared with ValidValues, or with no Examples at all: a value
+// with rules of its own. Only the text is generated -- the rule the
+// specification describes is for the project to write, and writing the table's
+// own valid values back out as the rule would prove nothing.
+QString JavaScriptGenerator::genProductionDataTypeClass(const NamedBlock& nb)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "// " << nb.name << " is a value with its own rules. The generated form only\n";
+    s << "// carries the text; add the validation this specification describes,\n";
+    s << "// throwing where a value does not satisfy it.\n";
+    s << "export class " << nb.name << " {\n";
+    s << "  constructor(value) {\n";
+    s << "    this.value = String(value ?? \"\");\n";
+    s << "  }\n\n";
+    s << "  equals(other) {\n";
+    s << "    return this.value === other.value;\n";
+    s << "  }\n\n";
+    s << "  toString() {\n";
+    s << "    return this.value;\n";
+    s << "  }\n";
+    s << "}\n";
+    return out;
+}
+
 QString JavaScriptGenerator::genProductionEntity(const AttrSet& as)
 {
     QString out;
@@ -1566,6 +1638,19 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
                                 "- no template written").arg(typeName, other);
                 return true;
             };
+            // DataTypes -- a frozen object where the specification lists the
+            // values it takes, a class with a value of its own otherwise. An
+            // Entity field may name one, so these have to exist or the
+            // production folder refers to something nothing declares.
+            for (const NamedBlock& nb : file.namedBlocks) {
+                if (nb.isContext || nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+                const QString prodPath = prodDir.filePath(nb.name + ".js");
+                if (alreadyImplemented(prodPath, nb.name)) continue;
+                const bool isEnum = nb.hasExamples &&
+                    nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+                writeFile(prodPath, isEnum ? genProductionDataTypeEnum(nb)
+                                           : genProductionDataTypeClass(nb), msgs);
+            }
             for (const AttrSet& as : file.attrSets) {
                 if (as.isContext || as.kind.compare("Entity", Qt::CaseInsensitive) != 0) continue;
                 const QString prodPath = prodDir.filePath(as.name + ".js");

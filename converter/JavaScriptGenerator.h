@@ -84,6 +84,8 @@ private:
                         const QString& commonRelPath) const;
 
     // Production
+    static QString genProductionDataTypeEnum(const NamedBlock& nb);
+    static QString genProductionDataTypeClass(const NamedBlock& nb);
     static QString genProductionEntity(const AttrSet& as);
     static QString genProductionCollection(const Collection& col);
 
