@@ -128,6 +128,10 @@ set(SOURCES
     analyzer/SpecTableIndex.cpp
     analyzer/SpecTableAnalyzer.h
     analyzer/SpecTableAnalyzer.cpp
+    analyzer/SpecTableModelChecks.cpp
+    # PROTOTYPE: Analyze reads the converter's own parse tree. The parser
+    # needs only Qt and SpectableModel.h -- no generator code comes with it.
+    ../converter/SpectableParser.cpp
 
     build/BuildController.h
     build/BuildController.cpp
@@ -140,7 +144,11 @@ qt_add_executable(AlignThree WIN32 MACOSX_BUNDLE
     ${CMAKE_CURRENT_SOURCE_DIR}/../resources/help.qrc
 )
 
-target_include_directories(AlignThree PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(AlignThree PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    # PROTOTYPE: for converter/SpectableParser.h, so Analyze can read the
+    # same parse tree the generator does.
+    ${CMAKE_CURRENT_SOURCE_DIR}/../converter)
 
 target_link_libraries(AlignThree PRIVATE
     Qt6::Core

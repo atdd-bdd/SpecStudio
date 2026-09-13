@@ -52,6 +52,14 @@ private:
     // set such as ValidValues, which has no declaration to read.
     QMap<QString, QString> fieldTypesOf   (const QString& attrSetName) const;
 
+    // PROTOTYPE — checks that read the converter's own parse tree rather than
+    // re-reading the file with regular expressions. See SpecTableModelChecks.cpp.
+    void runModelChecks     (const QString& filePath, QList<Diagnostic>& out) const;
+    void checkParseMessages (const QString& filePath, const struct SpectableFile& file,
+                             QList<Diagnostic>& out) const;
+    void checkEmptyScenarios(const QString& filePath, const struct SpectableFile& file,
+                             QList<Diagnostic>& out) const;
+
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,
                                 Diagnostic::Severity sev = Diagnostic::Severity::Error);

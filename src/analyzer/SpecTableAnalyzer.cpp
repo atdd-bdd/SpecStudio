@@ -57,6 +57,7 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkDuplicateDeclarations      (filePath, diags);
     checkExamplesTableContents      (filePath, visible, diags);
     checkAttributeDefaultValues     (filePath, diags);
+    runModelChecks                  (filePath, diags);   // PROTOTYPE
 
     return diags;
 }
