@@ -1,6 +1,7 @@
 #include "SpecTableAnalyzer.h"
 
 #include <QFile>
+#include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QTextStream>
@@ -1043,8 +1044,16 @@ void SpecTableAnalyzer::checkDuplicateDeclarations(const QString& filePath,
                 QStringList others;
                 for (const SymbolLocation& other : it.value()) {
                     if (other.filePath == filePath && other.line == loc.line) continue;
-                    others << QFileInfo(other.filePath).fileName()
-                              + ":" + QString::number(other.line);
+                    // A bare file name is no help when the other declaration is in
+                    // a file of the same name in another folder -- the message then
+                    // appears to point at the line you are already looking at. Show
+                    // the containing folder too when the names match.
+                    const QFileInfo of(other.filePath);
+                    const QString shown =
+                        (of.fileName() == QFileInfo(filePath).fileName())
+                            ? of.dir().dirName() + "/" + of.fileName()
+                            : of.fileName();
+                    others << shown + ":" + QString::number(other.line);
                 }
                 if (others.isEmpty()) continue;
 
