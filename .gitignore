@@ -39,3 +39,6 @@ CMakeUserPresets.json
 # produces. The pages are uploaded by FTP rather than committed, and the site is
 # kept out of the product repository entirely.
 website/
+
+# Scratch notes kept beside the project but not part of it.
+event storming -.txt
