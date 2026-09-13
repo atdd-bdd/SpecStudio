@@ -31,6 +31,27 @@ private:
     void checkStepsWithTableButNoAttrSet  (const QString& filePath, QList<Diagnostic>& out) const;
     void checkAttributeFieldTypes         (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
+    // A Collection's element type has to be an Entity: a production class is
+    // written for an Entity and not for an Attributes block, so a Collection of
+    // the latter generates code referring to a type nothing writes.
+    void checkCollectionElementTypes      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
+
+    // A name declared in two files: the generator tests the first and warns
+    // about the rest, so the second declaration is silently not tested.
+    void checkDuplicateDeclarations       (const QString& filePath, QList<Diagnostic>& out) const;
+
+    // An Examples: table's columns against the fields its AttributeSet declares,
+    // and each cell against its field's type.
+    void checkExamplesTableContents       (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
+
+    // The Default column of an Attributes/Entity block against the type declared
+    // beside it on the same row.
+    void checkAttributeDefaultValues      (const QString& filePath, QList<Diagnostic>& out) const;
+
+    // The fields an AttributeSet declares, as name -> type. Empty for a built-in
+    // set such as ValidValues, which has no declaration to read.
+    QMap<QString, QString> fieldTypesOf   (const QString& attrSetName) const;
+
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,
                                 Diagnostic::Severity sev = Diagnostic::Severity::Error);

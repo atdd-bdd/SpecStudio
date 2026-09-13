@@ -137,6 +137,15 @@ public:
     // Returns all DomainTerm names declared in more than one file, with all their locations.
     QMap<QString, QVector<SymbolLocation>> duplicateDomainTerms() const;
 
+    // The declarable kinds a name can be duplicated across files in. Kept
+    // separate from DomainTerm, which has its own stricter rule.
+    enum class SymbolKind { Entity, Attributes, DataType, Collection };
+
+    // Returns names of the given kind declared in more than one file, with every
+    // location. The generator tests only the first declaration it sees and warns
+    // about the rest, so a second declaration is silently not tested.
+    QMap<QString, QVector<SymbolLocation>> duplicatesOfKind(SymbolKind kind) const;
+
     // Returns a map of DomainTerm name → declared base type (from "DomainTerm Foo : Bar").
     // Only entries that have an explicit ": Type" are included.
     QMap<QString, QString> domainTermTypes() const;

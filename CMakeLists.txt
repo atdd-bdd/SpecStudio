@@ -11,3 +11,5 @@ find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui PrintSupport Network)
 add_subdirectory(converter)
 add_subdirectory(askpass)
 add_subdirectory(src)
+# A console front end for Analyze, so its findings can be diffed from a terminal.
+add_subdirectory(tools/analyze_cli)

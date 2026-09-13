@@ -107,6 +107,29 @@ QMap<QString, QString> SpecTableIndex::domainTermTypes() const
     return result;
 }
 
+QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicatesOfKind(SymbolKind kind) const
+{
+    QMap<QString, QVector<SymbolLocation>> all;
+    for (auto fit = m_fileSymbols.cbegin(); fit != m_fileSymbols.cend(); ++fit) {
+        const SpecTableSymbols& s = fit.value();
+        const QMap<QString, SymbolLocation>* from = nullptr;
+        switch (kind) {
+        case SymbolKind::Entity:     from = &s.entities;    break;
+        case SymbolKind::Attributes: from = &s.attributes;  break;
+        case SymbolKind::DataType:   from = &s.dataTypes;   break;
+        case SymbolKind::Collection: from = &s.collections; break;
+        }
+        for (auto it = from->cbegin(); it != from->cend(); ++it)
+            all[it.key()].append(it.value());
+    }
+
+    QMap<QString, QVector<SymbolLocation>> dupes;
+    for (auto it = all.cbegin(); it != all.cend(); ++it)
+        if (it.value().size() > 1)
+            dupes.insert(it.key(), it.value());
+    return dupes;
+}
+
 QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicateDomainTerms() const
 {
     QMap<QString, QVector<SymbolLocation>> all;

@@ -53,6 +53,10 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkUnrecognizedLines          (filePath, diags);
     checkStepsWithTableButNoAttrSet (filePath, diags);
     checkAttributeFieldTypes        (filePath, visible, diags);
+    checkCollectionElementTypes     (filePath, visible, diags);
+    checkDuplicateDeclarations      (filePath, diags);
+    checkExamplesTableContents      (filePath, visible, diags);
+    checkAttributeDefaultValues     (filePath, diags);
 
     return diags;
 }
@@ -420,6 +424,10 @@ void SpecTableAnalyzer::validateDataTypeValue(const QString& filePath, int lineN
 
     static QRegularExpression reInteger (R"(^-?\d+$)");
     static QRegularExpression reFloat   (R"(^-?\d+(\.\d+)?([eE][+-]?\d+)?$)");
+    // Decimal has no exponent, and no thousands separator: every generator reads
+    // it with its language's exact-decimal type, and none of them accept a comma.
+    // "25,200.00" in a Decimal column used to reach BigDecimal and throw there.
+    static QRegularExpression reDecimal (R"(^[+-]?(\d+(\.\d*)?|\.\d+)$)");
     static QRegularExpression reDate    (R"(^\d{4}-\d{2}-\d{2}$)");
     static QRegularExpression reTime    (R"(^\d{2}:\d{2}(:\d{2})?$)");
     static QRegularExpression reDateTime(R"(^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})");
@@ -435,6 +443,15 @@ void SpecTableAnalyzer::validateDataTypeValue(const QString& filePath, int lineN
         if (!reFloat.match(value).hasMatch())
             out.append(makeDiag(filePath, lineNo,
                 QStringLiteral("'%1' is not a valid Float").arg(value),
+                Diagnostic::Severity::Warning));
+    } else if (ltype == "decimal" || ltype == "scientific") {
+        // Scientific is the one numeric type that may carry an exponent.
+        const bool ok = (ltype == "scientific")
+            ? reFloat.match(value).hasMatch()
+            : reDecimal.match(value).hasMatch();
+        if (!ok)
+            out.append(makeDiag(filePath, lineNo,
+                QStringLiteral("'%1' is not a valid %2").arg(value, dtype),
                 Diagnostic::Severity::Warning));
     } else if (ltype == "boolean") {
         static const QStringList valid{"true", "false"};
@@ -922,6 +939,266 @@ void SpecTableAnalyzer::checkAttributeFieldTypes(
                                "DataType, Entity/Attributes, Collection, or DomainTerm")
                     .arg(attrName, declaredType),
                 Diagnostic::Severity::Warning));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper — the fields an AttributeSet declares, as name -> type
+// ---------------------------------------------------------------------------
+
+QMap<QString, QString> SpecTableAnalyzer::fieldTypesOf(const QString& attrSetName) const
+{
+    QMap<QString, QString> fields;
+    if (!m_index) return fields;
+
+    // A built-in set such as ValidValues has no declaration to read, and the
+    // generator supplies its shape. Returning empty says "nothing to check".
+    const QVector<QStringList> rows = m_index->attributeRows(attrSetName);
+    if (rows.size() < 2) return fields;
+
+    const QStringList& header = rows.first();
+    int nameCol = -1, typeCol = -1;
+    for (int c = 0; c < header.size(); ++c) {
+        const QString h = header[c];
+        if (h.compare("Attribute", Qt::CaseInsensitive) == 0 ||
+            h.compare("Name", Qt::CaseInsensitive) == 0)
+            nameCol = c;
+        if (h.compare("Type", Qt::CaseInsensitive) == 0 ||
+            h.compare("DataType", Qt::CaseInsensitive) == 0)
+            typeCol = c;
+    }
+    if (nameCol < 0) return fields;
+
+    for (int r = 1; r < rows.size(); ++r) {
+        const QStringList& row = rows[r];
+        if (nameCol >= row.size() || row[nameCol].isEmpty()) continue;
+        fields.insert(row[nameCol],
+                      (typeCol >= 0 && typeCol < row.size()) ? row[typeCol] : QString());
+    }
+    return fields;
+}
+
+// ---------------------------------------------------------------------------
+// Check — a Collection's element type must be an Entity
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkCollectionElementTypes(const QString& filePath,
+                                                     const SpecTableSymbols& visible,
+                                                     QList<Diagnostic>& out) const
+{
+    if (!m_index) return;
+
+    for (auto it = visible.collections.cbegin(); it != visible.collections.cend(); ++it) {
+        if (it.value().filePath != filePath) continue;   // report at its own declaration
+
+        const QString element = m_index->collectionElementType(it.key());
+        if (element.isEmpty()) continue;                 // no DataType column to read
+
+        if (visible.entities.contains(element)) continue;            // the good case
+        if (k_builtinDataTypes.contains(element)) continue;          // a list of a built-in
+
+        if (visible.attributes.contains(element)) {
+            out.append(makeDiag(filePath, it.value().line,
+                QStringLiteral("Collection '%1' holds '%2', which is declared with Attributes. "
+                               "A Collection's type must be an Entity -- a production class is "
+                               "written for an Entity and not for an Attributes block, so this "
+                               "generates code referring to a type nothing writes.")
+                    .arg(it.key(), element)));
+            continue;
+        }
+
+        if (!visible.hasDataType(element) && !visible.hasAttributeSet(element)
+            && !visible.domainTerms.contains(element))
+            out.append(makeDiag(filePath, it.value().line,
+                QStringLiteral("Collection '%1' holds unknown type '%2'")
+                    .arg(it.key(), element)));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check — a name declared in more than one file
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkDuplicateDeclarations(const QString& filePath,
+                                                    QList<Diagnostic>& out) const
+{
+    if (!m_index) return;
+
+    struct KindName { SpecTableIndex::SymbolKind kind; const char* label; };
+    static const KindName kinds[] = {
+        { SpecTableIndex::SymbolKind::Entity,     "Entity"     },
+        { SpecTableIndex::SymbolKind::Attributes, "Attributes" },
+        { SpecTableIndex::SymbolKind::DataType,   "DataType"   },
+        { SpecTableIndex::SymbolKind::Collection, "Collection" },
+    };
+
+    for (const KindName& k : kinds) {
+        const auto dupes = m_index->duplicatesOfKind(k.kind);
+        for (auto it = dupes.cbegin(); it != dupes.cend(); ++it) {
+            for (const SymbolLocation& loc : it.value()) {
+                if (loc.filePath != filePath) continue;
+
+                QStringList others;
+                for (const SymbolLocation& other : it.value()) {
+                    if (other.filePath == filePath && other.line == loc.line) continue;
+                    others << QFileInfo(other.filePath).fileName()
+                              + ":" + QString::number(other.line);
+                }
+                if (others.isEmpty()) continue;
+
+                out.append(makeDiag(filePath, loc.line,
+                    QStringLiteral("%1 '%2' is also declared in %3 -- only the first declaration "
+                                   "is generated, so the others are never tested")
+                        .arg(QString::fromLatin1(k.label), it.key(), others.join(", ")),
+                    Diagnostic::Severity::Warning));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check — an Examples: table against the AttributeSet it names
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkExamplesTableContents(const QString& filePath,
+                                                    const SpecTableSymbols& visible,
+                                                    QList<Diagnostic>& out) const
+{
+    Q_UNUSED(visible);
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    static QRegularExpression reExamples(R"(^\s*Examples:\s*(\w+))",
+                                         QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow(R"(^\s*\|)");
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines << in.readLine();
+
+    for (int i = 0; i < lines.size(); ++i) {
+        auto m = reExamples.match(lines[i]);
+        if (!m.hasMatch()) continue;
+
+        const QString attrSet = m.captured(1);
+        const QMap<QString, QString> fields = fieldTypesOf(attrSet);
+        if (fields.isEmpty()) continue;   // built-in or undeclared — checked elsewhere
+
+        // The header is the first pipe row after the Examples: line.
+        int h = i + 1;
+        while (h < lines.size() && !reRow.match(lines[h]).hasMatch()) {
+            const QString t = lines[h].trimmed();
+            if (!t.isEmpty() && !t.startsWith('#')) break;
+            ++h;
+        }
+        if (h >= lines.size() || !reRow.match(lines[h]).hasMatch()) continue;
+
+        const QStringList hParts = lines[h].split('|');
+        QStringList headers;
+        for (int p = 1; p < hParts.size() - 1; ++p) headers << hParts[p].trimmed();
+
+        // A column naming no field is data the generator drops on the floor.
+        for (const QString& col : headers) {
+            if (col.isEmpty() || fields.contains(col)) continue;
+            out.append(makeDiag(filePath, h + 1,
+                QStringLiteral("Examples table has column '%1', which is not an attribute of "
+                               "'%2' -- its values are ignored").arg(col, attrSet),
+                Diagnostic::Severity::Warning));
+        }
+
+        // A field with no column is one the generator cannot fill.
+        for (auto fit = fields.cbegin(); fit != fields.cend(); ++fit) {
+            if (headers.contains(fit.key())) continue;
+            out.append(makeDiag(filePath, h + 1,
+                QStringLiteral("Examples table for '%1' has no column '%2' -- that attribute is "
+                               "left empty in every row").arg(attrSet, fit.key()),
+                Diagnostic::Severity::Warning));
+        }
+
+        // Each cell against the type its column declares.
+        for (int r = h + 1; r < lines.size(); ++r) {
+            const QString& ln = lines[r];
+            if (ln.trimmed().isEmpty() || ln.trimmed().startsWith('#')) continue;
+            if (!reRow.match(ln).hasMatch()) break;
+
+            const QStringList rParts = ln.split('|');
+            QStringList cells;
+            for (int p = 1; p < rParts.size() - 1; ++p) cells << rParts[p].trimmed();
+
+            for (int c = 0; c < qMin(cells.size(), headers.size()); ++c) {
+                const QString& val = cells[c];
+                // Blank states nothing; "=Name" is a Define reference resolved
+                // later; ?DNC? is the do-not-care marker.
+                if (val.isEmpty() || val.startsWith('=') || val == "?DNC?") continue;
+                validateDataTypeValue(filePath, r + 1, val, fields.value(headers[c]), out);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Check — the Default column of an Attributes/Entity block
+// ---------------------------------------------------------------------------
+
+void SpecTableAnalyzer::checkAttributeDefaultValues(const QString& filePath,
+                                                     QList<Diagnostic>& out) const
+{
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+
+    static QRegularExpression reDecl(R"(^\s*(Attributes|Entity)\s+(\w+))",
+                                     QRegularExpression::CaseInsensitiveOption);
+    static QRegularExpression reRow(R"(^\s*\|)");
+    static QRegularExpression reSkip(
+        R"(^\s*(Description|Details|Notes|Constraint|Uses|In-Out)\b)",
+        QRegularExpression::CaseInsensitiveOption);
+
+    QTextStream in(&f);
+    QStringList lines;
+    while (!in.atEnd()) lines << in.readLine();
+
+    for (int i = 0; i < lines.size(); ++i) {
+        if (!reDecl.match(lines[i]).hasMatch()) continue;
+
+        int j = i + 1;
+        while (j < lines.size()
+               && !reRow.match(lines[j]).hasMatch()
+               && (lines[j].trimmed().isEmpty() || reSkip.match(lines[j]).hasMatch()))
+            ++j;
+        if (j >= lines.size() || !reRow.match(lines[j]).hasMatch()) continue;
+
+        const QStringList hParts = lines[j].split('|');
+        QStringList headers;
+        for (int p = 1; p < hParts.size() - 1; ++p) headers << hParts[p].trimmed();
+
+        int typeCol = -1, defaultCol = -1;
+        for (int c = 0; c < headers.size(); ++c) {
+            if (headers[c].compare("Type", Qt::CaseInsensitive) == 0 ||
+                headers[c].compare("DataType", Qt::CaseInsensitive) == 0)
+                typeCol = c;
+            if (headers[c].compare("Default", Qt::CaseInsensitive) == 0)
+                defaultCol = c;
+        }
+        if (typeCol < 0 || defaultCol < 0) continue;
+
+        for (int k = j + 1; k < lines.size(); ++k) {
+            const QString& ln = lines[k];
+            if (ln.trimmed().isEmpty() || ln.trimmed().startsWith('#')) continue;
+            if (!reRow.match(ln).hasMatch()) break;
+
+            const QStringList rParts = ln.split('|');
+            QStringList row;
+            for (int p = 1; p < rParts.size() - 1; ++p) row << rParts[p].trimmed();
+
+            if (typeCol >= row.size() || defaultCol >= row.size()) continue;
+            const QString value = row[defaultCol];
+            // Blank means no default; "~" is the spec's explicit empty string;
+            // "(none)" says there is none; "=Name" defers to a Define.
+            if (value.isEmpty() || value == "~" || value.startsWith('=')
+                || value.compare("(none)", Qt::CaseInsensitive) == 0) continue;
+
+            validateDataTypeValue(filePath, k + 1, value, row[typeCol], out);
         }
     }
 }
