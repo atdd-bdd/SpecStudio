@@ -267,6 +267,37 @@ Define
 
 ## Bigger Language Feature Ideas (not scoped/designed yet) ---
 
+### Infer a table's orientation instead of being told it. A step already names
+  the attribute set its table belongs to, so the parser knows the attribute
+  names before it reads the table. That is enough to tell which way the table
+  runs: look for where the *second* attribute's name appears. Across the first
+  row means horizontal; down the first column means vertical. One attribute
+  alone is ambiguous and either reading gives the same answer.
+
+  Keep the Vertical keyword for now — this would make it optional rather than
+  remove it, and an explicit keyword is still worth having where a reader wants
+  the orientation stated.
+
+  Groundwork is already done: as of 2026-09-13 a Vertical table is treated as a
+  horizontal one transposed everywhere it matters, so missing and unknown
+  attributes give the same message either way (converter/SpectableParser.cpp,
+  validateStepTables).
+
+### A keyword for a table whose every cell is an entity. Something like
+  "EveryItem": it would say that each cell holds the text form of an entity
+  rather than a scalar, so the generator calls that entity's string constructor
+  on the cell instead of parsing it as a value.
+
+  The problem does not arise when the cells are String or Decimal — a scalar
+  cell needs no constructor. It arises when a table is a grid of entities and
+  there is no column header to attach a type to, so nothing says what to build
+  from each cell.
+
+  The entity text form this would lean on already exists: "25 USD" for a Money,
+  with a nested entity in single quotes and a value containing spaces in double
+  quotes. Every language has fromText/toString for it.
+
+
 ### What Karate has that SpecTable does not, from writing API.spectable against a
   live service (SpecStudioVariousTests, 2026-08-13). Karate is an API-testing
   DSL built on Gherkin. The array syntax below was checked against Karate's own
