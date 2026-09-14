@@ -2618,6 +2618,80 @@ bool JavaGenerator::writeFile(const QString& path, const QString& content, QStri
 }
 
 // ---------------------------------------------------------------------------
+// Does the production package hold anything?
+// ---------------------------------------------------------------------------
+//
+// The production import used to be added whenever the package was configured,
+// which is not the same question. A specification declaring only Attributes
+// blocks generates no production class -- production classes are written for an
+// Entity, a DataType and a Collection, and for nothing else -- so a project made
+// only of such specifications leaves the package empty, and an import of an
+// empty package does not compile:
+//
+//     common/AmountString.java:4: error: package production does not exist
+//
+// Every specification in the two working repositories happens to declare at
+// least one Entity or DataType, which is why the empty case was never generated
+// until SpecStudioErrorTests asked for it.
+//
+// Three ways it can hold something, and any one is enough:
+//   - this file declares something that generates a production class;
+//   - a field names a type that is not built in, so the generated code refers to
+//     a production class even though this file does not declare it;
+//   - another specification in the project has already written one, since the
+//     directory is shared.
+//
+// When unsure this answers yes: importing a package that does have contents is
+// harmless, and failing to import one that does is a broken build.
+static bool productionPackageHasContents(const SpectableFile& file,
+                                         const QString& productionDir,
+                                         const QString& fileSuffix)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (!as.isContext && as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
+            return true;
+
+    for (const NamedBlock& nb : file.namedBlocks)
+        if (!nb.isContext && nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
+            return true;
+
+    for (const Collection& col : file.collections)
+        if (!col.isContext && !col.name.isEmpty())
+            return true;
+
+    static const QStringList builtinScalars = {
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal",
+        "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
+    };
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+        for (const Field& f : as.fields) {
+            const QString t = f.type.trimmed();
+            if (t.isEmpty()) continue;
+            bool builtin = false;
+            for (const QString& b : builtinScalars)
+                if (b.compare(t, Qt::CaseInsensitive) == 0) { builtin = true; break; }
+            if (builtin) continue;
+            // Another Attributes block becomes a Typed class in common/, not a
+            // production class, so it does not need the package either.
+            bool otherAttrSet = false;
+            for (const AttrSet& other : file.attrSets)
+                if (other.name.compare(t, Qt::CaseInsensitive) == 0
+                    && other.kind.compare("Attributes", Qt::CaseInsensitive) == 0)
+                    { otherAttrSet = true; break; }
+            if (!otherAttrSet) return true;
+        }
+    }
+
+    if (!productionDir.isEmpty()) {
+        QDir dir(productionDir);
+        if (dir.exists() && !dir.entryList({ fileSuffix }, QDir::Files).isEmpty())
+            return true;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -2630,8 +2704,10 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
 
-    // Inject production package import into Typed/glue files whenever the package is configured
-    if (!opts.productionClassesPackage.isEmpty()) {
+    // Import the production package into Typed/glue files only when it will
+    // hold something -- see productionPackageHasContents above.
+    if (!opts.productionClassesPackage.isEmpty()
+        && productionPackageHasContents(file, opts.productionClassesDir, "*.java")) {
         const QString prodImport = "import " + opts.productionClassesPackage + ".*;";
         if (!m_extraImports.contains(prodImport))
             m_extraImports.prepend(prodImport);

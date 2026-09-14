@@ -1690,6 +1690,71 @@ bool CSharpGenerator::writeFile(const QString& path, const QString& content, QSt
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
+// Does the production namespace hold anything?
+// ---------------------------------------------------------------------------
+//
+// The using used to be added whenever production classes were switched on,
+// which is not the same question. A specification declaring only Attributes
+// blocks generates no production class -- they are written for an Entity, a
+// DataType and a Collection, and for nothing else -- so a project made only of
+// such specifications leaves the namespace empty, and a using of a namespace
+// that does not exist is an error:
+//
+//     Awkward_Names_glue.cs(8,11): error CS0246: The type or namespace name
+//                                  'production' could not be found
+//
+// Three ways it can hold something, and any one is enough: this file declares
+// something that generates a production class; a field names a type that is not
+// built in, so the generated code refers to a production class this file does
+// not declare; or another specification has already written one, since the
+// directory is shared. When unsure this answers yes -- a using of a namespace
+// that does exist is harmless, a missing one is a broken build.
+static bool productionNamespaceHasContents(const SpectableFile& file,
+                                           const QString& productionDir)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (!as.isContext && as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
+            return true;
+
+    for (const NamedBlock& nb : file.namedBlocks)
+        if (!nb.isContext && nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
+            return true;
+
+    for (const Collection& col : file.collections)
+        if (!col.isContext && !col.name.isEmpty())
+            return true;
+
+    static const QStringList builtinScalars = {
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal",
+        "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
+    };
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+        for (const Field& f : as.fields) {
+            const QString ft = f.type.trimmed();
+            if (ft.isEmpty()) continue;
+            bool builtin = false;
+            for (const QString& b : builtinScalars)
+                if (b.compare(ft, Qt::CaseInsensitive) == 0) { builtin = true; break; }
+            if (builtin) continue;
+            bool otherAttrSet = false;
+            for (const AttrSet& other : file.attrSets)
+                if (other.name.compare(ft, Qt::CaseInsensitive) == 0
+                    && other.kind.compare("Attributes", Qt::CaseInsensitive) == 0)
+                    { otherAttrSet = true; break; }
+            if (!otherAttrSet) return true;
+        }
+    }
+
+    if (!productionDir.isEmpty()) {
+        QDir dir(productionDir);
+        if (dir.exists() && !dir.entryList({ "*.cs" }, QDir::Files).isEmpty())
+            return true;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 
 QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& opts)
 {
@@ -1702,8 +1767,11 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
 
     // Typed classes name production DataTypes (SimpleText, Dollar, ...) directly,
     // so the production namespace has to be in scope or nothing compiles. Java
-    // injects the equivalent import; C# was missing it entirely.
-    if (opts.createProductionClasses) {
+    // injects the equivalent import; C# was missing it entirely. It is added
+    // only when the namespace will hold something -- see
+    // productionNamespaceHasContents above.
+    if (opts.createProductionClasses
+        && productionNamespaceHasContents(file, opts.productionClassesDir)) {
         const QString prodNs = opts.productionClassesNamespace.isEmpty()
                              ? joinNs(opts.nsPrefix, "domain")
                              : opts.productionClassesNamespace;
