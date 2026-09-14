@@ -18,6 +18,7 @@ struct AttrSet {
     QString        name;
     QString        kind;   // "Attributes" or "Entity"
     QVector<Field> fields;
+    QString        uses;   // Uses named comment -- documentation only, never executable
     int            line      = 0;
     bool           isContext = false;  // from a context file — symbols only, no class generation
 };
@@ -32,6 +33,7 @@ struct Define {
     QString              docString;           // for docstring-form Define
     bool                 hasDocString = false;
     int                  docStringIndent = 0; // column of the opening """, for dedenting content lines
+    QString              uses;         // Uses named comment
     int                  line       = 0;
     bool                 isContext  = false;  // from a context file
 };
@@ -56,6 +58,7 @@ struct Step {
     QString   docString;    // content between opening and closing """
     bool      hasDocString = false;
     int       docStringIndent = 0; // column of the opening """, for dedenting content lines
+    QString   uses;         // Uses named comment
     int       line = 0;
 };
 
@@ -64,6 +67,7 @@ struct Scenario {
     QString       name;
     QStringList   tags;           // @Tags — passed through as test annotations
     QStringList   generatorTags;  // $Tags — consumed by generator for filtering only
+    QString       uses;           // Uses named comment
     QVector<Step> steps;
     int           line = 0;
 };
@@ -92,6 +96,7 @@ struct NamedBlock {
     ExamplesBlock examples;
     bool         hasExamples = false;
     bool         isContext   = false;  // from a context file — used for isEnumType lookup only
+    QString      uses;           // Uses named comment
     int          line        = 0;
 };
 
@@ -102,6 +107,7 @@ struct Collection {
     QString minimum;
     QString maximum;
     QString notes;
+    QString uses;          // Uses named comment
     int     line      = 0;
     bool    isContext = false;
 };

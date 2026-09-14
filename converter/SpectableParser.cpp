@@ -88,14 +88,30 @@ bool SpectableParser::isContinuation(const QString& line)
     return line.endsWith('\\') || line.endsWith("\\ ");
 }
 
-// Lines that appear inside any block and should be silently skipped
-// WITHOUT changing the current parser state
-bool SpectableParser::isSkipKeyword(const QString& firstWord)
+// A named comment: documentation attached to the element above it, carrying no
+// behaviour. These are transparent to the parser state in the strong sense --
+// one may sit between a step and its table without ending the table, which is
+// where the syntax document puts Uses.
+bool SpectableParser::isNamedComment(const QString& firstWord)
 {
     static const QStringList words = {
-        "Description", "Details", "Constraint", "Notes", "Uses",
-        "Insert"
+        "Description", "Details", "Constraint", "Notes", "Uses"
     };
+    for (const QString& k : words)
+        if (firstWord.startsWith(k, Qt::CaseInsensitive))
+            return true;
+    return false;
+}
+
+// Lines that appear inside any block and should be silently skipped
+// WITHOUT changing the current parser state.
+//
+// Insert stays here rather than with the named comments above: it is a
+// directive, not documentation, and it is consumed earlier when it stands in
+// for a step table. Reaching this point means it was not in that position.
+bool SpectableParser::isSkipKeyword(const QString& firstWord)
+{
+    static const QStringList words = { "Insert" };
     for (const QString& k : words)
         if (firstWord.startsWith(k, Qt::CaseInsensitive))
             return true;
@@ -262,6 +278,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     Scenario*   curScen       = nullptr;
     Step*       curStep       = nullptr;
     NamedBlock* curNamedBlock = nullptr;
+    // Where the next Uses line belongs. Uses is a named comment that follows the
+    // element it documents, so it attaches to whatever was opened last -- an
+    // Entity, a Collection, a Define, a named block, a Scenario or a step. One
+    // pointer rather than a search through the cur* set, because those are
+    // cleared at different times and "the element a Uses would land on" is
+    // exactly what is wanted.
+    QString*    curUses       = nullptr;
     QStringList attrHeaders;
 
     auto emitMsg = [&](int ln, const QString& msg, bool warn = false) {
@@ -662,14 +685,52 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             continue;
         }
 
+        // Keyword dispatch. Read before the step table is closed below, because
+        // a named comment must not close it.
+        const QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
+
+        // ── Uses — a named comment, kept with the element it documents ──────
+        // Documentation only: it never reaches a test as behaviour. It is kept
+        // so that Analyze can show it and the generators can copy it into a
+        // comment beside the code they write. A second Uses on the same element
+        // is appended rather than dropped, so a long note can be written over
+        // several lines.
+        //
+        // Handled here, above the step-table reset, so that
+        //
+        //     Given cart is : ShoppingCart
+        //     Uses Initial cart setup
+        //     | Orderer | Bill |
+        //
+        // still gives the step its table. Until 2026-09-13 it did not: any line
+        // that was not a pipe row ended the table first, so the step lost its
+        // table and the rows were reported as belonging to no block -- and that
+        // is the very placement the syntax document shows.
+        if (firstWord.compare("Uses", Qt::CaseInsensitive) == 0) {
+            const QString text = trimmed.mid(firstWord.length()).trimmed();
+            if (!curUses) {
+                emitMsg(lineNum, "Uses comment does not follow anything it can "
+                                 "describe, so it is ignored", true);
+            } else if (text.isEmpty()) {
+                emitMsg(lineNum, "Uses comment is empty", true);
+            } else if (curUses->isEmpty()) {
+                *curUses = text;
+            } else {
+                *curUses += ' ' + text;
+            }
+            continue;
+        }
+
+        // The other named comments are not captured yet, but they are equally
+        // transparent — none of them ends a table either.
+        if (isNamedComment(firstWord))
+            continue;
+
         // End open step table
         if (state == State::InStepTable || state == State::AwaitStepTable)
             endStepTable();
         if (state == State::SkipTable)
             state = State::Top;
-
-        // Keyword dispatch
-        const QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
 
         // ── Import — follow and merge AttrSets / Defines ─────────────────────
         if (firstWord.compare("Import", Qt::CaseInsensitive) == 0) {
@@ -749,7 +810,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             }
         }
 
-        // ── Inline skips (Description, Details, etc.) — transparent to state ──
+        // ── Insert, anywhere other than in step-table position ───────────────
         if (isSkipKeyword(firstWord))
             continue;
 
@@ -799,6 +860,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 result.dataTypeNames.push_back(nb.name);
             result.namedBlocks.push_back(nb);
             curNamedBlock = &result.namedBlocks.last();
+            curUses = &curNamedBlock->uses;
             state = State::InNamedBlock;
             continue;
         }
@@ -838,6 +900,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             as.line = lineNum;
             result.attrSets.push_back(as);
             curAttr = &result.attrSets.last();
+            curUses = &curAttr->uses;
             attrHeaders.clear();
             state = State::InAttrDef;
             continue;
@@ -851,6 +914,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             col.line = lineNum;
             result.collections.push_back(col);
             curCollection = &result.collections.last();
+            curUses = &curCollection->uses;
             collectionHeaders.clear();
             state = State::InCollectionDef;
             continue;
@@ -872,11 +936,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     def.isTable     = false;
                     result.defines.push_back(def);
                     curDefine = nullptr;
+                    curUses   = &result.defines.last().uses;
                     state     = State::Top;
                 } else {
                     def.isTable = true;
                     result.defines.push_back(def);
                     curDefine = &result.defines.last();
+                    curUses   = &curDefine->uses;
                     state     = State::InDefineTable;
                 }
             }
@@ -914,6 +980,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             sc.generatorTags = pendingGeneratorTags; pendingGeneratorTags.clear();
             result.scenarios.push_back(sc);
             curScen = &result.scenarios.last();
+            curUses = &curScen->uses;
             state   = State::InScenario;
             continue;
         }
@@ -936,12 +1003,15 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 if (state == State::InScenario && curScen) {
                     curScen->steps.push_back(st);
                     curStep = &curScen->steps.last();
+                    curUses = &curStep->uses;
                 } else if (inCleanupBlock) {
                     result.cleanupSteps.push_back(st);
                     curStep = &result.cleanupSteps.last();
+                    curUses = &curStep->uses;
                 } else {
                     result.backgroundSteps.push_back(st);
                     curStep = &result.backgroundSteps.last();
+                    curUses = &curStep->uses;
                 }
 
                 State nextState = attrSet.isEmpty()
