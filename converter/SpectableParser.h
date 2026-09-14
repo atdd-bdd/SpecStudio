@@ -4,6 +4,13 @@
 #include <QString>
 #include <QSet>
 
+// Checks every step table against the attribute set its step names, and returns
+// what is wrong with them. Shared so that one reading serves both callers: the
+// converter runs it after merging context files, and the IDE's Analyze runs it
+// on the file it just parsed. It used to live in JavaGenerator, where the other
+// eight languages could not benefit and Analyze had to reimplement it.
+QVector<ParseMessage> validateStepTables(const SpectableFile& file);
+
 class SpectableParser
 {
 public:

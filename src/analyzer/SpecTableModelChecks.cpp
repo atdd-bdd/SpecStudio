@@ -154,65 +154,6 @@ void SpecTableAnalyzer::checkEmptyAttrSets(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
-// A step table with no column for a field that has no default
-// ---------------------------------------------------------------------------
-//
-// This one the converter does catch, as an error, and it suppresses the whole
-// test file when it fires:
-//
-//     ERROR:22:Table is missing column 'Wanted' and 'Wanted' has no default value
-//
-// So the cost of not knowing is every test in the specification, not one. Worth
-// saying before the build rather than during it.
-
-void SpecTableAnalyzer::checkStepTableRequiredColumns(const QString& filePath,
-                                                       const SpectableFile& file,
-                                                       QList<Diagnostic>& out) const
-{
-    // Every attribute set the file can see, including those merged in by Import.
-    QMap<QString, const AttrSet*> byName;
-    for (const AttrSet& as : file.attrSets) byName.insert(as.name.toLower(), &as);
-
-    auto checkStep = [&](const Step& step) {
-        if (!step.hasTable || step.attrSetName.isEmpty()) return;
-        if (step.compareOnly) return;   // CompareOnly names only what it cares about
-        if (step.table.rows.isEmpty()) return;
-
-        const AttrSet* as = byName.value(step.attrSetName.toLower(), nullptr);
-        if (!as || as->fields.isEmpty()) return;   // unknown or empty: reported elsewhere
-
-        // Only a horizontal table. The generator makes this an error in its
-        // horizontal branch alone -- a vertical table names the attributes it
-        // sets and says nothing about the rest, which is how every Request in
-        // API.spectable omits Parameter and Body and still generates. Checking
-        // vertical tables here reported three errors against a specification
-        // whose tests all pass.
-        if (step.vertical) return;
-        if (!step.table.hasHeader) return;
-
-        QSet<QString> present;
-        for (const QString& h : step.table.rows.first()) present.insert(h.toLower());
-
-        for (const Field& f : as->fields) {
-            if (f.name.isEmpty()) continue;
-            if (present.contains(f.name.toLower())) continue;
-            if (!f.defaultValue.trimmed().isEmpty()) continue;   // a default fills it
-
-            out.append(makeDiag(filePath, step.line,
-                QStringLiteral("This table has no column '%1', and '%1' on '%2' has no default "
-                               "value — the generator refuses this and writes no test file for "
-                               "the whole specification")
-                    .arg(f.name, as->name)));
-        }
-    };
-
-    for (const Scenario& s : file.scenarios)
-        for (const Step& step : s.steps) checkStep(step);
-    for (const Step& step : file.backgroundSteps) checkStep(step);
-    for (const Step& step : file.cleanupSteps)    checkStep(step);
-}
-
-// ---------------------------------------------------------------------------
 // Entry point — parse once, run every model check
 // ---------------------------------------------------------------------------
 
@@ -227,5 +168,10 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     checkDuplicateFieldNames    (filePath, file, out);
     checkDuplicateScenarioNames (filePath, file, out);
     checkEmptyAttrSets          (filePath, file, out);
-    checkStepTableRequiredColumns(filePath, file, out);
+    // The same reading the converter uses, rather than a second one that can
+    // disagree with it.
+    for (const ParseMessage& m : validateStepTables(file))
+        out.append(makeDiag(filePath, m.line, m.text,
+                            m.warning ? Diagnostic::Severity::Warning
+                                      : Diagnostic::Severity::Error));
 }

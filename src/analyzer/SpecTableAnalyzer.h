@@ -65,8 +65,6 @@ private:
                                       QList<Diagnostic>& out) const;
     void checkEmptyAttrSets          (const QString& filePath, const struct SpectableFile& file,
                                       QList<Diagnostic>& out) const;
-    void checkStepTableRequiredColumns(const QString& filePath, const struct SpectableFile& file,
-                                      QList<Diagnostic>& out) const;
 
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,

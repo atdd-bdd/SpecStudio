@@ -480,21 +480,6 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
             QVector<int> colMap;
             for (const QString& h : hdrs)
                 colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
-            if (!step.compareOnly) {
-                for (const Field& f : attrSet->fields) {
-                    bool found = false;
-                    for (const QString& h : hdrs)
-                        if (h.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
-                    if (!found && f.defaultValue.trimmed().isEmpty())
-                        errors << QString("ERROR:%1:Table is missing column '%2' and '%2' has no default value")
-                                    .arg(step.line).arg(f.name);
-                }
-            }
-            for (const QString& h : hdrs) {
-                if (!fieldIdx.contains(h.toLower()))
-                    errors << QString("WARNING:%1:Table has column '%2' which doesn't match any field on '%3' — it will be ignored")
-                                .arg(step.line).arg(h, attrSet->name);
-            }
             for (int ri = 1; ri < def->tableRows.size(); ++ri) {
                 QStringList row(fieldCount);
                 for (int i = 0; i < attrSet->fields.size(); ++i)
@@ -516,6 +501,15 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
 
     const QString fillVal = step.compareOnly ? "?DNC?" : QString();
     if (step.table.vertical) {
+        // A Vertical table is a horizontal one transposed: the attribute names
+        // run down the first column instead of across the header, and every
+        // further column is another instance. Nothing else about it differs, so
+        // a missing or unknown attribute is the same mistake here as there and
+        // gets the same message.
+        //
+        // This used to be checked in the horizontal branch alone, which let a
+        // vertical table quietly omit a field that had no default -- the field
+        // was then filled from a default that did not exist.
         // Each row = [AttrName, Value [, Value2, ...]]
         // Extra columns are additional list items; each value column = one result row.
         int numCols = 0;
@@ -539,21 +533,6 @@ QVector<QStringList> JavaGenerator::resolveStepRows(
         QVector<int> colMap;
         for (const QString& h : hdrs)
             colMap << (fieldIdx.contains(h.toLower()) ? fieldIdx[h.toLower()] : -1);
-        if (!step.compareOnly) {
-            for (const Field& f : attrSet->fields) {
-                bool found = false;
-                for (const QString& h : hdrs)
-                    if (h.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
-                if (!found && f.defaultValue.trimmed().isEmpty())
-                    errors << QString("ERROR:%1:Table is missing column '%2' and '%2' has no default value")
-                                .arg(step.line).arg(f.name);
-            }
-        }
-        for (const QString& h : hdrs) {
-            if (!fieldIdx.contains(h.toLower()))
-                errors << QString("WARNING:%1:Table has column '%2' which doesn't match any field on '%3' — it will be ignored")
-                            .arg(step.line).arg(h, attrSet->name);
-        }
         for (int ri = 1; ri < step.table.rows.size(); ++ri) {
             QStringList row(fieldCount);
             for (int i = 0; i < attrSet->fields.size(); ++i)

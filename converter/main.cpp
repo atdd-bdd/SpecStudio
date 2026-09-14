@@ -150,6 +150,16 @@ int main(int argc, char* argv[])
         if (!m.warning) hasError = true;
     }
 
+    // Every step table against the attribute set its step names. Checked here,
+    // after the context merge, because the set may be declared in a sibling
+    // specification -- and here rather than in a generator, so that all nine
+    // languages refuse the same specification. It used to be Java's alone.
+    for (const ParseMessage& m : validateStepTables(file)) {
+        const char* sev = m.warning ? "WARNING" : "ERROR";
+        std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
+        if (!m.warning) hasError = true;
+    }
+
     // A Collection holds domain objects, so its element has to be an Entity. A
     // production class is written for an Entity and not for an Attributes block,
     // so a Collection of the latter generates a collection class referencing a

@@ -960,3 +960,92 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 
     return result;
 }
+
+// ---------------------------------------------------------------------------
+// Step tables against the attribute sets they name
+// ---------------------------------------------------------------------------
+//
+// This lived in JavaGenerator, which meant the other eight languages generated a
+// specification Java refused, and Analyze had to reimplement it to say anything
+// before the build. One reading, shared: main.cpp calls this after merging
+// context files, and the IDE's Analyze calls it on the file it just parsed.
+//
+// A Vertical table is a horizontal one transposed -- the attribute names run
+// down the first column instead of across the header, every further column is
+// another instance, and nothing else differs. So the same missing and unknown
+// attributes are the same mistakes either way, and get the same message. They
+// used to be checked in the horizontal case alone.
+//
+// An attribute set the file cannot see is skipped rather than reported: the
+// caller may not have merged its declaration yet, and an unknown name is the
+// caller's own check to make.
+
+QVector<ParseMessage> validateStepTables(const SpectableFile& file)
+{
+    QVector<ParseMessage> msgs;
+
+    QMap<QString, const AttrSet*> byName;
+    for (const AttrSet& as : file.attrSets)
+        byName.insert(as.name.toLower(), &as);
+
+    auto check = [&](const Step& step) {
+        if (!step.hasTable || step.attrSetName.isEmpty()) return;
+        if (step.table.rows.isEmpty()) return;
+
+        const AttrSet* as = byName.value(step.attrSetName.toLower(), nullptr);
+        if (!as || as->fields.isEmpty()) return;
+
+        // The names the table gives, whichever way round it is written.
+        QStringList named;
+        if (step.table.vertical) {
+            for (const QStringList& row : step.table.rows)
+                if (!row.isEmpty() && !row.first().trimmed().isEmpty())
+                    named << row.first().trimmed();
+        } else {
+            if (!step.table.hasHeader) return;
+            for (const QString& h : step.table.rows.first())
+                if (!h.trimmed().isEmpty()) named << h.trimmed();
+        }
+
+        // CompareOnly names only the attributes it cares about, so a missing one
+        // is the point rather than a mistake. An unknown one still is not.
+        if (!step.compareOnly) {
+            for (const Field& f : as->fields) {
+                if (f.name.isEmpty()) continue;
+                bool found = false;
+                for (const QString& n : named)
+                    if (n.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
+                if (found) continue;
+                if (!f.defaultValue.trimmed().isEmpty()) continue;
+
+                ParseMessage m;
+                m.line    = step.line;
+                m.warning = false;
+                m.text    = QString("Table is missing column '%1' and '%1' has no default value")
+                                .arg(f.name);
+                msgs.push_back(m);
+            }
+        }
+
+        for (const QString& n : named) {
+            bool known = false;
+            for (const Field& f : as->fields)
+                if (n.compare(f.name, Qt::CaseInsensitive) == 0) { known = true; break; }
+            if (known) continue;
+
+            ParseMessage m;
+            m.line    = step.line;
+            m.warning = true;
+            m.text    = QString("Table has column '%1' which doesn't match any field on '%2' "
+                                "— it will be ignored").arg(n, as->name);
+            msgs.push_back(m);
+        }
+    };
+
+    for (const Scenario& s : file.scenarios)
+        for (const Step& step : s.steps) check(step);
+    for (const Step& step : file.backgroundSteps) check(step);
+    for (const Step& step : file.cleanupSteps)    check(step);
+
+    return msgs;
+}
