@@ -51,7 +51,6 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkDomainTermDuplicates       (filePath, diags);
     checkDomainTermColumnTypes      (filePath, m_index->domainTermTypes(), diags);
     checkDomainTermVsDataTypeNames  (filePath, visible, diags);
-    checkUnrecognizedLines          (filePath, diags);
     checkStepsWithTableButNoAttrSet (filePath, diags);
     checkAttributeFieldTypes        (filePath, visible, diags);
     checkCollectionElementTypes     (filePath, visible, diags);
@@ -600,59 +599,6 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
-// Check — Lines whose first word is not a recognised keyword
-// ---------------------------------------------------------------------------
-
-void SpecTableAnalyzer::checkUnrecognizedLines(const QString& filePath,
-                                                QList<Diagnostic>& out) const
-{
-    static const QSet<QString> known = {
-        "specification",
-        "attributes", "entity", "collection",
-        "define",
-        "background", "cleanup",
-        "scenario",
-        "businessrule", "calculation", "datatype", "domainterm", "scenariogroup",
-        "import", "insert",
-        "examples",
-        "description", "details", "constraint", "notes", "uses",
-        "given", "when", "then", "and", "whenthen"
-    };
-
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    QTextStream in(&f);
-    int lineNum    = 0;
-    bool inDocStr  = false;
-    while (!in.atEnd()) {
-        const QString raw     = in.readLine();
-        ++lineNum;
-        const QString trimmed = raw.trimmed();
-
-        if (trimmed == "\"\"\"") { inDocStr = !inDocStr; continue; }  // docstring delimiter
-        if (inDocStr)                        continue;   // content inside """ ... """
-
-        if (trimmed.isEmpty())               continue;   // blank
-        if (trimmed.startsWith('#'))         continue;   // comment
-        if (trimmed.startsWith('@'))         continue;   // @tag — pass-through annotation
-        if (trimmed.startsWith('$'))         continue;   // $tag — generator filter tag
-        if (trimmed.startsWith('|'))         continue;   // pipe row
-        if (trimmed.startsWith('='))         continue;   // =DefineName reference
-        // indented non-pipe line = continuation of Description/Notes/etc.
-        if (raw.startsWith(' ') || raw.startsWith('\t')) continue;
-
-        QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
-        if (firstWord.endsWith(':')) firstWord.chop(1);  // handle "Scenario:", "Background:", etc.
-
-        if (!known.contains(firstWord.toLower()))
-            out.append(makeDiag(filePath, lineNum,
-                QStringLiteral("Unrecognized keyword '%1'").arg(firstWord),
-                Diagnostic::Severity::Warning));
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Check 9 — Given/When/Then step has a following table but no ': AttrSet' suffix
 // ---------------------------------------------------------------------------
 
@@ -1117,13 +1063,18 @@ void SpecTableAnalyzer::checkExamplesTableContents(const QString& filePath,
                 Diagnostic::Severity::Warning));
         }
 
-        // A field with no column is one the generator cannot fill.
+        // A field with no column and no default is one the generator cannot
+        // fill, and it refuses the file for it. A field with a default is filled
+        // from the default, which is what declaring one is for, so that is not a
+        // finding -- the generator is silent about it too.
+        const QMap<QString, QString> defaults = fieldDefaultsOf(attrSet);
         for (auto fit = fields.cbegin(); fit != fields.cend(); ++fit) {
             if (headers.contains(fit.key())) continue;
+            if (!defaults.value(fit.key()).trimmed().isEmpty()) continue;
+
             out.append(makeDiag(filePath, h + 1,
-                QStringLiteral("Examples table for '%1' has no column '%2' -- that attribute is "
-                               "left empty in every row").arg(attrSet, fit.key()),
-                Diagnostic::Severity::Warning));
+                QStringLiteral("Examples table for '%1' has no column '%2', and '%2' has no "
+                               "default value").arg(attrSet, fit.key())));
         }
 
         // Each cell against the type its column declares.
@@ -1211,4 +1162,41 @@ void SpecTableAnalyzer::checkAttributeDefaultValues(const QString& filePath,
             validateDataTypeValue(filePath, k + 1, value, row[typeCol], out);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helper — the defaults an AttributeSet declares, as name -> default
+// ---------------------------------------------------------------------------
+//
+// A field with a default is filled from it when a table gives no column, so a
+// missing column is only a finding when there is no default to fall back on.
+// That is the rule the generator applies, and this is how to ask about it.
+
+QMap<QString, QString> SpecTableAnalyzer::fieldDefaultsOf(const QString& attrSetName) const
+{
+    QMap<QString, QString> defaults;
+    if (!m_index) return defaults;
+
+    const QVector<QStringList> rows = m_index->attributeRows(attrSetName);
+    if (rows.size() < 2) return defaults;
+
+    const QStringList& header = rows.first();
+    int nameCol = -1, defaultCol = -1;
+    for (int c = 0; c < header.size(); ++c) {
+        const QString h = header[c];
+        if (h.compare("Attribute", Qt::CaseInsensitive) == 0 ||
+            h.compare("Name", Qt::CaseInsensitive) == 0)
+            nameCol = c;
+        if (h.compare("Default", Qt::CaseInsensitive) == 0)
+            defaultCol = c;
+    }
+    if (nameCol < 0 || defaultCol < 0) return defaults;
+
+    for (int r = 1; r < rows.size(); ++r) {
+        const QStringList& row = rows[r];
+        if (nameCol >= row.size() || row[nameCol].isEmpty()) continue;
+        defaults.insert(row[nameCol],
+                        defaultCol < row.size() ? row[defaultCol] : QString());
+    }
+    return defaults;
 }

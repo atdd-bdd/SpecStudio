@@ -27,7 +27,6 @@ private:
     void checkDomainTermDuplicates        (const QString& filePath, QList<Diagnostic>& out) const;
     void checkDomainTermColumnTypes       (const QString& filePath, const QMap<QString, QString>& dtTypes, QList<Diagnostic>& out) const;
     void checkDomainTermVsDataTypeNames   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkUnrecognizedLines           (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepsWithTableButNoAttrSet  (const QString& filePath, QList<Diagnostic>& out) const;
     void checkAttributeFieldTypes         (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
@@ -51,6 +50,10 @@ private:
     // The fields an AttributeSet declares, as name -> type. Empty for a built-in
     // set such as ValidValues, which has no declaration to read.
     QMap<QString, QString> fieldTypesOf   (const QString& attrSetName) const;
+
+    // The defaults it declares, as name -> default. A missing column is only a
+    // finding when the field has no default to fall back on.
+    QMap<QString, QString> fieldDefaultsOf(const QString& attrSetName) const;
 
     // PROTOTYPE — checks that read the converter's own parse tree rather than
     // re-reading the file with regular expressions. See SpecTableModelChecks.cpp.
