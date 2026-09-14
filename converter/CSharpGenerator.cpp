@@ -1703,25 +1703,30 @@ bool CSharpGenerator::writeFile(const QString& path, const QString& content, QSt
 //     Awkward_Names_glue.cs(8,11): error CS0246: The type or namespace name
 //                                  'production' could not be found
 //
-// Three ways it can hold something, and any one is enough: this file declares
-// something that generates a production class; a field names a type that is not
-// built in, so the generated code refers to a production class this file does
-// not declare; or another specification has already written one, since the
-// directory is shared. When unsure this answers yes -- a using of a namespace
-// that does exist is harmless, a missing one is a broken build.
-static bool productionNamespaceHasContents(const SpectableFile& file,
-                                           const QString& productionDir)
+// Two ways it can hold something, and either is enough: some specification the
+// converter can see declares an Entity, a DataType or a Collection -- this one
+// or, through --context, a sibling, since they all write into the same namespace
+// -- or a field names a type that is not built in, so the generated code refers
+// to a production class no visible specification declares. When unsure this
+// answers yes: a using of a namespace that does exist is harmless, a missing one
+// is a broken build.
+//
+// It deliberately does not look at what is on disk. It did once, and that made
+// the answer depend on whether a sibling had already been converted in this run,
+// so the same project generated in two orders produced two different sets of
+// files. Declarations are the same for every specification in the run.
+static bool productionNamespaceHasContents(const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
-        if (!as.isContext && as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
+        if (as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
             return true;
 
     for (const NamedBlock& nb : file.namedBlocks)
-        if (!nb.isContext && nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
             return true;
 
     for (const Collection& col : file.collections)
-        if (!col.isContext && !col.name.isEmpty())
+        if (!col.name.isEmpty())
             return true;
 
     static const QStringList builtinScalars = {
@@ -1746,11 +1751,6 @@ static bool productionNamespaceHasContents(const SpectableFile& file,
         }
     }
 
-    if (!productionDir.isEmpty()) {
-        QDir dir(productionDir);
-        if (dir.exists() && !dir.entryList({ "*.cs" }, QDir::Files).isEmpty())
-            return true;
-    }
     return false;
 }
 
@@ -1771,7 +1771,7 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     // only when the namespace will hold something -- see
     // productionNamespaceHasContents above.
     if (opts.createProductionClasses
-        && productionNamespaceHasContents(file, opts.productionClassesDir)) {
+        && productionNamespaceHasContents(file)) {
         const QString prodNs = opts.productionClassesNamespace.isEmpty()
                              ? joinNs(opts.nsPrefix, "domain")
                              : opts.productionClassesNamespace;

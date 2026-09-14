@@ -7,41 +7,6 @@ Altered so that it is separated into Issues and Future Features
 ## Doing
 
 
-### BUG: TableHelper.java is overwritten by each spec, so only the last one's
-  grid converters survive. A step whose table is a bare grid typed by a name --
-  "Given rolls are : Pins" with a row of values and no header -- generates
-  glue that calls TableHelper.toListListPins(values). genTableHelperClass
-  (JavaGenerator.cpp:1289) builds the class from collectGlueSigs() for the file
-  being generated and writes common/TableHelper.java, replacing whatever was
-  there. Every spec in a project shares one output folder, so the last spec
-  generated that has any grid table wins and all the earlier ones lose their
-  converters.
-
-  Demonstrated: generate bowling.spectable alone and TableHelper has
-  toListListPins and toListListBoolean. Generate "Tables and Strings.spectable"
-  into the same folder and TableHelper has only toListListString and
-  toListListInteger -- the other two are gone, and Bowling_glue no longer
-  compiles. This is why the VariousTests Java suite currently fails to build:
-  bowling wants toListListPins/toListListBoolean and Formatted Dollar wants
-  toListListDollar/toListListFormattedDollar.
-
-  Note toListListBoolean is a BUILT-IN type, so this is not only about
-  user-declared DataTypes -- any grid type other than the last spec's is lost.
-  Passing every other spec as --context does not help: context blocks are
-  skipped when collecting glue signatures.
-
-  Fix: accumulate across the whole generation run rather than per file, the way
-  the other common/ classes are written per type. Merging into an existing
-  TableHelper would also work but is uglier, since the file would then never
-  shrink when a spec stops using a type.
-
-  Java only -- JavaGenerator is the only generator that emits toListList. Check
-  whether the other eight have the same hole hidden behind different names, or
-  whether they convert grid tables inline. Nothing else exercises a grid table
-  of a non-String/Integer type today, so a silent version of this could exist
-  anywhere.
-
-
 ### BUG: an unresolvable field type warns but still emits uncompilable code.
   When an Attributes/Entity field names a type the generator cannot convert, the
   converter prints "Unknown type 'X' for field 'y' -- no parse conversion
@@ -450,6 +415,49 @@ Define
 
 
 ## --- Done ---
+
+[x] A shared file in common/ is merged, not replaced. Two of them were
+    rewritten by each specification in turn, and each specification writes into
+    the same folder, so only one specification's contribution survived.
+
+    TableHelper.java held the toListListXxx grid converters. It was replaced on
+    every write, so the last specification generated that had any grid step won
+    and every earlier one lost its converters -- a converter would appear, then
+    silently vanish when a sibling was generated afterwards. The union
+    SpecStudioVariousTests needs is String, Integer, Boolean, Pins and
+    FormattedDollar, which no single build could produce.
+
+    ProductionHelper.java held the Entity-to-production conversions, and had the
+    same hole in a quieter form: it was created only if absent, so whichever
+    specification went first wrote it and it was never updated again. Every
+    Entity declared in any other specification had no converters at all -- the
+    committed file in SpecStudioVariousTests held Account and nothing else,
+    while Address, ExchangeRates, Holding, Money and TwoAddresses were missing.
+    Nothing failed, because the hand-written glue converts for itself; the file
+    was simply four-fifths absent.
+
+    Both now go through JavaGenerator::mergeHelperClass: read what is on disk,
+    let this specification's methods win over their namesakes, keep everything
+    else verbatim, write it back under a QLockFile -- the lock because
+    Build > Project spawns every conversion at once and they all reach these two
+    files, and an unguarded read-modify-write would lose a method exactly as
+    replacing the file used to.
+
+    The other eight generators do not have the same hole. That was tested rather
+    than read: generate every specification into one folder in alphabetical
+    order, generate them again in reverse into another, and compare the trees. A
+    file that is merged comes out the same both ways; a file that is replaced
+    holds whichever specification went last, so the trees differ and name it.
+    All nine are stable under that test. Only Java generates these accumulating
+    helpers at all -- the others convert in the glue, so they have no shared file
+    to lose.
+
+    The same probe found one more, in the production import added the day
+    before: it asked whether the production folder had anything in it *on disk*,
+    which depends on how many siblings had already been converted in this run.
+    Generating a project into an empty folder therefore gave different files than
+    regenerating it in place. It now asks the declarations, which every
+    specification in a run sees identically through --context.
 
 [x] Select a whole block with the mouse, ready for cut/copy: double-click the
     block's KEYWORD, or triple-click any line inside a block. Bound to the

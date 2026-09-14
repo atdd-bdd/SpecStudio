@@ -77,12 +77,15 @@ private:
                                    const QString& framework,
                                    bool failEveryTest);
 
-    // Adds this specification's grid converters to common/TableHelper.java,
-    // keeping any that other specifications put there. Several specs share the
-    // file, so it is merged under a lock rather than replaced.
-    static bool mergeTableHelper(const QString& path,
+    // Adds this specification's methods to a shared helper class in common/ --
+    // TableHelper's grid converters, ProductionHelper's Entity conversions --
+    // keeping any that other specifications put there. Several specs write to
+    // each file, so it is merged under a lock rather than replaced.
+    static bool mergeHelperClass(const QString& path,
+                                 const QString& className,
                                  const QMap<QString, QString>& fresh,
                                  const QString& pkg,
+                                 const QStringList& baseImports,
                                  const QStringList& extraImports,
                                  QStringList& msgs);
 

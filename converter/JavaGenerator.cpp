@@ -1487,37 +1487,43 @@ static QString genGridConverter(const QString& dataType, const SpectableFile& fi
     return out;
 }
 
-// TableHelper.java is the one file in common/ that several specifications
-// share. Every spec with a grid step contributes its own toListListXxx
-// converter, and each is written by the conversion of the spec that needs it.
+// TableHelper.java and ProductionHelper.java are the two files in common/ that
+// several specifications share. Each is a class of static methods, and every
+// specification contributes the ones it needs: a grid converter per grid type, a
+// pair of conversions per Entity. Each is written by the conversion of the spec
+// that needs it, into one folder they all write to.
 //
-// So this file is *merged* with what is already on disk rather than replaced.
-// Replacing it left only the last-generated spec's converters and broke the
-// build for every other spec — a converter would appear, then silently vanish
-// when a sibling spec was generated afterwards. Regenerating a spec still
-// refreshes its own converters (a DataType's constructor may have changed);
-// converters this specification knows nothing about are carried over verbatim,
-// because only the file on disk records that they are needed.
+// So both are *merged* with what is already on disk rather than replaced.
+// Replacing left only the last-generated spec's methods and broke the build for
+// every other spec — a converter would appear, then silently vanish when a
+// sibling spec was generated afterwards. ProductionHelper had the same hole in
+// its create-only form: written once by whichever spec went first and never
+// updated, so every Entity declared anywhere else had no converters at all.
 //
-// extraImports matters here: a grid over a user DataType emits
-// `new IDForm(cell)`, and without `import production.*;` the file does not
-// compile. Every other file in common/ already receives these imports.
+// Regenerating a spec still refreshes its own methods (a DataType's constructor
+// or an Entity's fields may have changed); methods this specification knows
+// nothing about are carried over verbatim, because only the file on disk records
+// that they are needed.
+//
+// Imports matter here: a grid over a user DataType emits `new IDForm(cell)`, and
+// without `import production.*;` the file does not compile. Every other file in
+// common/ already receives the configured imports.
 
-// The converters and imports of a TableHelper.java already on disk. The file is
-// wholly generated, so its shape is known: each converter is one method opening
-// with `public static List<List<X>> toListListX(` and closing at the first line
-// that is exactly four spaces and a brace.
-struct TableHelperParts {
+// The methods and imports of a helper class already on disk. These files are
+// wholly generated, so their shape is known: each method opens with a line
+// `    public static <type> <name>(` and closes at the first line that is
+// exactly four spaces and a brace.
+struct HelperClassParts {
     QStringList imports;              // every import line, in file order
-    QMap<QString, QString> methods;   // toListListXxx -> the whole method text
+    QMap<QString, QString> methods;   // method name -> the whole method text
 };
 
-static TableHelperParts parseTableHelper(const QString& text)
+static HelperClassParts parseHelperClass(const QString& text)
 {
     static const QRegularExpression reOpen(
-        R"(^    public static List<List<[^>]+>> (toListList\w+)\()");
+        R"(^    public static .+?\s(\w+)\()");
 
-    TableHelperParts parts;
+    HelperClassParts parts;
     const QStringList lines = text.split('\n');
     for (int i = 0; i < lines.size(); ++i) {
         const QString& line = lines[i];
@@ -1558,14 +1564,15 @@ static QMap<QString, QString> genGridConverters(const QVector<JavaGenerator::Glu
     return methods;
 }
 
-// java.util first, then whatever the configuration asks for, then any import the
-// file already carried that neither covers — a converter kept from another
-// specification may be the only user of it, and dropping it would stop the file
-// compiling.
-static QStringList tableHelperImports(const QStringList& existing,
-                                       const QStringList& extraImports)
+// What the class itself needs first, then whatever the configuration asks for,
+// then any import the file already carried that neither covers — a method kept
+// from another specification may be the only user of it, and dropping it would
+// stop the file compiling.
+static QStringList helperImports(const QStringList& base,
+                                  const QStringList& extraImports,
+                                  const QStringList& existing)
 {
-    QStringList imports{ "import java.util.ArrayList;", "import java.util.List;" };
+    QStringList imports = base;
     for (const QString& imp : extraImports)
         if (!imports.contains(imp)) imports << imp;
     for (const QString& imp : existing)
@@ -1575,7 +1582,8 @@ static QStringList tableHelperImports(const QStringList& existing,
 
 // Methods come out in QMap key order, so the file is stable across builds and a
 // regeneration that changes nothing produces no diff.
-static QString renderTableHelper(const QString& pkg, const QStringList& imports,
+static QString renderHelperClass(const QString& pkg, const QString& className,
+                                  const QStringList& imports,
                                   const QMap<QString, QString>& methods)
 {
     QString out;
@@ -1583,7 +1591,7 @@ static QString renderTableHelper(const QString& pkg, const QStringList& imports,
     s << "package " << pkg << ";\n\n";
     for (const QString& imp : imports) s << imp << "\n";
     s << "\n";
-    s << "public class TableHelper {\n";
+    s << "public class " << className << " {\n";
     for (const QString& m : methods)
         s << "\n" << m;
     s << "}\n";
@@ -2467,22 +2475,26 @@ static QString genProductionEntity(const AttrSet& as, const QString& pkg,
     return out;
 }
 
-static QString genProductionHelper(const QVector<AttrSet>& entities, const QString& prodPkg,
-                                    const QString& commonPkg, const SpectableFile& file)
+// The four conversions each Entity contributes to common/ProductionHelper.java,
+// keyed by method name so they can be merged with the ones other specifications
+// contribute. See mergeHelperClass.
+static QMap<QString, QString> genProductionConverters(const QVector<AttrSet>& entities,
+                                                       const SpectableFile& file)
 {
-    QString out;
-    QTextStream s(&out);
-
-    s << "package " << commonPkg << ";\n\n";
-    s << "import " << prodPkg << ".*;\n";
-    s << "import java.util.ArrayList;\n";
-    s << "import java.util.List;\n\n";
-
-    s << "public class ProductionHelper {\n\n";
+    QMap<QString, QString> methods;
 
     for (const AttrSet& as : entities) {
         const QString en = as.name;
         const QString tn = en + "Typed";
+
+        QString out;
+        QTextStream s(&out);
+        // Close off the method just written and start the next one.
+        auto take = [&](const QString& name) {
+            s.flush();
+            methods.insert(name, out);
+            out.clear();
+        };
 
         // Determine if any field is a Collection (requires multi-statement setup)
         bool hasCollection = false;
@@ -2525,7 +2537,8 @@ static QString genProductionHelper(const QVector<AttrSet>& entities, const QStri
             }
             s << ");\n";
         }
-        s << "    }\n\n";
+        s << "    }\n";
+        take(en + "TypedToProduction");
 
         // ProductionToTyped
         s << "    public static " << tn << " " << en << "ProductionToTyped(" << en << " p) {\n";
@@ -2542,37 +2555,41 @@ static QString genProductionHelper(const QVector<AttrSet>& entities, const QStri
                 s << "p." << fn;
             }
         }
-        s << ");\n    }\n\n";
+        s << ");\n    }\n";
+        take(en + "ProductionToTyped");
 
         // List TypedToProduction
         s << "    public static List<" << en << "> " << en << "TypedListToProduction(List<" << tn << "> list) {\n";
         s << "        List<" << en << "> result = new ArrayList<>();\n";
         s << "        for (" << tn << " t : list) result.add(" << en << "TypedToProduction(t));\n";
-        s << "        return result;\n    }\n\n";
+        s << "        return result;\n    }\n";
+        take(en + "TypedListToProduction");
 
         // List ProductionToTyped
         s << "    public static List<" << tn << "> " << en << "ProductionToTypedList(List<" << en << "> list) {\n";
         s << "        List<" << tn << "> result = new ArrayList<>();\n";
         s << "        for (" << en << " p : list) result.add(" << en << "ProductionToTyped(p));\n";
-        s << "        return result;\n    }\n\n";
+        s << "        return result;\n    }\n";
+        take(en + "ProductionToTypedList");
     }
 
-    s << "}\n";
-    return out;
+    return methods;
 }
 
-// Read TableHelper.java, add this specification's converters to whatever is
-// already there, and write it back.
+// Read a helper class, add this specification's methods to whatever is already
+// there, and write it back.
 //
 // Held under a lock because Build > Project spawns every conversion at once and
-// they all reach this file: an unguarded read-modify-write would let two
+// they all reach these files: an unguarded read-modify-write would let two
 // processes each read the old contents and the second overwrite the first,
-// losing a converter exactly as replacing the file used to. QLockFile is
-// advisory between processes, which is all that is needed — every writer is
-// this same function.
-bool JavaGenerator::mergeTableHelper(const QString& path,
+// losing a method exactly as replacing the file used to. QLockFile is advisory
+// between processes, which is all that is needed — every writer is this same
+// function.
+bool JavaGenerator::mergeHelperClass(const QString& path,
+                                     const QString& className,
                                      const QMap<QString, QString>& fresh,
                                      const QString& pkg,
+                                     const QStringList& baseImports,
                                      const QStringList& extraImports,
                                      QStringList& msgs)
 {
@@ -2580,28 +2597,32 @@ bool JavaGenerator::mergeTableHelper(const QString& path,
     lock.setStaleLockTime(30000);
     if (!lock.tryLock(15000)) {
         msgs << QString("WARNING:0:Timed out waiting to update %1; "
-                        "its converters may be incomplete. Build again.").arg(path);
-        return writeFile(path, renderTableHelper(pkg, tableHelperImports({}, extraImports), fresh), msgs);
+                        "its methods may be incomplete. Build again.").arg(path);
+        return writeFile(path, renderHelperClass(pkg, className,
+                                                 helperImports(baseImports, extraImports, {}),
+                                                 fresh), msgs);
     }
 
-    TableHelperParts existing;
+    HelperClassParts existing;
     QFile f(path);
     if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&f);
-        existing = parseTableHelper(in.readAll());
+        existing = parseHelperClass(in.readAll());
         f.close();
     }
 
-    // Freshly generated converters win over their namesakes: this specification
-    // has just been read, and a DataType's constructor may have changed under
-    // one of them. Everything else on disk belongs to another specification and
-    // is kept.
+    // Freshly generated methods win over their namesakes: this specification has
+    // just been read, and a DataType's constructor or an Entity's fields may have
+    // changed under one of them. Everything else on disk belongs to another
+    // specification and is kept.
     QMap<QString, QString> merged = existing.methods;
     for (auto it = fresh.constBegin(); it != fresh.constEnd(); ++it)
         merged.insert(it.key(), it.value());
 
     return writeFile(path,
-                     renderTableHelper(pkg, tableHelperImports(existing.imports, extraImports), merged),
+                     renderHelperClass(pkg, className,
+                                       helperImports(baseImports, extraImports, existing.imports),
+                                       merged),
                      msgs);
 }
 
@@ -2634,29 +2655,39 @@ bool JavaGenerator::writeFile(const QString& path, const QString& content, QStri
 // least one Entity or DataType, which is why the empty case was never generated
 // until SpecStudioErrorTests asked for it.
 //
-// Three ways it can hold something, and any one is enough:
-//   - this file declares something that generates a production class;
+// Two ways it can hold something, and either is enough:
+//   - some specification the converter can see declares an Entity, a DataType or
+//     a Collection -- this one or, through --context, a sibling, since they all
+//     write into the same package;
 //   - a field names a type that is not built in, so the generated code refers to
-//     a production class even though this file does not declare it;
-//   - another specification in the project has already written one, since the
-//     directory is shared.
+//     a production class even though no visible specification declares it.
 //
 // When unsure this answers yes: importing a package that does have contents is
 // harmless, and failing to import one that does is a broken build.
-static bool productionPackageHasContents(const SpectableFile& file,
-                                         const QString& productionDir,
-                                         const QString& fileSuffix)
+//
+// It deliberately does not look at what is on disk. It did once, and that made
+// the answer depend on whether a sibling specification had already been
+// converted in this run -- so generating a project into an empty folder gave
+// different files than regenerating it in place, and generating the same project
+// twice in different orders gave two different answers. The declarations are the
+// same for every specification in the run, so reading them is both stable and
+// correct before anything has been written.
+static bool productionPackageHasContents(const SpectableFile& file)
 {
+    // Context declarations count. The package is shared by every specification
+    // in the project, so an Entity another one declares will be written there
+    // too -- and every specification is converted with its siblings as context,
+    // which makes this the same answer for all of them.
     for (const AttrSet& as : file.attrSets)
-        if (!as.isContext && as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
+        if (as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
             return true;
 
     for (const NamedBlock& nb : file.namedBlocks)
-        if (!nb.isContext && nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
             return true;
 
     for (const Collection& col : file.collections)
-        if (!col.isContext && !col.name.isEmpty())
+        if (!col.name.isEmpty())
             return true;
 
     static const QStringList builtinScalars = {
@@ -2683,11 +2714,6 @@ static bool productionPackageHasContents(const SpectableFile& file,
         }
     }
 
-    if (!productionDir.isEmpty()) {
-        QDir dir(productionDir);
-        if (dir.exists() && !dir.entryList({ fileSuffix }, QDir::Files).isEmpty())
-            return true;
-    }
     return false;
 }
 
@@ -2707,7 +2733,7 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     // Import the production package into Typed/glue files only when it will
     // hold something -- see productionPackageHasContents above.
     if (!opts.productionClassesPackage.isEmpty()
-        && productionPackageHasContents(file, opts.productionClassesDir, "*.java")) {
+        && productionPackageHasContents(file)) {
         const QString prodImport = "import " + opts.productionClassesPackage + ".*;";
         if (!m_extraImports.contains(prodImport))
             m_extraImports.prepend(prodImport);
@@ -2874,8 +2900,10 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
         const QVector<GlueSig> sigs = collectGlueSigs(augmented);
         const QMap<QString, QString> fresh = genGridConverters(sigs, augmented);
         if (!fresh.isEmpty())
-            mergeTableHelper(domainDir.filePath("TableHelper.java"), fresh,
-                             domainPkg, m_extraImports, msgs);
+            mergeHelperClass(domainDir.filePath("TableHelper.java"), "TableHelper", fresh,
+                             domainPkg,
+                             { "import java.util.ArrayList;", "import java.util.List;" },
+                             m_extraImports, msgs);
     }
 
     // Production class generation
@@ -2935,11 +2963,19 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             writeFile(prodPath, genProductionCollection(col, prodPkg), msgs);
         }
 
-        // ProductionHelper in common/ (only if file does not exist)
+        // Merge this specification's Entity conversions into
+        // common/ProductionHelper.java. Every specification that declares an
+        // Entity contributes to the same file, so it is merged rather than
+        // written once: it used to be created by whichever specification was
+        // converted first and never touched again, which left every Entity
+        // declared in any other specification with no converters at all.
         if (!prodEntities.isEmpty() && !prodPkg.isEmpty()) {
-            const QString helperPath = domainDir.filePath("ProductionHelper.java");
-            if (!QFile::exists(helperPath))
-                writeFile(helperPath, genProductionHelper(prodEntities, prodPkg, domainPkg, file), msgs);
+            const QStringList base{ "import " + prodPkg + ".*;",
+                                    "import java.util.ArrayList;",
+                                    "import java.util.List;" };
+            mergeHelperClass(domainDir.filePath("ProductionHelper.java"), "ProductionHelper",
+                             genProductionConverters(prodEntities, file),
+                             domainPkg, base, {}, msgs);
         }
     }
 
