@@ -159,6 +159,14 @@ bool RustGenerator::isAttrSetType(const QString& name, const SpectableFile& file
 // as text — the glue converts it when it needs the production object.
 QString RustGenerator::rustCommonType(const Field& f, const SpectableFile& file)
 {
+    // A Collection field is a Vec of its element's Typed struct. Without this it
+    // fell through to "String", so a reply carrying an array could not be read
+    // at all -- see the Collection note in the ExampleTests backlog.
+    if (isCollectionType(f.type, file)) {
+        const QString elem = collectionElementType(f.type, file);
+        return "Vec<" + (isAttrSetType(elem, file) ? toTypeName(elem) + "Typed"
+                                                   : rustType(elem)) + ">";
+    }
     if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
     static const QSet<QString> builtin = {
         "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
@@ -653,11 +661,16 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
     s << "use super::" << strMod << "::" << strTypeName << ";\n";
     QSet<QString> seenTypedUses;
     for (const Field& f : as.fields) {
-        if (!isAttrSetType(f.type, file)) continue;
-        if (seenTypedUses.contains(f.type.trimmed().toLower())) continue;
-        seenTypedUses.insert(f.type.trimmed().toLower());
-        s << "use super::" << toIdentifier(f.type) << "_typed::"
-          << toTypeName(f.type) << "Typed;\n";
+        // A Collection field holds its element's Typed struct, so that is the
+        // name to bring into scope rather than the Collection's own.
+        const QString candidate = isCollectionType(f.type, file)
+                                ? collectionElementType(f.type, file)
+                                : f.type;
+        if (!isAttrSetType(candidate, file)) continue;
+        if (seenTypedUses.contains(candidate.trimmed().toLower())) continue;
+        seenTypedUses.insert(candidate.trimmed().toLower());
+        s << "use super::" << toIdentifier(candidate) << "_typed::"
+          << toTypeName(candidate) << "Typed;\n";
     }
     for (const QString& u : m_extraUses) s << u << "\n";
     s << "\n";
@@ -678,10 +691,14 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
         const QString rt   = rustCommonType(f, file);
         // A nested Attributes block builds its own Typed struct; a user DataType
         // is carried as text, so only the built-ins go through parseExpr.
-        const QString expr = isAttrSetType(f.type, file)
-            ? QString("%1::from_str_struct(&s.%2)").arg(rt, fid)
-            : (rt == "String" ? QString("s.%1.clone()").arg(fid)
-                              : parseExpr(fid, f.type));
+        // A String struct cannot hold a collection -- a table cell is one value
+        // -- so a Collection field starts empty and is filled from a reply.
+        const QString expr = isCollectionType(f.type, file)
+            ? QString("Vec::new()")
+            : isAttrSetType(f.type, file)
+                ? QString("%1::from_str_struct(&s.%2)").arg(rt, fid)
+                : (rt == "String" ? QString("s.%1.clone()").arg(fid)
+                                  : parseExpr(fid, f.type));
         s << "            " << fid << ": " << expr << ",\n";
     }
     s << "        }\n    }\n\n";
@@ -699,7 +716,11 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
         const QString fid = toIdentifier(f.name);
         const QString rt  = rustCommonType(f, file);
         QString expr;
-        if (isAttrSetType(f.type, file))
+        if (isCollectionType(f.type, file))
+            // A String struct has one cell for this field and a collection has
+            // many rows, so there is nothing faithful to put here.
+            expr = QString("String::new()");
+        else if (isAttrSetType(f.type, file))
             expr = QString("self.%1.to_str_struct()").arg(fid);
         else if (rt == "String")
             expr = QString("self.%1.clone()").arg(fid);
@@ -733,6 +754,13 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
             expr = QString("json::Value::Bool(self.%1)").arg(fid);
         else if (rt == "String")
             expr = QString("json::Value::Str(self.%1.clone())").arg(fid);
+        else if (isCollectionType(f.type, file)) {
+            // A Collection is written as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            expr = isAttrSetType(elem, file)
+                ? QString("json::Value::Array(self.%1.iter().map(|e| e.to_json_value()).collect())").arg(fid)
+                : QString("json::Value::Array(self.%1.iter().map(|e| json::Value::Str(e.clone())).collect())").arg(fid);
+        }
         else    // nested Attributes block — written as a nested object
             expr = QString("self.%1.to_json_value()").arg(fid);
         // The JSON key is the attribute name the specification writes, not the
@@ -764,6 +792,17 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
             expr = QString("json::as_bool(%1, \"%2\")?").arg(src, key);
         else if (rt == "String")
             expr = QString("json::as_string(%1, \"%2\")?").arg(src, key);
+        else if (isCollectionType(f.type, file)) {
+            // A Collection is read as an array of its elements. collect() over
+            // a Result stops at the first bad element and returns its error.
+            const QString elem = collectionElementType(f.type, file);
+            const QString each = isAttrSetType(elem, file)
+                ? QString("%1Typed::from_json_value(e)").arg(toTypeName(elem))
+                : QString("json::as_string(e, \"%1\")").arg(key);
+            expr = QString("json::as_array(%1, \"%2\")?.iter()"
+                           ".map(|e| %3).collect::<json::JsonResult<Vec<_>>>()?")
+                       .arg(src, key, each);
+        }
         else    // nested Attributes block — read as its own Typed struct
             expr = QString("%1::from_json_value(%2)?").arg(rt, src);
         s << "            " << fid << ": " << expr << ",\n";

@@ -81,6 +81,14 @@ bool SwiftGenerator::isAttrSetType(const QString& name, const SpectableFile& fil
 // folder, which common must not depend on, so its value is carried as text.
 QString SwiftGenerator::swiftCommonType(const Field& f, const SpectableFile& file)
 {
+    // A Collection field is an array of its element's Typed struct. Without
+    // this it fell through to "String", so a reply carrying an array could not
+    // be read at all -- see the Collection note in the ExampleTests backlog.
+    if (isCollectionType(f.type, file)) {
+        const QString elem = collectionElementType(f.type, file);
+        return "[" + (isAttrSetType(elem, file) ? toTypeName(elem) + "Typed"
+                                                : swiftType(elem)) + "]";
+    }
     if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
 
     static const QSet<QString> builtin = {
@@ -859,6 +867,17 @@ public enum Json {
         }
         return object
     }
+
+    /// Reads a field that holds a Collection. A null field is an empty
+    /// collection rather than an error: a service that found nothing may send
+    /// null, and that is not a malformed reply.
+    public static func asArray(_ value: Any?, _ ctx: String) throws -> [Any] {
+        if value == nil || value is NSNull { return [] }
+        guard let array = value as? [Any] else {
+            throw typeError(ctx, "an array", value)
+        }
+        return array
+    }
 }
 )SW");
     return out;
@@ -899,10 +918,14 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
     s << "    public init(from s: " << strTypeName << ") {\n";
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
-        // A nested Attributes block builds its own Typed struct.
-        const QString expr = isAttrSetType(f.type, file)
-            ? QString("%1Typed(from: s.%2)").arg(toTypeName(f.type), fid)
-            : parseExpr(fid, f.type);
+        // A String struct cannot hold a collection -- a table cell is one value
+        // -- so a Collection field starts empty and is filled from a reply.
+        // Otherwise a nested Attributes block builds its own Typed struct.
+        const QString expr = isCollectionType(f.type, file)
+            ? QString("[]")
+            : isAttrSetType(f.type, file)
+                ? QString("%1Typed(from: s.%2)").arg(toTypeName(f.type), fid)
+                : parseExpr(fid, f.type);
         s << "        self." << fid << " = " << expr << "\n";
     }
     s << "    }\n\n";
@@ -920,7 +943,11 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
         const Field& f    = as.fields[i];
         const QString fid = toIdentifier(f.name);
         s << "            " << fid << ": ";
-        if (isAttrSetType(f.type, file))
+        if (isCollectionType(f.type, file))
+            // A String struct has one cell for this field and a collection has
+            // many rows, so there is nothing faithful to put here.
+            s << "\"\"";
+        else if (isAttrSetType(f.type, file))
             s << fid << ".toStringStruct()";
         else
             s << "String(describing: " << fid << ")";
@@ -947,7 +974,16 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString st  = swiftCommonType(f, file);
-        if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
+        if (isCollectionType(f.type, file)) {
+            // A Collection is written as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            if (isAttrSetType(elem, file))
+                s << "            \"" << fid << "\": " << fid
+                  << ".map { $0.toJSONValue() },\n";
+            else
+                s << "            \"" << fid << "\": " << fid << ",\n";
+        }
+        else if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
             s << "            \"" << fid << "\": " << fid << ",\n";
         else    // nested Attributes block — written as a nested object
             s << "            \"" << fid << "\": " << fid << ".toJSONValue(),\n";
@@ -968,7 +1004,18 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
                           : (st == "Bool")   ? "asBool"
                                              : "asString";
         const QString src = QString("try Json.%1(Json.require(m, \"%2\"), \"%2\")").arg(fn, fid);
-        if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
+        if (isCollectionType(f.type, file)) {
+            // A Collection is read as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            s << "        self." << fid << " = try Json.asArray(Json.require(m, \""
+              << fid << "\"), \"" << fid << "\")";
+            if (isAttrSetType(elem, file))
+                s << ".map { try " << toTypeName(elem)
+                  << "Typed(fromJSONValue: Json.asObject($0, \"" << fid << "\")) }\n";
+            else
+                s << ".map { try Json.asString($0, \"" << fid << "\") }\n";
+        }
+        else if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
             s << "        self." << fid << " = " << src << "\n";
         else
             // Nested Attributes block — read as its own Typed struct.

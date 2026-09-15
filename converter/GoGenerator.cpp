@@ -150,6 +150,14 @@ bool GoGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
 // as text — the glue converts it when it needs the production object.
 QString GoGenerator::goCommonType(const Field& f, const SpectableFile& file)
 {
+    // A Collection field is a slice of its element's Typed struct. Without this
+    // it fell through to "string", so a reply carrying an array could not be
+    // read at all -- see the Collection note in the ExampleTests backlog.
+    if (isCollectionType(f.type, file)) {
+        const QString elem = collectionElementType(f.type, file);
+        return "[]" + (isAttrSetType(elem, file) ? toExported(elem) + "Typed"
+                                                 : goType(elem));
+    }
     if (isAttrSetType(f.type, file)) return toExported(f.type) + "Typed";
 
     static const QSet<QString> builtin = {
@@ -786,6 +794,20 @@ func JSONAsObject(v interface{}, ctx string) (map[string]interface{}, error) {
 	}
 	return m, nil
 }
+
+// JSONAsArray reads a field that holds a Collection. A missing or null field is
+// an empty collection rather than an error: a service that found nothing may
+// omit the array or send null, and neither is a malformed reply.
+func JSONAsArray(v interface{}, ctx string) ([]interface{}, error) {
+	if v == nil {
+		return nil, nil
+	}
+	a, ok := v.([]interface{})
+	if !ok {
+		return nil, jsonTypeError(ctx, "an array", v)
+	}
+	return a, nil
+}
 )GO");
     return out;
 }
@@ -834,6 +856,10 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
             s << "\tt." << fe << " = ParseBoolCell(" << sf << ")\n";
         } else if (gt == "string") {
             s << "\tt." << fe << " = " << sf << "\n";
+        } else if (gt.startsWith("[]")) {
+            // A String struct cannot hold a collection -- a table cell is one
+            // value -- so a Collection field starts empty and is filled from a
+            // reply. A slice's zero value is nil, which is already empty.
         } else {
             // Nested Attributes block — build its own Typed struct.
             s << "\tt." << fe << " = New" << gt << "FromString(" << sf << ")\n";
@@ -864,6 +890,9 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
             s << "\ts." << fe << " = strconv.FormatBool(" << tf << ")\n";
         } else if (gt == "string") {
             s << "\ts." << fe << " = " << tf << "\n";
+        } else if (gt.startsWith("[]")) {
+            // A String struct has one cell for this field and a collection has
+            // many rows, so there is nothing faithful to put here.
         } else {
             s << "\ts." << fe << " = " << tf << ".To" << gt.left(gt.size() - 5) << "String()\n";
         }
@@ -900,7 +929,20 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
         // a service sends, and a document written by one target has to be
         // readable by the others.
         const QString key = f.name.trimmed();
-        if (gt == "int" || gt == "float64" || gt == "bool" || gt == "string")
+        if (gt.startsWith("[]")) {
+            // A Collection is written as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            if (isAttrSetType(elem, file)) {
+                s << "\t\t\"" << key << "\": func() []interface{} {\n";
+                s << "\t\t\tout := make([]interface{}, 0, len(t." << fe << "))\n";
+                s << "\t\t\tfor _, e := range t." << fe << " { out = append(out, e.ToJSONValue()) }\n";
+                s << "\t\t\treturn out\n";
+                s << "\t\t}(),\n";
+            } else {
+                s << "\t\t\"" << key << "\": t." << fe << ",\n";
+            }
+        }
+        else if (gt == "int" || gt == "float64" || gt == "bool" || gt == "string")
             s << "\t\t\"" << key << "\": t." << fe << ",\n";
         else    // nested Attributes block
             s << "\t\t\"" << key << "\": t." << fe << ".ToJSONValue(),\n";
@@ -918,6 +960,32 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
         const QString fe  = toExported(f.name);
         const QString gt  = goCommonType(f, file);
         const QString key = f.name.trimmed();
+
+        if (gt.startsWith("[]")) {
+            // A Collection is read as an array of its elements.
+            const QString elem  = collectionElementType(f.type, file);
+            const QString elemT = gt.mid(2);
+            s << "\traw" << fe << ", err := JSONRequire(m, \"" << key << "\")\n";
+            s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
+            s << "\tarr" << fe << ", err := JSONAsArray(raw" << fe << ", \"" << key << "\")\n";
+            s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
+            s << "\tt." << fe << " = make(" << gt << ", 0, len(arr" << fe << "))\n";
+            s << "\tfor _, e := range arr" << fe << " {\n";
+            if (isAttrSetType(elem, file)) {
+                s << "\t\tobj, err := JSONAsObject(e, \"" << key << "\")\n";
+                s << "\t\tif err != nil {\n\t\t\treturn t, err\n\t\t}\n";
+                s << "\t\titem, err := New" << elemT << "FromJSONValue(obj)\n";
+                s << "\t\tif err != nil {\n\t\t\treturn t, err\n\t\t}\n";
+                s << "\t\tt." << fe << " = append(t." << fe << ", item)\n";
+            } else {
+                s << "\t\titem, err := JSONAsString(e, \"" << key << "\")\n";
+                s << "\t\tif err != nil {\n\t\t\treturn t, err\n\t\t}\n";
+                s << "\t\tt." << fe << " = append(t." << fe << ", item)\n";
+            }
+            s << "\t}\n";
+            continue;
+        }
+
         const bool nested = !(gt == "int" || gt == "float64"
                            || gt == "bool" || gt == "string");
         const QString fn  = nested            ? "JSONAsObject"

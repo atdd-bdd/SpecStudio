@@ -648,10 +648,16 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     if (needsDecimal) s << "import decimal\n";
     s << "from . import json_util as _json\n";
     s << "from ." << strMod << " import " << strCn << "\n";
-    for (const Field& f : as.fields)
-        if (isAttrSetType(f.type, file))
-            s << "from ." << toModuleName(f.type) << "_typed import "
-              << toTypeName(f.type) << "Typed\n";
+    for (const Field& f : as.fields) {
+        // A Collection field holds a list of its element's Typed class, so that
+        // is the name to import rather than the Collection's own.
+        const QString nested = isCollectionType(f.type, file)
+                             ? collectionElementType(f.type, file)
+                             : (isAttrSetType(f.type, file) ? f.type : QString());
+        if (!nested.isEmpty() && isAttrSetType(nested, file))
+            s << "from ." << toModuleName(nested) << "_typed import "
+              << toTypeName(nested) << "Typed\n";
+    }
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
 
@@ -661,6 +667,12 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     s << "    def __init__(self";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
+        if (isCollectionType(f.type, file)) {
+            // A list default would be shared between instances, so the default
+            // is None here and a fresh list in the body.
+            s << ", " << fid << ": list = None";
+            continue;
+        }
         if (isAttrSetType(f.type, file)) {
             s << ", " << fid << ": '" << toTypeName(f.type) << "Typed' = None";
             continue;
@@ -674,7 +686,11 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     s << "):\n";
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
-        s << "        self." << fid << " = " << fid << "\n";
+        if (isCollectionType(f.type, file))
+            s << "        self." << fid << " = " << fid << " if " << fid
+              << " is not None else []\n";
+        else
+            s << "        self." << fid << " = " << fid << "\n";
     }
     s << "\n";
 
@@ -685,9 +701,13 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f   = as.fields[i];
         const QString fid = toIdentifier(f.name);
-        const QString expr = isAttrSetType(f.type, file)
-            ? QString("%1Typed.from_string_obj(s.%2)").arg(toTypeName(f.type), fid)
-            : parseExpr(fid, f.type);
+        // A String class cannot hold a collection -- a table cell is one value --
+        // so a Collection field starts empty and is filled from a reply.
+        const QString expr = isCollectionType(f.type, file)
+            ? QString("[]")
+            : isAttrSetType(f.type, file)
+                ? QString("%1Typed.from_string_obj(s.%2)").arg(toTypeName(f.type), fid)
+                : parseExpr(fid, f.type);
         s << "            " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
@@ -707,7 +727,11 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
         const Field& f    = as.fields[i];
         const QString fid = toIdentifier(f.name);
         s << "            ";
-        if (isAttrSetType(f.type, file))
+        if (isCollectionType(f.type, file))
+            // A String class has one cell for this field and a collection has
+            // many rows, so there is nothing faithful to put here.
+            s << "''";
+        else if (isAttrSetType(f.type, file))
             s << "self." << fid << ".to_string_obj()";
         else
             s << "str(self." << fid << ")";
@@ -735,7 +759,15 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString key = f.name.trimmed();
-        if (isAttrSetType(f.type, file))
+        if (isCollectionType(f.type, file)) {
+            const QString elem = collectionElementType(f.type, file);
+            if (isAttrSetType(elem, file))
+                s << "            '" << key << "': [e.to_json_value() for e in self."
+                  << fid << "],\n";
+            else
+                s << "            '" << key << "': list(self." << fid << "),\n";
+        }
+        else if (isAttrSetType(f.type, file))
             s << "            '" << key << "': self." << fid
               << ".to_json_value() if self." << fid << " else None,\n";
         else
@@ -752,7 +784,14 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f    = as.fields[i];
         const QString key = f.name.trimmed();
-        if (isAttrSetType(f.type, file)) {
+        if (isCollectionType(f.type, file)) {
+            const QString elem = collectionElementType(f.type, file);
+            const QString each = isAttrSetType(elem, file)
+                ? QString("%1Typed.from_json_value(e)").arg(toTypeName(elem))
+                : QString("e");
+            s << "            [" << each << " for e in _json.as_list("
+              << "_json.require(m, '" << key << "'), '" << key << "')]";
+        } else if (isAttrSetType(f.type, file)) {
             s << "            " << toTypeName(f.type)
               << "Typed.from_json_value(_json.require(m, '" << key << "'))";
         } else {

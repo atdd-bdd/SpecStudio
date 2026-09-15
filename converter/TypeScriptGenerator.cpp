@@ -113,6 +113,13 @@ bool TypeScriptGenerator::isAttrSetType(const QString& name, const SpectableFile
 // folder, which common must not depend on, so its value is carried as text.
 QString TypeScriptGenerator::tsCommonType(const Field& f, const SpectableFile& file)
 {
+    // A Collection field is a list of its element's Typed class. Without this
+    // it fell through to "string", so a reply carrying an array could not be
+    // read at all -- see the Collection note in the ExampleTests backlog.
+    if (isCollectionType(f.type, file)) {
+        const QString elem = collectionElementType(f.type, file);
+        return (isAttrSetType(elem, file) ? elem.trimmed() + "Typed" : tsType(elem)) + "[]";
+    }
     if (isAttrSetType(f.type, file)) return f.type.trimmed() + "Typed";
 
     static const QSet<QString> builtin = {
@@ -698,10 +705,15 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
     // A nested Attributes block is held as that block's own Typed object.
     QSet<QString> seenTypedImports;
     for (const Field& f : as.fields) {
-        if (!isAttrSetType(f.type, file)) continue;
-        if (seenTypedImports.contains(f.type.trimmed().toLower())) continue;
-        seenTypedImports.insert(f.type.trimmed().toLower());
-        const QString sub = f.type.trimmed();
+        // A Collection field holds its element's Typed class, so that is the
+        // name to import rather than the Collection's own.
+        const QString candidate = isCollectionType(f.type, file)
+                                ? collectionElementType(f.type, file)
+                                : f.type;
+        if (!isAttrSetType(candidate, file)) continue;
+        if (seenTypedImports.contains(candidate.trimmed().toLower())) continue;
+        seenTypedImports.insert(candidate.trimmed().toLower());
+        const QString sub = candidate.trimmed();
         s << "import { " << sub << "Typed } from \"./" << sub << "Typed.js\";\n";
     }
     for (const QString& imp : m_extraImports) s << imp << "\n";
@@ -730,7 +742,12 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
     for (int i = 0; i < as.fields.size(); ++i) {
         const Field& f  = as.fields[i];
         const QString fn = toCamelCase(f.name);
-        s << "      " << parseExpr(fn, f.type, &file);
+        // A String class cannot hold a collection -- a table cell is one value --
+        // so a Collection field starts empty and is filled from a reply.
+        if (isCollectionType(f.type, file))
+            s << "      []";
+        else
+            s << "      " << parseExpr(fn, f.type, &file);
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
     }
@@ -749,7 +766,11 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
         const Field& f   = as.fields[i];
         const QString fn = toCamelCase(f.name);
         s << "      ";
-        if (isAttrSetType(f.type, file))
+        if (isCollectionType(f.type, file))
+            // A String class has one cell for this field and a collection has
+            // many rows, so there is nothing faithful to put here.
+            s << "\"\"";
+        else if (isAttrSetType(f.type, file))
             s << "this." << fn << ".toStringObj()";
         else
             s << "String(this." << fn << ")";
@@ -778,7 +799,15 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
         const bool isBool = (t == "boolean" || t == "yesno" || t == "bool");
         const bool isStr  = (t == "string" || t == "text" || t == "character" || t == "char"
                           || t == "date"   || t == "time" || t == "datetime"  || t == "duration");
-        if (isNum || isBool || isStr)
+        if (isCollectionType(f.type, file)) {
+            // A Collection is written as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            if (isAttrSetType(elem, file))
+                s << "      " << fn << ": this." << fn << ".map((e) => e.toJsonValue()),\n";
+            else
+                s << "      " << fn << ": [...this." << fn << "],\n";
+        }
+        else if (isNum || isBool || isStr)
             s << "      " << fn << ": this." << fn << ",\n";
         else if (isAttrSetType(f.type, file))
             // Nested Attributes block — written as a nested object.
@@ -799,7 +828,16 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
         const QString t  = f.type.trimmed().toLower();
         const QString src = QString("_json.requireField(m, \"%1\")").arg(fn);
         QString expr;
-        if (t == "integer" || t == "int")
+        if (isCollectionType(f.type, file)) {
+            // A Collection is read as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            const QString each = isAttrSetType(elem, file)
+                ? QString("%1Typed.fromJsonValue(e)").arg(elem.trimmed())
+                : QString("_json.asString(e, \"%1\")").arg(fn);
+            expr = QString("(_json.asArray(%1, \"%2\") ?? []).map((e) => %3)")
+                       .arg(src, fn, each);
+        }
+        else if (t == "integer" || t == "int")
             expr = QString("_json.asInt(%1, \"%2\")").arg(src, fn);
         else if (t == "float" || t == "decimal" || t == "scientific")
             expr = QString("_json.asNumber(%1, \"%2\")").arg(src, fn);

@@ -82,6 +82,15 @@ bool CppGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
 // folder, which common must not depend on, so its value is carried as text.
 QString CppGenerator::cppCommonType(const Field& f, const SpectableFile& file)
 {
+    // A Collection field is a vector of its element's Typed struct. Without this
+    // it fell through to std::string, so a reply carrying an array could not be
+    // read at all -- see the Collection note in the ExampleTests backlog.
+    if (isCollectionType(f.type, file)) {
+        const QString elem = collectionElementType(f.type, file);
+        return "std::vector<"
+             + (isAttrSetType(elem, file) ? toTypeName(elem) + "Typed" : cppType(elem))
+             + ">";
+    }
     if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
 
     static const QSet<QString> builtin = {
@@ -661,10 +670,15 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     // A nested Attributes block is held as that block's own Typed struct.
     QSet<QString> seenTypedIncludes;
     for (const Field& f : as.fields) {
-        if (!isAttrSetType(f.type, file)) continue;
-        if (seenTypedIncludes.contains(f.type.trimmed().toLower())) continue;
-        seenTypedIncludes.insert(f.type.trimmed().toLower());
-        s << "#include \"" << toIdentifier(f.type) << "_typed.h\"\n";
+        // A Collection field holds its element's Typed struct, so that is the
+        // header to include rather than the Collection's own.
+        const QString candidate = isCollectionType(f.type, file)
+                                ? collectionElementType(f.type, file)
+                                : f.type;
+        if (!isAttrSetType(candidate, file)) continue;
+        if (seenTypedIncludes.contains(candidate.trimmed().toLower())) continue;
+        seenTypedIncludes.insert(candidate.trimmed().toLower());
+        s << "#include \"" << toIdentifier(candidate) << "_typed.h\"\n";
     }
     for (const QString& inc : m_extraIncludes) s << inc << "\n";
     s << "\n";
@@ -691,8 +705,12 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     for (const Field& f : as.fields) {
         const QString fid  = toIdentifier(f.name);
         const QString ct   = cppCommonType(f, file);
-        // A nested Attributes block builds its own Typed struct; a user DataType
-        // is carried as text, so only the built-ins go through parseExpr.
+        // A String struct cannot hold a collection -- a table cell is one value
+        // -- so a Collection field starts empty and is filled from a reply.
+        // Otherwise a nested Attributes block builds its own Typed struct, and a
+        // user DataType is carried as text, so only the built-ins go through
+        // parseExpr.
+        if (isCollectionType(f.type, file)) continue;
         const QString expr = isAttrSetType(f.type, file)
             ? QString("%1::from_string_struct(s.%2)").arg(ct, fid)
             : (ct == "std::string" ? QString("s.%1").arg(fid) : parseExpr(fid, f.type));
@@ -713,6 +731,11 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString ct  = cppCommonType(f, file);
+        if (isCollectionType(f.type, file)) {
+            // A String struct has one cell for this field and a collection has
+            // many rows, so there is nothing faithful to put here.
+            continue;
+        }
         s << "        s." << fid << " = ";
         if (isAttrSetType(f.type, file))
             s << fid << ".to_string_struct()";
@@ -752,6 +775,23 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString key = f.name.trimmed();
+        if (isCollectionType(f.type, file)) {
+            // A Collection is written as an array of its elements.
+            const QString elem = collectionElementType(f.type, file);
+            s << "        {\n";
+            s << "            json::Elements e_" << fid << ";\n";
+            if (isAttrSetType(elem, file))
+                s << "            for (const auto& item : " << fid
+                  << ") e_" << fid << ".push_back(item.to_json_value());\n";
+            else
+                s << "            for (const auto& item : " << fid
+                  << ") e_" << fid << ".push_back(json::Convert<" << cppType(elem)
+                  << ">::to_json(item));\n";
+            s << "            m.emplace_back(\"" << key
+              << "\", json::Value::make_array(std::move(e_" << fid << ")));\n";
+            s << "        }\n";
+            continue;
+        }
         if (isAttrSetType(f.type, file)) {
             // Nested Attributes block — written as a nested object.
             s << "        m.emplace_back(\"" << key << "\", " << fid << ".to_json_value());\n";
@@ -770,6 +810,21 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     for (const Field& f : as.fields) {
         const QString fid = toIdentifier(f.name);
         const QString key = f.name.trimmed();
+        if (isCollectionType(f.type, file)) {
+            // A Collection is read as an array of its elements. elements()
+            // answers an empty vector for anything that is not an array, so a
+            // reply that found nothing reads as no items rather than throwing.
+            const QString elem = collectionElementType(f.type, file);
+            s << "        for (const auto& e : json::require(v, \"" << key
+              << "\").elements())\n";
+            if (isAttrSetType(elem, file))
+                s << "            t." << fid << ".push_back(" << toTypeName(elem)
+                  << "Typed::from_json_value(e));\n";
+            else
+                s << "            t." << fid << ".push_back(json::Convert<" << cppType(elem)
+                  << ">::from_json(e, \"" << key << "\"));\n";
+            continue;
+        }
         if (isAttrSetType(f.type, file)) {
             // Nested Attributes block — read as its own Typed struct.
             s << "        t." << fid << " = " << cppCommonType(f, file)
