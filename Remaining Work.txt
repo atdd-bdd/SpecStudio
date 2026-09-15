@@ -123,6 +123,85 @@ Altered so that it is separated into Issues and Future Features
   Worth deciding at the same time whether a second argument, or a --file switch,
   should also open a named .spectable within that solution.
 
+### Move the remaining Analyze checks off regular expressions. Seventeen checks
+  in SpecTableAnalyzer.cpp still reopen the file and match line patterns, about
+  800 lines of it, while the converter parses the same files into a
+  SpectableFile and generates from that. Analyze is a second, weaker reading of
+  the same text, and the two can disagree. They have, twice this month: the
+  missing-column check lived in JavaGenerator alone and Analyze had
+  reimplemented it, and Analyze called a DomainTerm a legal field type while
+  every generator emitted a class that would not compile.
+
+  SpecTableModelChecks.cpp is where a migrated check goes. Six live there now,
+  the newest being checkAttributeFieldTypes, which went from 102 lines of regex
+  to 45 of model on 2026-09-15 with identical output. Field carries a line
+  number so a migrated check still points at the row rather than the block.
+
+  Four to five days for essentially all of it, and safely incremental -- each
+  check migrates and is verified on its own against the three corpora
+  (ErrorTests to prove it still fires, VariousTests and ExampleTests to prove it
+  stays silent).
+
+    Near-mechanical, about a day. Loop the right vector, keep the message word
+    for word, prove the output identical:
+      checkDefineRefs, checkImports, checkInserts, checkDomainTermDuplicates,
+      checkDuplicateDeclarations, checkCollectionElementTypes,
+      checkDescriptions, checkTableColumnConsistency,
+      checkDomainTermVsDataTypeNames
+
+    Really deletions, two to three days, and where the payoff is. These resolve
+    a step to its attribute set, walk a table against declared fields and check
+    cells by type -- logic that already exists in validateStepTables, which the
+    converter and Analyze already share. Fold each in and let one function serve
+    both callers:
+      checkStepTableContents (107 lines), checkExamplesTableContents (80),
+      checkStepRefs (66), checkAttributeDefaultValues (61), checkExamples (59)
+
+    Need a decision first, half a day. These partly ask about text the parser
+    discards -- a step with a table but no ": AttrSet" is, to the parser, just a
+    step with no attribute set. Either the parser records more, or they stay:
+      checkCleanup, checkStepsWithTableButNoAttrSet, checkDomainTermColumnTypes
+
+  Not the whole seam. SpecTableIndex builds the cross-file symbol table these
+  checks consult and has its own reading of the syntax; migrating the checks
+  does not touch it. SpecTableIndex.h records a release where Analyze reported
+  an undeclared type for a specification that built and ran, because its
+  built-in list had fallen behind the generators'. Worth a separate look.
+
+### Spell-check the prose in a specification. A specification is mostly words --
+  step text, Scenario names, Description and Notes columns, docstrings -- and
+  nothing checks any of it today.
+
+  What it needs:
+    - camelCase and PascalCase split into their words before lookup, so
+      shippingAddress checks as "shipping" and "address" rather than failing as
+      one unknown word. snake_case and kebab-case likewise. This is what makes
+      it usable at all on a file full of identifiers.
+    - a misspelling underlined in the editor, the way a diagnostic is.
+    - a context menu on the underlined word offering the suggestions, with
+      "Add to Dictionary" among them.
+    - "Remove from Dictionary", so a word added by mistake can be taken back.
+      Wanted, though less urgent than adding.
+
+  Open questions worth settling before starting:
+    - Which dictionary, and where does the user's own live? A project dictionary
+      committed with the specifications would let a team share its vocabulary --
+      every domain term, every product name -- while a personal one would not.
+      Probably both, with the project one in the solution folder.
+    - Should a declared name (Entity, Attributes, DataType, DomainTerm, Define,
+      every attribute name) be treated as spelled correctly by definition? The
+      parse tree already knows all of them, so this is cheap and would remove
+      most of the noise before a dictionary is consulted at all.
+    - Which regions of the file to check. Checking a table cell holding a value
+      would be wrong; checking a Notes column would be right. The parser can
+      tell them apart, which is another reason to do this against the model
+      rather than the raw text.
+
+  No dependency has been chosen. Qt has no spell checker; Hunspell is the usual
+  answer and would be the first third-party library in the IDE, so it needs the
+  same look the JSON and HTTP decisions got -- see the note above about curl and
+  child processes in the test trees.
+
 ### Have a tab / untab (indent/outdent) command for the file; decide whether
   there should also be a whole-file reformat/indent-normalize command. Not
   implemented — LineNumberEdit::keyPressEvent (LineNumberEdit.cpp:525-546)
