@@ -534,6 +534,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 } else if (curAttr) {
                     // Map cells to fields using header positions
                     Field fd;
+                    fd.line = lineNum;
                     for (int ci = 0; ci < attrHeaders.size(); ++ci) {
                         const QString h = attrHeaders[ci].toLower();
                         const QString v = (ci < cells.size()) ? cells[ci] : QString();

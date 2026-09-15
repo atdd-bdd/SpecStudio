@@ -18,6 +18,7 @@
 #include "SpecTableAnalyzer.h"
 
 #include "SpectableParser.h"
+#include "SpecTableIndex.h"
 
 #include <QFileInfo>
 #include <QSet>
@@ -154,6 +155,73 @@ void SpecTableAnalyzer::checkEmptyAttrSets(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
+// The type each attribute declares
+// ---------------------------------------------------------------------------
+//
+// Moved off regular expressions on 2026-09-15. The old version reopened the
+// file, matched `^\s*(Attributes|Entity)\s+\w+`, hunted for the header row,
+// worked out which column was called Type, and walked the rows — a second
+// reading of what the parser had already done, and the kind of reading that
+// disagrees with the generator the moment the table syntax grows. Vertical
+// tables had already shown that happening.
+//
+// Against the model it is two nested loops over fields that are already parsed,
+// and `f.line` points at the row the field came from, so the diagnostic lands
+// where the old one did.
+//
+// The visible symbols still come from the index: a type may be declared in a
+// sibling file, and the parse tree here is one file.
+
+void SpecTableAnalyzer::checkAttributeFieldTypes(const QString& filePath,
+                                                  const SpectableFile& file,
+                                                  const SpecTableSymbols& visible,
+                                                  QList<Diagnostic>& out) const
+{
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+
+        for (const Field& f : as.fields) {
+            const QString declared = f.type.trimmed();
+            if (declared.isEmpty()) continue;
+
+            // A DomainTerm names a thing the domain talks about, and is a fine
+            // name for an attribute. It is not a type: no generator has a
+            // conversion for one, so every language emits a class declaring a
+            // field of a type nothing writes, and the build fails in a file the
+            // author never opened. Saying so here puts the failure where it can
+            // be acted on.
+            //
+            // This used to be an error and a warning at the same time: the
+            // converter printed "no parse conversion available" and generated
+            // the broken class anyway, while Analyze called the type legal.
+            if (visible.domainTerms.contains(declared)) {
+                const QString underlying = m_index ? m_index->domainTermTypes().value(declared)
+                                                   : QString();
+                QString message = QStringLiteral(
+                    "Attribute '%1' has type '%2', which is a DomainTerm. A DomainTerm "
+                    "names an attribute, not a type -- nothing is generated for one, so "
+                    "the generated class would declare a field of a type that does not exist")
+                        .arg(f.name, declared);
+                if (!underlying.isEmpty())
+                    message += QStringLiteral(". Use '%1', which is what '%2' is declared as")
+                                   .arg(underlying, declared);
+                out.append(makeDiag(filePath, f.line, message, Diagnostic::Severity::Error));
+                continue;
+            }
+
+            if (visible.hasDataType(declared) || visible.hasAttributeSet(declared))
+                continue;
+
+            out.append(makeDiag(filePath, f.line,
+                QStringLiteral("Attribute '%1' has unknown type '%2' — not a built-in, "
+                               "DataType, Entity/Attributes, or Collection")
+                    .arg(f.name, declared),
+                Diagnostic::Severity::Warning));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point — parse once, run every model check
 // ---------------------------------------------------------------------------
 
@@ -168,6 +236,7 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     checkDuplicateFieldNames    (filePath, file, out);
     checkDuplicateScenarioNames (filePath, file, out);
     checkEmptyAttrSets          (filePath, file, out);
+    checkAttributeFieldTypes    (filePath, file, m_index->projectSymbols(), out);
     // The same reading the converter uses, rather than a second one that can
     // disagree with it.
     for (const ParseMessage& m : validateStepTables(file))

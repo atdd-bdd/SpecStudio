@@ -11,6 +11,8 @@ struct Field {
     QString defaultValue;
     QString notes;
     QString inOut;
+    int     line = 0;   // the table row it was read from, so a diagnostic about
+                        // one field can point at that row rather than the block
 };
 
 // An Attributes or Entity declaration (defines a data class)
