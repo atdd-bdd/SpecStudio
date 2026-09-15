@@ -518,3 +518,98 @@ void MainWindow::populateRecentMenu()
         });
     }
 }
+
+// ---------------------------------------------------------------------------
+// Opening from the command line
+// ---------------------------------------------------------------------------
+//
+// Three ways in, and the second is the one that makes a file association worth
+// registering:
+//
+//     AlignThree.exe Work.sspec                 a solution
+//     AlignThree.exe Work.sspec Orders.spectable   and a file within it
+//     AlignThree.exe Orders.spectable           a file, solution found for it
+//
+// A .spectable names its own attribute sets but not the ones its siblings
+// declare, not the .specconfig that says what to generate, and not the project
+// its steps resolve against. Opening one bare would give an editor with no
+// index, no configuration and no Analyze -- so a file that belongs to no
+// solution is refused with a message rather than opened into a context that
+// cannot answer anything about it.
+
+namespace {
+
+// The .sspec that owns this path, or empty.
+//
+// A solution keeps its .sspec in the root folder and its projects in
+// subfolders, at any depth, so walking up from the file and taking the first
+// .sspec found is the whole search. It stops at the filesystem root; a path with
+// no solution above it returns empty and the caller reports that.
+QString findSolutionFor(const QString& filePath)
+{
+    QDir dir = QFileInfo(filePath).absoluteDir();
+
+    forever {
+        const QStringList found = dir.entryList({ "*.sspec" }, QDir::Files, QDir::Name);
+        if (!found.isEmpty())
+            return dir.absoluteFilePath(found.first());
+
+        if (!dir.cdUp())
+            return {};
+    }
+}
+
+bool isSolutionFile(const QString& path)
+{
+    return QFileInfo(path).suffix().compare("sspec", Qt::CaseInsensitive) == 0;
+}
+
+}  // namespace
+
+void MainWindow::openFromCommandLine(const QString& first, const QString& second)
+{
+    if (first.isEmpty()) return;
+
+    const QString firstPath = QFileInfo(first).absoluteFilePath();
+    if (!QFileInfo::exists(firstPath)) {
+        QMessageBox::warning(this, tr("Cannot Open"),
+            tr("%1 does not exist.").arg(QDir::toNativeSeparators(firstPath)));
+        return;
+    }
+
+    QString solutionPath;
+    QString fileToOpen;
+
+    if (isSolutionFile(firstPath)) {
+        solutionPath = firstPath;
+        fileToOpen   = second.isEmpty() ? QString()
+                                        : QFileInfo(second).absoluteFilePath();
+    } else {
+        // A file was named. Find the solution that contains it, so that the
+        // editor opens with its project behind it.
+        fileToOpen   = firstPath;
+        solutionPath = findSolutionFor(firstPath);
+
+        if (solutionPath.isEmpty()) {
+            QMessageBox::critical(this, tr("No Solution"),
+                tr("Unable to determine context without a solution or project.\n\n"
+                   "%1 is not inside a solution: no .sspec file was found in its "
+                   "folder or any folder above it.\n\n"
+                   "Open the solution first, or move the file into one.")
+                    .arg(QDir::toNativeSeparators(firstPath)));
+            return;
+        }
+    }
+
+    m_controller->openRecentSolution(solutionPath);
+
+    // Only after the solution is open, so the editor finds the project index.
+    if (!fileToOpen.isEmpty()) {
+        if (!QFileInfo::exists(fileToOpen)) {
+            QMessageBox::warning(this, tr("Cannot Open"),
+                tr("%1 does not exist.").arg(QDir::toNativeSeparators(fileToOpen)));
+            return;
+        }
+        m_controller->onOpenFile(fileToOpen);
+    }
+}

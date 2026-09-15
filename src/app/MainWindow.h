@@ -41,6 +41,19 @@ public:
     void splitEditorRight();
     void closeSplit();
 
+    // Opens what the command line asked for, after the window is shown.
+    //
+    // `first` is either a .sspec, or a file inside a solution -- in which case
+    // the solution is found by walking up for the .sspec that contains it.
+    // `second` is an optional file to open within that solution. Either may be
+    // empty; both empty opens the window as it always did.
+    //
+    // A file that belongs to no solution is refused with a message rather than
+    // opened bare: an editor with no project behind it has no index, no
+    // configuration and no Analyze, and everything the file needs to mean
+    // anything is in the solution.
+    void openFromCommandLine(const QString& first, const QString& second);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
 
