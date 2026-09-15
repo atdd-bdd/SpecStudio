@@ -59,6 +59,12 @@ struct Step {
     QString   defineRef;    // "=DefineName" in place of a table
     QString   docString;    // content between opening and closing """
     bool      hasDocString = false;
+    // A pipe table followed this step, but the step named no attribute set, so
+    // nothing reads the table and no argument reaches the glue. Recorded rather
+    // than merely warned about, so Analyze can ask the model instead of
+    // re-reading the file to work out where a table began.
+    bool      tableWithoutAttrSet = false;
+    int       orphanTableLine     = 0;
     int       docStringIndent = 0; // column of the opening """, for dedenting content lines
     QString   uses;         // Uses named comment
     int       line = 0;

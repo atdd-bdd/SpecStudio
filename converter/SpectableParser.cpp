@@ -52,8 +52,10 @@ bool SpectableParser::isDefineLine(const QString& trimmed, QString& defineName)
 
 bool SpectableParser::isStepLine(const QString& trimmed,
                                   QString& kw, QString& text,
-                                  QString& attrSet, bool& vertical, bool& compareOnly)
+                                  QString& attrSet, bool& vertical, bool& compareOnly,
+                                  QString& badModifier)
 {
+    badModifier.clear();
     static QRegularExpression reStep(
         R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
@@ -66,6 +68,20 @@ bool SpectableParser::isStepLine(const QString& trimmed,
 
     kw           = m.captured(1);
     QString rest = m.captured(2).trimmed();
+
+    // "Given items are : Item Sideways" -- a second word after the type that is
+    // not a modifier. reAttr does not match it, so without this the line reads
+    // as a step naming no attribute set at all, and the real mistake, a misspelt
+    // modifier, is never named.
+    static QRegularExpression reTrailingWord(
+        R"(:\s*(\w+)\s+(\w+)\s*$)",
+        QRegularExpression::CaseInsensitiveOption);
+    const auto mb = reTrailingWord.match(rest);
+    if (mb.hasMatch()) {
+        const QString mod = mb.captured(2).toLower();
+        if (mod != "vertical" && mod != "compareonly")
+            badModifier = mb.captured(2);
+    }
 
     auto ma = reAttr.match(rest);
     if (ma.hasMatch()) {
@@ -618,6 +634,23 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 break;
 
             default:
+                // A step that named no attribute set leaves the state machine in
+                // the Scenario, so its table lands here. "No active block" is a
+                // true but useless thing to say about it: there is an active
+                // step, and the table is its own -- it simply has nothing to be
+                // read as. Said once, at the step, rather than once per row.
+                if (curStep && curStep->attrSetName.isEmpty()) {
+                    if (!curStep->tableWithoutAttrSet) {
+                        curStep->tableWithoutAttrSet = true;
+                        curStep->orphanTableLine     = lineNum;
+                        emitMsg(curStep->line,
+                                QString("Step '%1' has a table but names no attribute set, so "
+                                        "nothing reads the table and no argument reaches the "
+                                        "glue -- add ': <Name>'").arg(curStep->text.trimmed()),
+                                false);
+                    }
+                    break;
+                }
                 emitMsg(lineNum, "Unexpected table row (no active block)", true);
                 break;
             }
@@ -989,9 +1022,14 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // Steps (Given / When / Then / And / But)
         if (state == State::InScenario || state == State::InBackground
                                        || state == State::InCleanup) {
-            QString kw, text, attrSet;
+            QString kw, text, attrSet, badModifier;
             bool    trans = false, cmpOnly = false;
-            if (isStepLine(trimmed, kw, text, attrSet, trans, cmpOnly)) {
+            if (isStepLine(trimmed, kw, text, attrSet, trans, cmpOnly, badModifier)) {
+                if (!badModifier.isEmpty())
+                    emitMsg(lineNum,
+                            QString("Unrecognized step modifier '%1' -- expected "
+                                    "CompareOnly or Vertical").arg(badModifier),
+                            true);
                 lastKw = normalizeKeyword(kw, lastKw);
                 Step st;
                 st.keyword      = lastKw;

@@ -27,7 +27,6 @@ private:
     void checkDomainTermDuplicates        (const QString& filePath, QList<Diagnostic>& out) const;
     void checkDomainTermColumnTypes       (const QString& filePath, const QMap<QString, QString>& dtTypes, QList<Diagnostic>& out) const;
     void checkDomainTermVsDataTypeNames   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkStepsWithTableButNoAttrSet  (const QString& filePath, QList<Diagnostic>& out) const;
 
     // A Collection's element type has to be an Entity: a production class is
     // written for an Entity and not for an Attributes block, so a Collection of

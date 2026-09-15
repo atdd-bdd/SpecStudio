@@ -51,7 +51,6 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkDomainTermDuplicates       (filePath, diags);
     checkDomainTermColumnTypes      (filePath, m_index->domainTermTypes(), diags);
     checkDomainTermVsDataTypeNames  (filePath, visible, diags);
-    checkStepsWithTableButNoAttrSet (filePath, diags);
     checkCollectionElementTypes     (filePath, visible, diags);
     checkDuplicateDeclarations      (filePath, diags);
     checkExamplesTableContents      (filePath, visible, diags);
@@ -601,61 +600,6 @@ void SpecTableAnalyzer::checkStepTableContents(const QString& filePath,
 // Check 9 — Given/When/Then step has a following table but no ': AttrSet' suffix
 // ---------------------------------------------------------------------------
 
-void SpecTableAnalyzer::checkStepsWithTableButNoAttrSet(const QString& filePath,
-                                                          QList<Diagnostic>& out) const
-{
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    // Capture everything after the last ':' in the line
-    static QRegularExpression reColonSuffix(R"(:\s*([\w][\w\s]*)\s*$)");
-    static QRegularExpression reRow(R"(^\s*\|)");
-    static const QSet<QString> knownModifiers = { "compareonly", "vertical" };
-
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines.append(in.readLine());
-
-    for (int i = 0; i < lines.size() - 1; ++i) {
-        if (!reStep.match(lines[i]).hasMatch()) continue;
-
-        // Look ahead (skipping blanks and comments) for a table row
-        bool hasTable = false;
-        for (int j = i + 1; j < lines.size(); ++j) {
-            const QString& next = lines[j];
-            if (next.trimmed().isEmpty() || next.trimmed().startsWith('#')) continue;
-            if (reRow.match(next).hasMatch()) hasTable = true;
-            break;
-        }
-        if (!hasTable) continue;
-
-        auto cm = reColonSuffix.match(lines[i]);
-        if (!cm.hasMatch()) {
-            // No ':' at all — no AttrSet
-            out.append(makeDiag(filePath, i + 1,
-                QStringLiteral("Step has a data table but no AttributeSet, Entity, or DataType — "
-                               "add ': <Name>' to specify which, or create a new one"),
-                Diagnostic::Severity::Warning));
-            continue;
-        }
-
-        // Parse words after the ':'
-        const QStringList words = cm.captured(1)
-            .split(QRegularExpression(R"(\s+)"), Qt::SkipEmptyParts);
-        // words[0] = AttrSet/DataType name; words[1] (if present) = modifier
-        if (words.size() >= 2) {
-            const QString modifier = words[1].toLower();
-            if (!knownModifiers.contains(modifier))
-                out.append(makeDiag(filePath, i + 1,
-                    QStringLiteral("Unrecognized step modifier '%1' — expected CompareOnly or Vertical")
-                        .arg(words[1]),
-                    Diagnostic::Severity::Warning));
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Check — DomainTerm name declared in more than one file

@@ -26,8 +26,11 @@ private:
     static QString     toMethodName(const QString& stepText);
     static bool        isPipeRow(const QString& trimmed);
     static bool        isDefineLine(const QString& trimmed, QString& defineName);
+    // badModifier is set when a second word follows the type and is neither
+    // Vertical nor CompareOnly, so the caller can name the real mistake.
     static bool        isStepLine(const QString& trimmed, QString& kw, QString& text,
-                                  QString& attrSet, bool& vertical, bool& compareOnly);
+                                  QString& attrSet, bool& vertical, bool& compareOnly,
+                                  QString& badModifier);
     static bool        isContinuation(const QString& line);
     static bool        isNamedComment(const QString& firstWord);
     static bool        isSkipKeyword(const QString& firstWord);
