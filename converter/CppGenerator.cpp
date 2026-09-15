@@ -701,6 +701,46 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
     s << "        return t;\n";
     s << "    }\n\n";
 
+    // to_string_struct / to_string_list — the way back.
+    //
+    // A reply read by from_json arrives Typed, and a table compares String
+    // structs: only the String struct skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    s << "    " << strName << " to_string_struct() const {\n";
+    s << "        " << strName << " s;\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        const QString ct  = cppCommonType(f, file);
+        s << "        s." << fid << " = ";
+        if (isAttrSetType(f.type, file))
+            s << fid << ".to_string_struct()";
+        else if (ct == "std::string")
+            s << fid;
+        else if (ct == "bool")
+            s << "(" << fid << " ? \"true\" : \"false\")";
+        else
+            s << "std::to_string(" << fid << ")";
+        s << ";\n";
+    }
+    s << "        return s;\n";
+    s << "    }\n\n";
+
+    s << "    static std::vector<" << strName << "> to_string_list(const std::vector<"
+      << typedName << ">& list) {\n";
+    s << "        std::vector<" << strName << "> result;\n";
+    s << "        for (const auto& t : list) result.push_back(t.to_string_struct());\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+
+    s << "    static std::vector<" << typedName << "> from_string_list(const std::vector<"
+      << strName << ">& list) {\n";
+    s << "        std::vector<" << typedName << "> result;\n";
+    s << "        for (const auto& s : list) result.push_back(from_string_struct(s));\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+
     // ---- JSON (see json.h — no third-party library) ----
 
     s << "    json::Value to_json_value() const {\n";

@@ -681,6 +681,34 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
     }
     s << "    );\n  }\n\n";
 
+    // toStringObj / toStringList — the way back.
+    //
+    // A reply read by fromJSON arrives Typed, and a table compares String
+    // objects: only the String class skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    s << "  toStringObj() {\n";
+    s << "    return new " << scn << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f   = as.fields[i];
+        const QString fn = toCamelCase(f.name);
+        s << "      ";
+        if (isAttrSetType(f.type, file))
+            s << "this." << fn << ".toStringObj()";
+        else
+            s << "String(this." << fn << ")";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "    );\n  }\n\n";
+
+    s << "  static toStringList(list) {\n";
+    s << "    return list.map(t => t.toStringObj());\n  }\n\n";
+
+    s << "  static fromStringList(list) {\n";
+    s << "    return list.map(s => " << cn << ".fromStringObj(s));\n  }\n\n";
+
     // ---- JSON (built-in JSON object; no package dependency) ----
 
     // toJsonValue() builds a graph of primitives only, so the toJSON() name

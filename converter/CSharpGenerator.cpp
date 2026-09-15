@@ -950,6 +950,43 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
         s << "            this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
     s << "        }\n\n";
 
+    // ToXxxString / ToStringList — the way back.
+    //
+    // A reply read by FromJSON arrives Typed, and a table compares String
+    // objects: only the String class skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    {
+        const QString sn = as.name + "String";
+        s << "        public " << sn << " To" << sn << "()\n        {\n";
+        s << "            return new " << sn << "(\n";
+        for (int i = 0; i < as.fields.size(); ++i) {
+            const Field& f   = as.fields[i];
+            const QString fn = toCamelCase(f.name);
+            s << "                ";
+            if (isAttrSetType(f.type, file))
+                s << "this." << fn << ".To" << f.type.trimmed() << "String()";
+            else
+                s << "Json.ToText(this." << fn << ")";
+            if (i < as.fields.size() - 1) s << ",";
+            s << "\n";
+        }
+        s << "            );\n        }\n\n";
+
+        s << "        public static List<" << sn << "> ToStringList(List<" << cn
+          << "> list)\n        {\n";
+        s << "            var result = new List<" << sn << ">();\n";
+        s << "            foreach (var t in list) result.Add(t.To" << sn << "());\n";
+        s << "            return result;\n        }\n\n";
+
+        s << "        public static List<" << cn << "> FromStringList(List<" << sn
+          << "> list)\n        {\n";
+        s << "            var result = new List<" << cn << ">();\n";
+        s << "            foreach (var s in list) result.Add(s.To" << cn << "());\n";
+        s << "            return result;\n        }\n\n";
+    }
+
     // ---- JSON: explicit per-field read/write over System.Text.Json ----
 
     s << "        public void WriteJson(Utf8JsonWriter w)\n        {\n";

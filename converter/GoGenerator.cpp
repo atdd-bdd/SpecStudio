@@ -798,12 +798,14 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
     QString out;
     QTextStream s(&out);
 
-    // Only the int and float64 branches call strconv; the bool branch compares
-    // strings. Including bool here emitted an unused import, which Go rejects.
+    // Which branches reach strconv. Reading a string into a bool goes through
+    // ParseBoolCell, but writing one back out is strconv.FormatBool, so bool
+    // counts here even though it did not before ToString existed. Go rejects an
+    // unused import, so this cannot simply always be true.
     bool needsStrconv = false;
     for (const Field& f : as.fields) {
         const QString gt = goCommonType(f, file);
-        if (gt == "int" || gt == "float64") { needsStrconv = true; break; }
+        if (gt == "int" || gt == "float64" || gt == "bool") { needsStrconv = true; break; }
     }
 
     s << "package " << pkg << "\n\n";
@@ -838,6 +840,52 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
         }
     }
     s << "\treturn t\n}\n\n";
+
+    // The way back: Typed -> String.
+    //
+    // A reply read by FromJSON arrives Typed, and a table compares String
+    // structs: only the String struct skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    s << "// To" << strType << " converts this " << typedName
+      << " back to the string form a table compares.\n";
+    s << "func (t " << typedName << ") To" << strType << "() " << strType << " {\n";
+    s << "\ts := " << strType << "{}\n";
+    for (const Field& f : as.fields) {
+        const QString fe = toExported(f.name);
+        const QString gt = goCommonType(f, file);
+        const QString tf = "t." + fe;
+        if (gt == "int") {
+            s << "\ts." << fe << " = strconv.Itoa(" << tf << ")\n";
+        } else if (gt == "float64") {
+            s << "\ts." << fe << " = strconv.FormatFloat(" << tf << ", 'f', -1, 64)\n";
+        } else if (gt == "bool") {
+            s << "\ts." << fe << " = strconv.FormatBool(" << tf << ")\n";
+        } else if (gt == "string") {
+            s << "\ts." << fe << " = " << tf << "\n";
+        } else {
+            s << "\ts." << fe << " = " << tf << ".To" << gt.left(gt.size() - 5) << "String()\n";
+        }
+    }
+    s << "\treturn s\n}\n\n";
+
+    s << "// " << typedName << "ToStringList converts a slice of " << typedName
+      << " to its string form.\n";
+    s << "func " << typedName << "ToStringList(list []" << typedName << ") []"
+      << strType << " {\n";
+    s << "\tresult := make([]" << strType << ", 0, len(list))\n";
+    s << "\tfor _, t := range list { result = append(result, t.To" << strType << "()) }\n";
+    s << "\treturn result\n}\n\n";
+
+    s << "// " << typedName << "FromStringList converts a slice of " << strType
+      << " to its typed form.\n";
+    s << "func " << typedName << "FromStringList(list []" << strType << ") []"
+      << typedName << " {\n";
+    s << "\tresult := make([]" << typedName << ", 0, len(list))\n";
+    s << "\tfor _, s := range list { result = append(result, New" << typedName
+      << "FromString(s)) }\n";
+    s << "\treturn result\n}\n\n";
 
     // ---- JSON (encoding/json; see common/json.go) ----
 

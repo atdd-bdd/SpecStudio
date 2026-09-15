@@ -686,6 +686,37 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
     }
     s << "        }\n    }\n\n";
 
+    // to_str_struct / to_string_list — the way back.
+    //
+    // A reply read by from_json arrives Typed, and a table compares String
+    // structs: only the String struct skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    s << "    pub fn to_str_struct(&self) -> " << strTypeName << " {\n";
+    s << "        " << strTypeName << " {\n";
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        const QString rt  = rustCommonType(f, file);
+        QString expr;
+        if (isAttrSetType(f.type, file))
+            expr = QString("self.%1.to_str_struct()").arg(fid);
+        else if (rt == "String")
+            expr = QString("self.%1.clone()").arg(fid);
+        else
+            expr = QString("self.%1.to_string()").arg(fid);
+        s << "            " << fid << ": " << expr << ",\n";
+    }
+    s << "        }\n    }\n\n";
+
+    s << "    pub fn to_string_list(list: &[" << typedName << "]) -> Vec<"
+      << strTypeName << "> {\n";
+    s << "        list.iter().map(|t| t.to_str_struct()).collect()\n    }\n\n";
+
+    s << "    pub fn from_string_list(list: &[" << strTypeName << "]) -> Vec<"
+      << typedName << "> {\n";
+    s << "        list.iter().map(" << typedName << "::from_str_struct).collect()\n    }\n\n";
+
     // ---- JSON (see common/json.rs — no serde dependency) ----
 
     s << "    pub fn to_json_value(&self) -> json::Value {\n";

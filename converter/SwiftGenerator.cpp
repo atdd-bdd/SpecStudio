@@ -907,6 +907,39 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
     }
     s << "    }\n\n";
 
+    // toStringStruct / toStringList — the way back.
+    //
+    // A reply read by init(fromJSON:) arrives Typed, and a table compares String
+    // structs: only the String struct skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    s << "    public func toStringStruct() -> " << strTypeName << " {\n";
+    s << "        return " << strTypeName << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f    = as.fields[i];
+        const QString fid = toIdentifier(f.name);
+        s << "            " << fid << ": ";
+        if (isAttrSetType(f.type, file))
+            s << fid << ".toStringStruct()";
+        else
+            s << "String(describing: " << fid << ")";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "        )\n";
+    s << "    }\n\n";
+
+    s << "    public static func toStringList(_ list: [" << typedName << "]) -> ["
+      << strTypeName << "] {\n";
+    s << "        return list.map { $0.toStringStruct() }\n";
+    s << "    }\n\n";
+
+    s << "    public static func fromStringList(_ list: [" << strTypeName << "]) -> ["
+      << typedName << "] {\n";
+    s << "        return list.map { " << typedName << "(from: $0) }\n";
+    s << "    }\n\n";
+
     // ---- JSON (Foundation's JSONSerialization; see common/Json.swift) ----
 
     s << "    public func toJSONValue() -> [String: Any] {\n";

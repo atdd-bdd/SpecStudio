@@ -694,6 +694,36 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
     }
     s << "        )\n\n";
 
+    // to_string_obj / to_string_list — the way back.
+    //
+    // A reply read by from_json arrives Typed, and a table compares String
+    // objects: only the String class skips a field holding ?DNC?, which is what
+    // makes a CompareOnly table check its own columns and no others. Without
+    // this direction a specification can read a live reply but cannot compare it
+    // against a CompareOnly table at all.
+    s << "    def to_string_obj(self) -> " << strCn << ":\n";
+    s << "        return " << strCn << "(\n";
+    for (int i = 0; i < as.fields.size(); ++i) {
+        const Field& f    = as.fields[i];
+        const QString fid = toIdentifier(f.name);
+        s << "            ";
+        if (isAttrSetType(f.type, file))
+            s << "self." << fid << ".to_string_obj()";
+        else
+            s << "str(self." << fid << ")";
+        if (i < as.fields.size() - 1) s << ",";
+        s << "\n";
+    }
+    s << "        )\n\n";
+
+    s << "    @staticmethod\n";
+    s << "    def to_string_list(items) -> list:\n";
+    s << "        return [t.to_string_obj() for t in items]\n\n";
+
+    s << "    @staticmethod\n";
+    s << "    def from_string_list(items) -> list:\n";
+    s << "        return [" << typedCn << ".from_string_obj(s) for s in items]\n\n";
+
     // ---- JSON (standard-library json module only) ----
 
     s << "    def to_json_value(self) -> dict:\n";
