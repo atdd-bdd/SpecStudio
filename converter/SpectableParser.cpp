@@ -59,8 +59,12 @@ bool SpectableParser::isStepLine(const QString& trimmed,
     static QRegularExpression reStep(
         R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
         QRegularExpression::CaseInsensitiveOption);
+    // Any number of modifiers, in any order. They answer different questions --
+    // Vertical is how the table is laid out, CompareOnly is which of its columns
+    // are compared -- so a step may want both, and did not used to be able to
+    // say so.
     static QRegularExpression reAttr(
-        R"(\s*:\s*(\w+)(?:\s+(Vertical|CompareOnly))?\s*$)",
+        R"(\s*:\s*(\w+)((?:\s+\w+)*)\s*$)",
         QRegularExpression::CaseInsensitiveOption);
 
     auto m = reStep.match(trimmed);
@@ -69,27 +73,27 @@ bool SpectableParser::isStepLine(const QString& trimmed,
     kw           = m.captured(1);
     QString rest = m.captured(2).trimmed();
 
-    // "Given items are : Item Sideways" -- a second word after the type that is
-    // not a modifier. reAttr does not match it, so without this the line reads
-    // as a step naming no attribute set at all, and the real mistake, a misspelt
-    // modifier, is never named.
-    static QRegularExpression reTrailingWord(
-        R"(:\s*(\w+)\s+(\w+)\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    const auto mb = reTrailingWord.match(rest);
-    if (mb.hasMatch()) {
-        const QString mod = mb.captured(2).toLower();
-        if (mod != "vertical" && mod != "compareonly")
-            badModifier = mb.captured(2);
-    }
-
     auto ma = reAttr.match(rest);
     if (ma.hasMatch()) {
         attrSet     = ma.captured(1);
-        const QString mod = ma.captured(2).toLower();
-        vertical  = (mod == "vertical");
-        compareOnly = (mod == "compareonly");
-        text        = rest.left(ma.capturedStart()).trimmed();
+        vertical    = false;
+        compareOnly = false;
+
+        // Whatever followed the type. A word that is not a modifier is named as
+        // the mistake it is rather than swallowed into the step text, which is
+        // what used to happen: the line then read as a step with no attribute
+        // set at all and the misspelling was never mentioned.
+        const QStringList mods = ma.captured(2).split(QRegularExpression(R"(\s+)"),
+                                                      Qt::SkipEmptyParts);
+        for (const QString& mod : mods) {
+            if (mod.compare("Vertical", Qt::CaseInsensitive) == 0)
+                vertical = true;
+            else if (mod.compare("CompareOnly", Qt::CaseInsensitive) == 0)
+                compareOnly = true;
+            else if (badModifier.isEmpty())
+                badModifier = mod;
+        }
+        text = rest.left(ma.capturedStart()).trimmed();
     } else {
         attrSet     = {};
         vertical  = false;

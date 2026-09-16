@@ -697,9 +697,13 @@ And response body is : Corrected CompareOnly
 | PO Box 12 | Verified |
 ```
 
-Adding a field to the response does not break that scenario. A step takes one
-modifier, so `CompareOnly` cannot be combined with `Vertical` — write the table
-horizontally, which is also how several rows are checked at once:
+Adding a field to the response does not break that scenario.
+
+A step may carry both modifiers, in either order. They answer different
+questions — `Vertical` is how the table is laid out, `CompareOnly` is which of
+its columns are compared — so `: Corrected Vertical CompareOnly` states one
+instance down the page and checks only the attributes it names. Writing the
+table horizontally is still how several rows are checked at once:
 
 ```
 And response array items match : Corrected CompareOnly

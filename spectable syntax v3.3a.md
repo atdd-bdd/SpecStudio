@@ -89,6 +89,12 @@ Two instances, written side by side:
 | A2 | V2 | V2' |
 ```
 
+A step may carry more than one modifier, in any order. `Vertical` and
+`CompareOnly` answer different questions -- one is how the table is laid out,
+the other is which of its columns are compared -- so
+`: Order Vertical CompareOnly` is a transposed table that checks only the
+attributes it names.
+
 #### Rules
 * Defines one instance per value column, so a table of two columns defines one
   instance and a table of four defines three.
@@ -164,11 +170,12 @@ DefineBlock        ::= "Define" Identifier Uses? Table(Row+)
 
 Scenario           ::= (GivenStep WhenStep ThenStep)+
 
-GivenStep          ::= "Given" Identifier ":" Type Uses? (Table | Vertical)
-WhenStep           ::= "When" Action ":" Type Uses? (Table | Vertical)
-ThenStep           ::= "Then" Identifier "is" ":" Type Uses? (Table | Reference)
+GivenStep          ::= "Given" Identifier ":" Type Modifier* Uses? (Table | Reference)
+WhenStep           ::= "When" Action ":" Type Modifier* Uses? (Table | Reference)
+ThenStep           ::= "Then" Identifier "is" ":" Type Modifier* Uses? (Table | Reference)
 
-Vertical           ::= Identifier "Vertical" Uses? Table(TransposedRow+)
+Modifier           ::= "Vertical" | "CompareOnly"
+
 TransposedRow      ::= "|" AttributeName ("|" Value)+ "|"
 
 Uses               ::= "Uses" CommentText
@@ -331,6 +338,9 @@ Removed in v3.3. Collections replace all multiplicity semantics.
 
 ### Document revision 2026-09-14
 
+* A step may carry both modifiers: `Vertical CompareOnly` in either order. They
+  were mutually exclusive until 2026-09-15, for no better reason than a regular
+  expression that allowed one.
 * Stated that a vertical table is a horizontal table transposed, that it has no
   header row, and that it may carry more than one instance. The examples had
   shown a literal `| Attribute | Value |` header, which the parser reads as data
