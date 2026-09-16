@@ -11,6 +11,23 @@
 // eight languages could not benefit and Analyze had to reimplement it.
 QVector<ParseMessage> validateStepTables(const SpectableFile& file);
 
+// Rewrites every field type that names a DomainTerm to the type the term stands
+// for. "DomainTerm Roll : Pins" says a Roll is a Pins, and nothing is generated
+// for a DomainTerm itself, so a field left declaring Roll would name a class
+// nothing writes.
+//
+// Called after the context merge, not during parsing: a term may be declared in
+// a sibling specification, and the parser sees one file. Both the converter and
+// Analyze call it, so they resolve alike.
+void resolveDomainTermTypes(SpectableFile& file);
+
+// Every field type that is not a built-in, a DataType, an Entity or Attributes
+// block, a Collection, or a DomainTerm resolved by the call above. An error, not
+// a warning: the generators emit the class anyway, declaring a field of a type
+// that does not exist and assigning a String to it, so the build fails in a file
+// the author never opened.
+QVector<ParseMessage> validateFieldTypes(const SpectableFile& file);
+
 class SpectableParser
 {
 public:

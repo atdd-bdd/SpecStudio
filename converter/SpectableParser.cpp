@@ -914,6 +914,25 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             curScen = nullptr;
             curStep = nullptr;
             state   = State::Top;
+
+            // "DomainTerm Roll : Pins" -- recorded rather than merely skipped,
+            // so that a field declaring the type Roll can be resolved to Pins
+            // before any generator sees it. Until 2026-09-16 the parser threw
+            // this line away and every generator emitted a field of a type
+            // nothing writes.
+            if (firstWord.compare("DomainTerm", Qt::CaseInsensitive) == 0) {
+                static QRegularExpression reTerm(
+                    R"(^DomainTerm\s+(\w+)\s*:\s*(\w+)\s*$)",
+                    QRegularExpression::CaseInsensitiveOption);
+                const auto mt = reTerm.match(trimmed);
+                if (mt.hasMatch()) {
+                    DomainTerm dt;
+                    dt.name = mt.captured(1);
+                    dt.type = mt.captured(2);
+                    dt.line = lineNum;
+                    result.domainTerms.push_back(dt);
+                }
+            }
             continue;
         }
 
@@ -1114,6 +1133,79 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 // An attribute set the file cannot see is skipped rather than reported: the
 // caller may not have merged its declaration yet, and an unknown name is the
 // caller's own check to make.
+
+// ---------------------------------------------------------------------------
+// DomainTerm resolution, and field types that resolve to nothing
+// ---------------------------------------------------------------------------
+
+void resolveDomainTermTypes(SpectableFile& file)
+{
+    if (file.domainTerms.isEmpty()) return;
+
+    QMap<QString, QString> byName;
+    for (const DomainTerm& dt : file.domainTerms)
+        if (!dt.name.isEmpty() && !dt.type.isEmpty())
+            byName.insert(dt.name.toLower(), dt.type);
+
+    for (AttrSet& as : file.attrSets) {
+        for (Field& f : as.fields) {
+            const QString declared = f.type.trimmed();
+            if (declared.isEmpty()) continue;
+
+            // One hop only. A term standing for another term is a chain nobody
+            // has asked for, and following it would need a cycle check for a
+            // case that has never arisen.
+            const QString resolved = byName.value(declared.toLower());
+            if (!resolved.isEmpty()) f.type = resolved;
+        }
+    }
+}
+
+QVector<ParseMessage> validateFieldTypes(const SpectableFile& file)
+{
+    QVector<ParseMessage> msgs;
+
+    static const QStringList builtins = {
+        "character", "string", "text", "integer", "int", "long", "float",
+        "scientific", "decimal", "boolean", "bool", "date", "time", "datetime",
+        "duration", "yesno"
+    };
+
+    auto known = [&](const QString& type) {
+        const QString t = type.trimmed().toLower();
+        if (t.isEmpty() || builtins.contains(t)) return true;
+        for (const QString& dt : file.dataTypeNames)
+            if (dt.compare(type, Qt::CaseInsensitive) == 0) return true;
+        for (const AttrSet& as : file.attrSets)
+            if (as.name.compare(type, Qt::CaseInsensitive) == 0) return true;
+        for (const Collection& c : file.collections)
+            if (c.name.compare(type, Qt::CaseInsensitive) == 0) return true;
+        // A DomainTerm should already have been resolved away; accept one here
+        // so that calling this without resolveDomainTermTypes first does not
+        // produce a confusing error about a term that is perfectly legal.
+        for (const DomainTerm& dt : file.domainTerms)
+            if (dt.name.compare(type, Qt::CaseInsensitive) == 0) return true;
+        return false;
+    };
+
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+        for (const Field& f : as.fields) {
+            if (known(f.type)) continue;
+
+            ParseMessage m;
+            m.line    = f.line;
+            m.warning = false;
+            m.text    = QString(
+                "Attribute '%1' of '%2' has type '%3', which is not a built-in, a "
+                "DataType, an Entity or Attributes block, a Collection, or a "
+                "DomainTerm. The generated class would declare a field of a type "
+                "that does not exist").arg(f.name, as.name, f.type.trimmed());
+            msgs.push_back(m);
+        }
+    }
+    return msgs;
+}
 
 QVector<ParseMessage> validateStepTables(const SpectableFile& file)
 {

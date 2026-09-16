@@ -125,6 +125,19 @@ struct Collection {
     bool    isContext = false;
 };
 
+// A DomainTerm: a word this domain uses, and the type it stands for.
+//
+// "DomainTerm Roll : Pins" says that a Roll is a Pins. It generates nothing of
+// its own, so a field declaring the type Roll would name a class nothing writes
+// -- which is why the type is resolved to its underlying one before any
+// generator sees it. See resolveDomainTermTypes.
+struct DomainTerm {
+    QString name;
+    QString type;       // the type it stands for
+    int     line      = 0;
+    bool    isContext = false;
+};
+
 // Top-level result of parsing one .spectable file
 struct SpectableFile {
     QString                specName;
@@ -133,6 +146,7 @@ struct SpectableFile {
     QStringList            generatorTags;  // $Tags before Specification line — applied to all blocks
     QVector<AttrSet>       attrSets;
     QVector<Collection>    collections;
+    QVector<DomainTerm>    domainTerms;
     QVector<Define>        defines;
     QStringList            dataTypeNames;  // user-declared DataType names
     QVector<NamedBlock>    namedBlocks;    // BusinessRule / Calculation / DataType with Examples

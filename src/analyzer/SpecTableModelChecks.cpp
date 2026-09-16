@@ -184,39 +184,27 @@ void SpecTableAnalyzer::checkAttributeFieldTypes(const QString& filePath,
             const QString declared = f.type.trimmed();
             if (declared.isEmpty()) continue;
 
-            // A DomainTerm names a thing the domain talks about, and is a fine
-            // name for an attribute. It is not a type: no generator has a
-            // conversion for one, so every language emits a class declaring a
-            // field of a type nothing writes, and the build fails in a file the
-            // author never opened. Saying so here puts the failure where it can
-            // be acted on.
+            // A DomainTerm is a legal field type again as of 2026-09-16: it is
+            // resolved to the type it stands for before any generator sees it,
+            // so the field no longer names a class nothing writes. Anything that
+            // resolves to nothing is reported by validateFieldTypes, as an error.
+            if (visible.hasDataType(declared) || visible.hasAttributeSet(declared)
+             || visible.domainTerms.contains(declared))
+                continue;
+
+            // An error, not a warning, and the converter agrees: the
+            // generators emit the class regardless, declaring a field of a type
+            // that does not exist and assigning a String to it, so the build
+            // fails in a file the author never opened.
             //
-            // This used to be an error and a warning at the same time: the
-            // converter printed "no parse conversion available" and generated
-            // the broken class anyway, while Analyze called the type legal.
-            if (visible.domainTerms.contains(declared)) {
-                const QString underlying = m_index ? m_index->domainTermTypes().value(declared)
-                                                   : QString();
-                QString message = QStringLiteral(
-                    "Attribute '%1' has type '%2', which is a DomainTerm. A DomainTerm "
-                    "names an attribute, not a type -- nothing is generated for one, so "
-                    "the generated class would declare a field of a type that does not exist")
-                        .arg(f.name, declared);
-                if (!underlying.isEmpty())
-                    message += QStringLiteral(". Use '%1', which is what '%2' is declared as")
-                                   .arg(underlying, declared);
-                out.append(makeDiag(filePath, f.line, message, Diagnostic::Severity::Error));
-                continue;
-            }
-
-            if (visible.hasDataType(declared) || visible.hasAttributeSet(declared))
-                continue;
-
+            // Asked of the index rather than of this file's parse tree, because
+            // a DataType is often declared in a sibling specification --
+            // validateFieldTypes in the parser has the context merge behind it
+            // and is the converter's half of the same rule.
             out.append(makeDiag(filePath, f.line,
                 QStringLiteral("Attribute '%1' has unknown type '%2' — not a built-in, "
-                               "DataType, Entity/Attributes, or Collection")
-                    .arg(f.name, declared),
-                Diagnostic::Severity::Warning));
+                               "DataType, Entity/Attributes, Collection, or DomainTerm")
+                    .arg(f.name, declared)));
         }
     }
 }
@@ -269,7 +257,10 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
                                         QList<Diagnostic>& out) const
 {
     SpectableParser parser;
-    const SpectableFile file = parser.parse(filePath);
+    SpectableFile file = parser.parse(filePath);
+    // The same resolution the converter does, so Analyze and the generators
+    // agree about what a field type means.
+    resolveDomainTermTypes(file);
 
     checkParseMessages          (filePath, file, out);
     checkEmptyScenarios         (filePath, file, out);
@@ -278,6 +269,7 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     checkEmptyAttrSets          (filePath, file, out);
     checkAttributeFieldTypes    (filePath, file, m_index->projectSymbols(), out);
     checkDomainTermColumnTypes  (filePath, file, m_index->domainTermTypes(), out);
+
     // The same reading the converter uses, rather than a second one that can
     // disagree with it.
     for (const ParseMessage& m : validateStepTables(file))

@@ -133,11 +133,17 @@ int main(int argc, char* argv[])
         SpectableFile ctx = parser.parse(ctxPath);
         for (AttrSet& as : ctx.attrSets)         { as.isContext = true; file.attrSets.push_back(as); }
         for (Collection& col : ctx.collections)   { col.isContext = true; file.collections.push_back(col); }
+        for (DomainTerm& dt : ctx.domainTerms)    { dt.isContext = true; file.domainTerms.push_back(dt); }
         for (Define& def : ctx.defines)           { def.isContext = true; file.defines.push_back(def); }
         for (NamedBlock& nb : ctx.namedBlocks)    { nb.isContext = true; file.namedBlocks.push_back(nb); }
         for (const QString& dt : ctx.dataTypeNames)
             if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
     }
+
+    // A DomainTerm stands for a type, and generates nothing of its own, so a
+    // field declaring one is resolved to what it stands for before any generator
+    // sees it. After the merge, because the term may be declared in a sibling.
+    resolveDomainTermTypes(file);
 
     // Emit FILE: before any messages so the IDE's output parser attributes
     // warnings to this file even when multiple converters run concurrently.
@@ -154,6 +160,15 @@ int main(int argc, char* argv[])
     // after the context merge, because the set may be declared in a sibling
     // specification -- and here rather than in a generator, so that all nine
     // languages refuse the same specification. It used to be Java's alone.
+    // A field type that resolves to nothing is an error, not a warning. The
+    // generators emit the class regardless, declaring a field of a type that
+    // does not exist, so the build failed in a file the author never opened.
+    for (const ParseMessage& m : validateFieldTypes(file)) {
+        const char* sev = m.warning ? "WARNING" : "ERROR";
+        std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
+        if (!m.warning) hasError = true;
+    }
+
     for (const ParseMessage& m : validateStepTables(file)) {
         const char* sev = m.warning ? "WARNING" : "ERROR";
         std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
