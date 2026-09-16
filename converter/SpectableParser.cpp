@@ -1125,9 +1125,40 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
 
     auto check = [&](const Step& step) {
         if (!step.hasTable || step.attrSetName.isEmpty()) return;
+
         // An EveryCell table is a grid of values, not a table of named columns,
-        // so there are no headers to match against the attribute set.
-        if (step.everyCell) return;
+        // so there are no headers to match against the attribute set. One thing
+        // is worth checking though: a cell may be written =Name, and a Define
+        // that holds a table is rows rather than one value, so there is nothing
+        // to hand the type's fromText. Left alone it fails quietly -- resolveValue
+        // skips a table Define, the cell keeps the literal text "=Name", and
+        // fromText makes an object out of that.
+        if (step.everyCell) {
+            for (const QStringList& row : step.table.rows) {
+                for (const QString& cell : row) {
+                    const QString c = cell.trimmed();
+                    if (!c.startsWith('=')) continue;
+                    const QString name = c.mid(1).trimmed();
+                    for (const Define& d : file.defines) {
+                        if (d.name.compare(name, Qt::CaseInsensitive) != 0) continue;
+                        if (!d.isTable) break;
+
+                        ParseMessage m;
+                        m.line    = step.line;
+                        m.warning = false;
+                        m.text    = QString(
+                            "Define '%1' holds a table, so it cannot fill a cell of an "
+                            "EveryCell grid -- a cell holds one value, the text form of "
+                            "'%2'. Use a scalar or docstring Define, or write the value "
+                            "in the cell").arg(name, step.attrSetName);
+                        msgs.push_back(m);
+                        break;
+                    }
+                }
+            }
+            return;
+        }
+
         if (step.table.rows.isEmpty()) return;
 
         const AttrSet* as = byName.value(step.attrSetName.toLower(), nullptr);

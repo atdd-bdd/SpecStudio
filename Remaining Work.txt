@@ -105,45 +105,15 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
-### Accept a solution path on the command line. main.cpp ignores argv entirely --
-  it builds QApplication, applies the theme, then shows MainWindow with no path
-  handling -- so AlignThree.exe always opens empty and the only way into a
-  solution is File > Open Solution or the Recent Solutions list.
+### Finish moving Analyze off regular expressions. Fifteen checks remain, down
+  from seventeen, and they still reopen the file and match line patterns while
+  the converter parses the same text into a SpectableFile. Analyze is a second,
+  weaker reading, and the two can disagree; they have, three times this month.
 
-  Read argv[1], hand it to MainWindow, and let AppController::loadSolution()
-  take it from there; ignore a missing or unreadable path and open empty as now
-  rather than failing to start. Small change, three payoffs:
-    - AlignThree.exe "C:\path\To\X.sspec" works from a shell or a shortcut.
-    - Double-clicking a .sspec can open it, once the installer registers the
-      file association (scripts/alignthree.iss has no [Registry] section yet,
-      so that is a second, separate piece of work).
-    - Scripts and agents can launch straight into a solution instead of asking
-      someone to click through the GUI.
-
-  Worth deciding at the same time whether a second argument, or a --file switch,
-  should also open a named .spectable within that solution.
-
-### Move the remaining Analyze checks off regular expressions. Seventeen checks
-  in SpecTableAnalyzer.cpp still reopen the file and match line patterns, about
-  800 lines of it, while the converter parses the same files into a
-  SpectableFile and generates from that. Analyze is a second, weaker reading of
-  the same text, and the two can disagree. They have, twice this month: the
-  missing-column check lived in JavaGenerator alone and Analyze had
-  reimplemented it, and Analyze called a DomainTerm a legal field type while
-  every generator emitted a class that would not compile.
-
-  SpecTableModelChecks.cpp is where a migrated check goes. Six live there now,
-  the newest being checkAttributeFieldTypes, which went from 102 lines of regex
-  to 45 of model on 2026-09-15 with identical output. Field carries a line
-  number so a migrated check still points at the row rather than the block.
-
-  Four to five days for essentially all of it, and safely incremental -- each
-  check migrates and is verified on its own against the three corpora
-  (ErrorTests to prove it still fires, VariousTests and ExampleTests to prove it
-  stays silent).
+  SpecTableModelChecks.cpp is where a migrated check goes. Seven live there now.
 
     Near-mechanical, about a day. Loop the right vector, keep the message word
-    for word, prove the output identical:
+    for word, prove the output identical against all three corpora:
       checkDefineRefs, checkImports, checkInserts, checkDomainTermDuplicates,
       checkDuplicateDeclarations, checkCollectionElementTypes,
       checkDescriptions, checkTableColumnConsistency,
@@ -152,21 +122,42 @@ Altered so that it is separated into Issues and Future Features
     Really deletions, two to three days, and where the payoff is. These resolve
     a step to its attribute set, walk a table against declared fields and check
     cells by type -- logic that already exists in validateStepTables, which the
-    converter and Analyze already share. Fold each in and let one function serve
-    both callers:
+    converter and Analyze share. Fold each in and let one function serve both:
       checkStepTableContents (107 lines), checkExamplesTableContents (80),
       checkStepRefs (66), checkAttributeDefaultValues (61), checkExamples (59)
-
-    Need a decision first, half a day. These partly ask about text the parser
-    discards -- a step with a table but no ": AttrSet" is, to the parser, just a
-    step with no attribute set. Either the parser records more, or they stay:
-      checkCleanup, checkStepsWithTableButNoAttrSet, checkDomainTermColumnTypes
 
   Not the whole seam. SpecTableIndex builds the cross-file symbol table these
   checks consult and has its own reading of the syntax; migrating the checks
   does not touch it. SpecTableIndex.h records a release where Analyze reported
   an undeclared type for a specification that built and ran, because its
-  built-in list had fallen behind the generators'. Worth a separate look.
+  built-in list had fallen behind the generators'.
+
+### A table after a Detail statement. Detail is a named comment today -- a line
+  of prose attached to the block above it, carried no further. A BusinessRule is
+  often easier to explain in a small table than in a sentence: the conditions
+  down one side, what each produces down the other, or a few worked cases that
+  are illustration rather than assertion.
+
+  So: allow a pipe table to follow a Detail line, and treat it as part of that
+  comment. Documentation, not behaviour -- nothing generated, nothing asserted.
+  It differs from an Examples: table precisely in that nothing checks it.
+
+  Worth settling first:
+    - Is it only Detail, or every named comment? Description and Notes would
+      want the same thing for the same reason.
+    - Does it reach the generated code? The "copy named comments into generated
+      comments" item below would then have a table to render, which in Java is
+      a block comment and in Python a docstring.
+    - How does it end -- the first blank line, or the first non-pipe line? A
+      Define table ends at the first line that is not a pipe row, and following
+      that would be the least surprising.
+    - Analyze should say something if such a table looks like an Examples table
+      that was meant to be checked: an author who writes conditions and expected
+      results under Detail may think they are being tested.
+
+  The parser change is small: Detail is already recognised and skipped, and a
+  table after it currently falls to the "no active block" branch. Recording it
+  needs a field on the block and a state, like the docstring handling.
 
 ### Spell-check the prose in a specification. A specification is mostly words --
   step text, Scenario names, Description and Notes columns, docstrings -- and
@@ -494,6 +485,52 @@ Define
 
 
 ## --- Done ---
+
+[x] Open a solution, or a file and the solution that owns it, from the command
+    line (d72589d). main.cpp ignored argv entirely, so AlignThree always opened
+    empty. Now `AlignThree Work.sspec`, `AlignThree Work.sspec Orders.spectable`,
+    and `AlignThree Orders.spectable` -- the last walks up for the .sspec that
+    owns the file, because a .spectable alone has no index, no configuration and
+    no Analyze behind it. A file in no solution is refused with a message rather
+    than opened bare. Registering the file association in the installer is still
+    to do; scripts/alignthree.iss has no [Registry] section.
+
+[x] A step may carry more than one modifier, in any order (2be7e7b). Vertical
+    and CompareOnly answer different questions -- how the table is laid out, and
+    which of its columns are compared -- and the restriction lived entirely in a
+    regular expression that allowed one word after the type. Nothing downstream
+    needed touching: the two flags were already orthogonal in every generator
+    and in validateStepTables.
+
+[x] EveryCell (6b2c700). A table naming an Entity had one reading, one row per
+    instance with a column per attribute. EveryCell says the other: the table is
+    a grid and each cell holds the text form of the named type. A DataType could
+    already be read that way implicitly; this states it and extends it to
+    Entities and Attributes blocks. The conversion reuses the text form that
+    already existed -- fromText round-trips with toString -- written in each
+    language's own idiom. A scalar or docstring Define may fill a cell, because
+    =Name expands before the cell is converted. A table-form Define is refused
+    with an error, in validateStepTables so that all nine languages and Analyze
+    say the same thing.
+
+[x] Uses is read by the parser and kept with the element it documents (08c3549).
+    It was in the skip list and thrown away. Fixing that exposed an older bug: a
+    named comment between a step and its table ended the table, which is exactly
+    where the syntax document puts Uses, so the documented form had never
+    worked.
+
+[x] A table with no attribute set is an error, said once at the step (5c026b8),
+    rather than two "unexpected table row" warnings that named no cause.
+
+[x] A DomainTerm is refused as a field type (13e7623). Analyze called it legal
+    while every generator emitted a class declaring a field of a type nothing
+    writes. The message names the fix from the term's own declaration.
+
+[x] Seven Analyze checks now read the parse tree instead of the file
+    (13e7623, e66011c). checkAttributeFieldTypes, checkDomainTermColumnTypes and
+    checkCleanup were the last three moved; checkCleanup turned out not to be an
+    Analyze check at all -- "Cleanup may only contain Then and And" is a rule of
+    the language, so it went to the parser.
 
 [x] A shared file in common/ is merged, not replaced. Two of them were
     rewritten by each specification in turn, and each specification writes into
