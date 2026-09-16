@@ -1045,7 +1045,9 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
 
             const QString meth = toMethodName(step);
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row
+            // per instance, so an Entity falls through to the grid branch.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 ++objectCounter;
                 const QString listType = toTypeName(effectiveAttrSetName) + "String";
                 const QString listVar  = QString("object_list_%1").arg(objectCounter);
@@ -1071,12 +1073,13 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
                 s << "    ]\n";
                 s << "    " << glueVar << "." << meth << "(" << listVar << ")\n\n";
 
-            } else if (step.hasTable && as == nullptr) {
+            } else if (step.hasTable && (as == nullptr || step.everyCell)) {
                 ++objectCounter;
                 const QString listVar = QString("string_list_list_%1").arg(objectCounter);
                 const StepTable& tbl  = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                       && isDataType(step.attrSetName, file);
+                                       && (step.everyCell
+                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
                 s << "    " << listVar << " = [\n";
@@ -1238,6 +1241,8 @@ QVector<PythonGenerator::GlueSig> PythonGenerator::collectGlueSigs(const Spectab
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "grid", step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
@@ -1285,6 +1290,17 @@ QString PythonGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         s << "        print(value)\n";
         if (failEveryTest)
             s << "        raise NotImplementedError('" << sig.method << "')\n";
+    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before doing anything else.
+        const QString typed = toTypeName(sig.everyCellType) + "Typed";
+        const QString str   = toTypeName(sig.everyCellType) + "String";
+        s << "    def " << sig.method << "(self, values: list):\n";
+        s << "        for row in values:\n";
+        s << "            for cell in row:\n";
+        s << "                item = " << typed << ".from_string_obj(" << str
+          << ".from_text(cell))\n";
+        s << "                print(item)\n";
     } else if (sig.paramType == "grid") {
         s << "    def " << sig.method << "(self, values: list):\n";
         s << "        for row in values:\n";

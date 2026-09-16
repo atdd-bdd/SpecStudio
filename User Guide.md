@@ -195,10 +195,32 @@ Then item collection is : OrderItemCollection
 
 Step keywords: `Given`, `When`, `Then`, `And`, `WhenThen`.
 
-The text after `:` names the attribute set describing the table's shape.
-`Vertical` transposes a table — fields down the left, one value column — which
-reads better when a table has one row and many columns. `CompareOnly` limits
-equality to the columns actually shown.
+The text after `:` names the attribute set describing the table's shape, and may
+be followed by any number of modifiers, in any order.
+
+| Modifier | What it says |
+|---|---|
+| `Vertical` | The table is transposed — attributes down the left, one column per instance. Reads better when a table has one row and many columns. |
+| `CompareOnly` | Equality is limited to the columns actually shown; the rest are filled with `?DNC?` and not compared. |
+| `EveryCell` | The table is a grid and **each cell holds the text form of the named type**, rather than being one row per instance with a column per attribute. |
+
+They answer different questions, so they combine:
+`: Order Vertical CompareOnly` is a transposed table checking only the
+attributes it names.
+
+`EveryCell` is how a table of whole objects is written:
+
+```
+Given the ingredients are : Ingredient EveryCell
+| Sugar 200 | Butter 250 |
+| Salt 5    | Yeast 7    |
+```
+
+That is four Ingredients. Each cell is read by the type's own text form — values
+space separated, a value containing a space in double quotes, a nested block in
+single quotes — which is the same form the object prints. A `Define` may supply
+a cell: `=Rent` expands before the cell is converted. A table-form `Define`
+cannot, because it is rows rather than one value.
 
 ### Docstrings — a block of text as a step's argument
 

@@ -93,6 +93,9 @@ private:
     struct GlueSig {
         QString method;
         QString paramType;  // "" = void, "docstring", "grid", or "{AttrSetName}String"
+        // The Entity or DataType each cell of an EveryCell grid becomes.
+        // Empty for every other kind of step.
+        QString everyCellType;
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);

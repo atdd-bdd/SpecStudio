@@ -1463,7 +1463,9 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
 
             const QString meth = toFnName(step);
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row
+            // per instance, so an Entity falls through to the grid branch.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 QStringList localErrs;
                 QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
                 errors << localErrs;
@@ -1474,7 +1476,8 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
             } else {
                 const StepTable& tbl = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                      && isDataType(step.attrSetName, file);
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 s << "    glue." << meth << "(";
                 emitGridSlice(tbl.rows, startRow);
@@ -1607,6 +1610,8 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "grid", step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 // A Collection step takes a slice of its element type.
                 record(meth, { meth, effectiveAttrSetName(step.attrSetName, file) + "String" }, step.line);
@@ -1649,6 +1654,19 @@ QString RustGenerator::genStubFn(const GlueSig& sig, bool failEveryTest)
         s << "        println!(\"{}\", value);\n";
         if (failEveryTest)
             s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
+        s << "    }\n";
+    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before doing anything else.
+        const QString base = toTypeName(sig.everyCellType);
+        s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<String>]) {\n";
+        s << "        for row in values {\n";
+        s << "            for cell in row {\n";
+        s << "                let item = " << base << "Typed::from_str_struct(&"
+          << base << "String::from_text(cell));\n";
+        s << "                println!(\"{:?}\", item);\n";
+        s << "            }\n";
+        s << "        }\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<String>]) {\n";

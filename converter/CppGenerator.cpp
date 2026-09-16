@@ -1486,7 +1486,9 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
 
             const QString meth = toFnName(step);
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row
+            // per instance, so an Entity falls through to the grid branch.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 QStringList localErrs;
                 QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
                 errors << localErrs;
@@ -1496,7 +1498,9 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
                 s << "    " << glueVar << "." << meth << "(objectList" << idx << ");\n\n";
             } else {
                 const StepTable& tbl = step.table;
-                const bool isTypedGrid = !step.attrSetName.isEmpty() && isDataType(step.attrSetName, file);
+                const bool isTypedGrid = !step.attrSetName.isEmpty()
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 const int idx = objectCounter + 1;
                 emitGridVec(tbl.rows, startRow);
@@ -1616,6 +1620,8 @@ QVector<CppGenerator::GlueSig> CppGenerator::collectGlueSigs(const SpectableFile
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "grid", step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
@@ -1660,6 +1666,19 @@ QString CppGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         s << "        std::cout << value << \"\\n\";\n";
         if (failEveryTest)
             s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
+        s << "    }\n";
+    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before doing anything else.
+        const QString base = toTypeName(sig.everyCellType);
+        s << "    void " << sig.method << "(const std::vector<std::vector<std::string>>& values) {\n";
+        s << "        for (const auto& row : values) {\n";
+        s << "            for (const auto& cell : row) {\n";
+        s << "                " << base << "Typed item = " << base
+          << "Typed::from_string_struct(" << base << "String::from_text(cell));\n";
+        s << "                std::cout << item.to_string_struct().to_string() << \"\\n\";\n";
+        s << "            }\n";
+        s << "        }\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    void " << sig.method << "(const std::vector<std::vector<std::string>>& values) {\n";

@@ -155,6 +155,10 @@ static bool isUserDataType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+// Defined further down, beside the grid converter it serves; declared here
+// because collectGlueSigs needs it and comes first.
+static QString gridElementType(const QString& specType, const SpectableFile& file);
+
 static bool isAttrSetType(const QString& name, const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
@@ -1183,7 +1187,10 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 // DataType grid step — fall through to the List<List<String>> branch below
             }
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row per
+            // instance, so an Entity that resolves to an attribute set must fall
+            // through to the grid branch rather than be read column by column.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 ++objectCounter;
                 const QString listType = effectiveAttrSetName + "String";
                 const QString listVar  = QString("objectList%1").arg(objectCounter);
@@ -1222,12 +1229,16 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 const QString meth = toMethodName(step);
                 s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
 
-            } else if (step.hasTable && as == nullptr) {
+            } else if (step.hasTable && (as == nullptr || step.everyCell)) {
                 ++objectCounter;
                 const QString listVar = QString("objectList%1").arg(objectCounter);
                 const StepTable& tbl = step.table;
+                // EveryCell says the table is a grid of text forms rather than
+                // one row per instance, which is the only reading a named
+                // Entity used to have.
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                      && isDataType(step.attrSetName, file);
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 const QString meth = toMethodName(step);
 
@@ -1404,13 +1415,17 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
                 recordSig(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 recordSig(meth, { meth, "" }, step.line);                  // void / no parameter
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                recordSig(meth, { meth, "List<List<String>>", step.attrSetName, false, "",
+                                  gridElementType(step.attrSetName, file) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
                 recordSig(meth, { meth, effectiveName + "String", "", true }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                recordSig(meth, { meth, "List<List<String>>", step.attrSetName }, step.line);
+                recordSig(meth, { meth, "List<List<String>>", step.attrSetName, false, "",
+                                  gridElementType(step.attrSetName, file) }, step.line);
             } else {
                 recordSig(meth, { meth, "List<List<String>>" }, step.line);
             }
@@ -1465,12 +1480,30 @@ static QString cellConvertExpr(const QString& specType, const SpectableFile& fil
         return specType.trimmed() + ".valueOf(cell)";
     if (isDataType(specType.trimmed(), file))
         return "new " + specType.trimmed() + "(cell)";
+    // EveryCell over an Entity or Attributes block. The cell holds that block's
+    // text form -- the values space separated, quoted where one contains a
+    // space, nested blocks in single quotes -- which is exactly what fromText
+    // reads back, so the pair round-trips with toString.
+    if (isAttrSetType(specType.trimmed(), file))
+        return "new " + specType.trimmed() + "Typed(" + specType.trimmed()
+             + "String.fromText(cell))";
     return "cell";
+}
+
+// The Java type one cell of a grid becomes. javaBoxedType cannot answer this on
+// its own: it has no view of the file, so an Entity name comes back unchanged
+// and the list would be declared List<List<Order>> -- a production class -- when
+// what the cell yields is an OrderTyped built from the cell's text form.
+static QString gridElementType(const QString& specType, const SpectableFile& file)
+{
+    if (isAttrSetType(specType.trimmed(), file))
+        return specType.trimmed() + "Typed";
+    return javaBoxedType(specType);
 }
 
 static QString genGridConverter(const QString& dataType, const SpectableFile& file)
 {
-    const QString boxed  = javaBoxedType(dataType);
+    const QString boxed  = gridElementType(dataType, file);
     const QString cellEx = cellConvertExpr(dataType, file);
     QString out;
     QTextStream s(&out);
@@ -1558,7 +1591,7 @@ static QMap<QString, QString> genGridConverters(const QVector<JavaGenerator::Glu
     QMap<QString, QString> methods;
     for (const JavaGenerator::GlueSig& sig : sigs) {
         if (sig.gridDataType.isEmpty()) continue;
-        const QString boxed = javaBoxedType(sig.gridDataType);
+        const QString boxed = gridElementType(sig.gridDataType, file);
         methods.insert("toListList" + boxed, genGridConverter(sig.gridDataType, file));
     }
     return methods;
@@ -1635,7 +1668,8 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framewor
         return out;
     }
     if (!sig.gridDataType.isEmpty()) {
-        const QString boxed = javaBoxedType(sig.gridDataType);
+        const QString boxed = sig.gridElemType.isEmpty() ? javaBoxedType(sig.gridDataType)
+                                                         : sig.gridElemType;
         s << "    public void " << sig.method << "(List<List<String>> values) {\n";
         s << "        List<List<" << boxed << ">> typedValues = TableHelper.toListList" << boxed << "(values);\n";
         s << "        for (List<" << boxed << "> value : typedValues) {\n";

@@ -30,7 +30,7 @@ private:
     // Vertical nor CompareOnly, so the caller can name the real mistake.
     static bool        isStepLine(const QString& trimmed, QString& kw, QString& text,
                                   QString& attrSet, bool& vertical, bool& compareOnly,
-                                  QString& badModifier);
+                                  bool& everyCell, QString& badModifier);
     static bool        isContinuation(const QString& line);
     static bool        isNamedComment(const QString& firstWord);
     static bool        isSkipKeyword(const QString& firstWord);

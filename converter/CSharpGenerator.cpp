@@ -1169,7 +1169,10 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 // DataType grid step — fall through to the List<List<string>> branch below
             }
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row per
+            // instance, so an Entity that resolves to an attribute set falls
+            // through to the grid branch below.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 // Typed list
                 ++objectCounter;
                 const QString listType  = effectiveAttrSetName + "String";
@@ -1198,7 +1201,7 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 const QString meth = toMethodName(step);
                 s << "         " << glueVar << "." << meth << "(" << listVar << ");\n\n";
 
-            } else if (step.hasTable && as == nullptr) {
+            } else if (step.hasTable && (as == nullptr || step.everyCell)) {
                 // No matching AttrSet: use List<List<string>>
                 ++objectCounter;
                 const QString listVar = QString("stringListList%1").arg(objectCounter);
@@ -1207,7 +1210,8 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                 // DataType/primitive-typed steps have no header — all rows are data.
                 // For normal multi-column tables, rows[0] is the column-name header.
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                      && isDataType(step.attrSetName, file);
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
                 s << "         List<List<string>> " << listVar
@@ -1390,6 +1394,8 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "", false }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "", false }, step.line);           // void / no parameter
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "List<List<string>>", false, step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
@@ -1452,7 +1458,25 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         : sig.paramType;
     s << "        public void " << sig.method << "(" << paramType << " values)\n";
     s << "        {\n";
-    if (sig.paramType == "List<List<string>>") {
+    if (sig.paramType == "List<List<string>>" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before it does anything else. Written out rather than left to
+        // the reader, because converting is the point of the modifier.
+        // C# keeps the String-to-Typed conversion on the String class, where the
+        // other languages put a Typed constructor -- so this is
+        // XString.FromText(cell).ToXTyped(), not new XTyped(...).
+        const QString typed = sig.everyCellType + "Typed";
+        const QString str   = sig.everyCellType + "String";
+        s << "            foreach (var row in values)\n";
+        s << "            {\n";
+        s << "                foreach (var cell in row)\n";
+        s << "                {\n";
+        s << "                    " << typed << " item = " << str
+          << ".FromText(cell).To" << typed << "();\n";
+        s << "                    Console.WriteLine(item);\n";
+        s << "                }\n";
+        s << "            }\n";
+    } else if (sig.paramType == "List<List<string>>") {
         s << "            foreach (var row in values)\n";
         s << "            {\n";
         s << "                Console.WriteLine(string.Join(\", \", row));\n";

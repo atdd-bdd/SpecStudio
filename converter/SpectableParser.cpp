@@ -53,7 +53,7 @@ bool SpectableParser::isDefineLine(const QString& trimmed, QString& defineName)
 bool SpectableParser::isStepLine(const QString& trimmed,
                                   QString& kw, QString& text,
                                   QString& attrSet, bool& vertical, bool& compareOnly,
-                                  QString& badModifier)
+                                  bool& everyCell, QString& badModifier)
 {
     badModifier.clear();
     static QRegularExpression reStep(
@@ -78,6 +78,7 @@ bool SpectableParser::isStepLine(const QString& trimmed,
         attrSet     = ma.captured(1);
         vertical    = false;
         compareOnly = false;
+        everyCell   = false;
 
         // Whatever followed the type. A word that is not a modifier is named as
         // the mistake it is rather than swallowed into the step text, which is
@@ -90,6 +91,8 @@ bool SpectableParser::isStepLine(const QString& trimmed,
                 vertical = true;
             else if (mod.compare("CompareOnly", Qt::CaseInsensitive) == 0)
                 compareOnly = true;
+            else if (mod.compare("EveryCell", Qt::CaseInsensitive) == 0)
+                everyCell = true;
             else if (badModifier.isEmpty())
                 badModifier = mod;
         }
@@ -98,6 +101,7 @@ bool SpectableParser::isStepLine(const QString& trimmed,
         attrSet     = {};
         vertical  = false;
         compareOnly = false;
+        everyCell   = false;
         text        = rest;
     }
     return true;
@@ -1027,12 +1031,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         if (state == State::InScenario || state == State::InBackground
                                        || state == State::InCleanup) {
             QString kw, text, attrSet, badModifier;
-            bool    trans = false, cmpOnly = false;
-            if (isStepLine(trimmed, kw, text, attrSet, trans, cmpOnly, badModifier)) {
+            bool    trans = false, cmpOnly = false, everyCellMod = false;
+            if (isStepLine(trimmed, kw, text, attrSet, trans, cmpOnly,
+                           everyCellMod, badModifier)) {
                 if (!badModifier.isEmpty())
                     emitMsg(lineNum,
                             QString("Unrecognized step modifier '%1' -- expected "
-                                    "CompareOnly or Vertical").arg(badModifier),
+                                    "CompareOnly, EveryCell or Vertical").arg(badModifier),
                             true);
                 lastKw = normalizeKeyword(kw, lastKw);
                 Step st;
@@ -1041,6 +1046,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 st.attrSetName  = attrSet;
                 st.vertical   = trans;
                 st.compareOnly  = cmpOnly;
+                st.everyCell    = everyCellMod;
                 st.line         = lineNum;
 
                 if (state == State::InScenario && curScen) {
@@ -1103,6 +1109,9 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
 
     auto check = [&](const Step& step) {
         if (!step.hasTable || step.attrSetName.isEmpty()) return;
+        // An EveryCell table is a grid of values, not a table of named columns,
+        // so there are no headers to match against the attribute set.
+        if (step.everyCell) return;
         if (step.table.rows.isEmpty()) return;
 
         const AttrSet* as = byName.value(step.attrSetName.toLower(), nullptr);

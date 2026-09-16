@@ -34,7 +34,10 @@ public:
 
     static QString javaType(const QString& specType);
 
-    struct GlueSig { QString method; QString paramType; QString gridDataType; bool isAttrSet = false; QString dataTypeName; };
+    // gridElemType is the Java type one cell becomes -- Integer, Pins,
+    // OrderTyped. Carried on the signature because genStubMethod has no view
+    // of the file and cannot work it out from gridDataType alone.
+    struct GlueSig { QString method; QString paramType; QString gridDataType; bool isAttrSet = false; QString dataTypeName; QString gridElemType; };
 
 private:
     QString     m_framework;

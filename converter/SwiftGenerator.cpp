@@ -1149,7 +1149,9 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
 
             const QString meth = toFnName(step);
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row
+            // per instance, so an Entity falls through to the grid branch.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 QStringList localErrs;
                 QVector<QStringList> rows = resolveStepRows(step, as, file, localErrs);
                 errors << localErrs;
@@ -1160,7 +1162,8 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
             } else {
                 const StepTable& tbl = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                      && isDataType(step.attrSetName, file);
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 s << "        glue." << meth << "(";
                 emitGridArray(tbl.rows, startRow);
@@ -1288,6 +1291,8 @@ QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const Spectable
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "grid", step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 // A Collection step takes an array of its element type.
                 record(meth, { meth, effectiveAttrSetName(step.attrSetName, file) + "String" }, step.line);
@@ -1330,6 +1335,22 @@ QString SwiftGenerator::genStubFn(const GlueSig& sig, bool failEveryTest)
         s << "        print(value)\n";
         if (failEveryTest)
             s << "        XCTFail(\"Not implemented: " << sig.method << "\")\n";
+        s << "    }\n";
+    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before doing anything else.
+        const QString base = toTypeName(sig.everyCellType);
+        s << "    public func " << sig.method << "(_ values: [[String]]) {\n";
+        s << "        for row in values {\n";
+        s << "            for cell in row {\n";
+        // fromText is a static function on the String struct, not an
+        // initializer, so this is Type.fromText(cell) rather than
+        // Type(fromText:).
+        s << "                let item = " << base << "Typed(from: " << base
+          << "String.fromText(cell))\n";
+        s << "                print(item)\n";
+        s << "            }\n";
+        s << "        }\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    public func " << sig.method << "(_ values: [[String]]) {\n";

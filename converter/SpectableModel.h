@@ -54,6 +54,11 @@ struct Step {
     QString   attrSetName;  // attribute set name after ':' (empty if none)
     bool      vertical     = false;
     bool      compareOnly  = false;  // CompareOnly modifier — unlisted fields filled with DNCString
+    // EveryCell modifier: the table is a grid and each cell holds the text form
+    // of the named type, rather than the table being one row per instance with a
+    // column per attribute. Without it, naming an Entity means the second
+    // reading, which is the only one that used to exist.
+    bool      everyCell    = false;
     StepTable table;
     bool      hasTable   = false;
     QString   defineRef;    // "=DefineName" in place of a table

@@ -1086,6 +1086,8 @@ QVector<GoGenerator::GlueSig> GoGenerator::collectGlueSigs(const SpectableFile& 
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "grid", step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file) : step.attrSetName;
@@ -1130,6 +1132,22 @@ QString GoGenerator::genStubFn(const GlueSig& sig, const QString& glueType, bool
         s << "\t_ = value\n";
         if (failEveryTest)
             s << "\tt.Fatal(\"Not implemented: " << sig.method << "\")\n";
+        s << "}\n";
+    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before doing anything else.
+        const QString base = toExported(sig.everyCellType);
+        s << recv << sig.method << "(t *testing.T, values [][]string) {\n";
+        s << "\tfor _, row := range values {\n";
+        s << "\t\tfor _, cell := range row {\n";
+        s << "\t\t\titem := common.New" << base << "TypedFromString(common.New"
+          << base << "StringFromText(cell))\n";
+        // t.Log rather than fmt.Println: testing is already imported here and
+        // fmt is not, so printing through the test avoids an import the glue
+        // file does not otherwise need.
+        s << "\t\t\tt.Log(item)\n";
+        s << "\t\t}\n";
+        s << "\t}\n";
         s << "}\n";
     } else if (sig.paramType == "grid") {
         s << recv << sig.method << "(t *testing.T, values [][]string) {\n";
@@ -1289,7 +1307,9 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
 
             const QString meth = toMethodName(step);
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row
+            // per instance, so an Entity falls through to the grid branch.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 ++objectCounter;
                 const QString listType = "common." + toExported(effectiveAttrSetName) + "String";
                 const QString listVar  = QString("objectList%1").arg(objectCounter);
@@ -1325,7 +1345,8 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
                 const QString listVar = QString("stringListList%1").arg(objectCounter);
                 const StepTable& tbl = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                      && isDataType(step.attrSetName, file);
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
                 s << "\t" << listVar << " := [][]string{\n";

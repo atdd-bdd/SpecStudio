@@ -89,11 +89,41 @@ Two instances, written side by side:
 | A2 | V2 | V2' |
 ```
 
-A step may carry more than one modifier, in any order. `Vertical` and
-`CompareOnly` answer different questions -- one is how the table is laid out,
-the other is which of its columns are compared -- so
+A step may carry more than one modifier, in any order. They answer different
+questions -- `Vertical` is how the table is laid out, `CompareOnly` is which of
+its columns are compared, `EveryCell` is what a cell holds -- so
 `: Order Vertical CompareOnly` is a transposed table that checks only the
 attributes it names.
+
+### 2.4.1 EveryCell
+
+A table naming an Entity is normally one row per instance, with a column per
+attribute. `EveryCell` says the other thing: the table is a grid, and **each
+cell holds the text form of the named type**.
+
+```
+Given the ingredients are : Ingredient EveryCell
+| Sugar 200 | Butter 250 |
+| Salt 5    | Yeast 7    |
+```
+
+Four Ingredients, not a table of two columns called "Sugar 200" and
+"Butter 250". Each cell is read by that type's `fromText`, which is the same
+text form `toString` writes: values space separated, a value containing a space
+in double quotes, a nested block in single quotes.
+
+Without `EveryCell` this reading was unavailable for an Entity -- naming one
+always meant a table of attributes. A DataType already had it implicitly, and
+still does; `EveryCell` states it and extends it to Entities.
+
+A `Define` may supply a cell. `=Rent` expands before the cell is converted, so
+`| =Rent | 5.00 USD |` is two instances. A **table-form** Define cannot: it is
+rows rather than one value, and there is nothing to hand the constructor.
+
+#### Rules
+* The table has no header row -- every row is data.
+* Each cell must hold a complete text form of the named type.
+* The type may be an Entity, an Attributes block, or a DataType.
 
 #### Rules
 * Defines one instance per value column, so a table of two columns defines one
@@ -174,7 +204,7 @@ GivenStep          ::= "Given" Identifier ":" Type Modifier* Uses? (Table | Refe
 WhenStep           ::= "When" Action ":" Type Modifier* Uses? (Table | Reference)
 ThenStep           ::= "Then" Identifier "is" ":" Type Modifier* Uses? (Table | Reference)
 
-Modifier           ::= "Vertical" | "CompareOnly"
+Modifier           ::= "Vertical" | "CompareOnly" | "EveryCell"
 
 TransposedRow      ::= "|" AttributeName ("|" Value)+ "|"
 
@@ -338,9 +368,11 @@ Removed in v3.3. Collections replace all multiplicity semantics.
 
 ### Document revision 2026-09-14
 
-* A step may carry both modifiers: `Vertical CompareOnly` in either order. They
-  were mutually exclusive until 2026-09-15, for no better reason than a regular
-  expression that allowed one.
+* A step may carry more than one modifier, in any order. `Vertical` and
+  `CompareOnly` were mutually exclusive until 2026-09-15, for no better reason
+  than a regular expression that allowed one.
+* Added `EveryCell`, so that a table of Entities written one per cell can be
+  said. Only a DataType could be read that way before, and only implicitly.
 * Stated that a vertical table is a horizontal table transposed, that it has no
   header row, and that it may carry more than one instance. The examples had
   shown a literal `| Attribute | Value |` header, which the parser reads as data

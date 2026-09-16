@@ -1044,7 +1044,9 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
                 }
             }
 
-            if (!step.attrSetName.isEmpty() && as) {
+            // EveryCell means the table is a grid of text forms, not one row
+            // per instance, so an Entity falls through to the grid branch.
+            if (!step.attrSetName.isEmpty() && as && !step.everyCell) {
                 ++objectCounter;
                 const QString listType = effectiveAttrSetName + "String";
                 const QString listVar  = QString("objectList%1").arg(objectCounter);
@@ -1075,7 +1077,8 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
                 const QString listVar = QString("stringListList%1").arg(objectCounter);
                 const StepTable& tbl  = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
-                                      && isDataType(step.attrSetName, file);
+                                      && (step.everyCell
+                                          || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
                 s << "    const " << listVar << " = [\n";
@@ -1235,6 +1238,8 @@ QVector<JavaScriptGenerator::GlueSig> JavaScriptGenerator::collectGlueSigs(const
                 record(meth, { meth, (def && def->hasDocString) ? "docstring" : "" }, step.line);
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
+            } else if (step.everyCell && !step.attrSetName.isEmpty()) {
+                record(meth, { meth, "grid", step.attrSetName }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
@@ -1279,6 +1284,17 @@ QString JavaScriptGenerator::genStubMethod(const GlueSig& sig, bool failEveryTes
         s << "    console.log(value);\n";
         if (failEveryTest)
             s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
+        s << "  }";
+    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
+        // EveryCell: each cell holds the text form of this type, so the stub
+        // converts before doing anything else.
+        const QString base = sig.everyCellType;
+        s << "\n  " << sig.method << "(values) {\n";
+        s << "    values.forEach(row => row.forEach(cell => {\n";
+        s << "      const item = " << base << "Typed.fromStringObj(" << base
+          << "String.fromText(cell));\n";
+        s << "      console.log(item.toString());\n";
+        s << "    }));\n";
         s << "  }";
     } else if (sig.paramType == "grid" || sig.paramType == "list") {
         s << "\n  " << sig.method << "(values) {\n";
@@ -1365,7 +1381,19 @@ QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
     QString out;
     QTextStream s(&out);
 
-    s << "import { } from \"" << commonRelPath << "/index.js\";\n";
+    // An EveryCell stub converts each cell, so it names that type's String and
+    // Typed classes and both have to be imported. Every other stub works in
+    // strings and needs nothing from common.
+    QStringList glueTypes;
+    for (const GlueSig& sig : sigs) {
+        if (sig.everyCellType.isEmpty()) continue;
+        for (const QString& n : { sig.everyCellType + "String",
+                                  sig.everyCellType + "Typed" })
+            if (!glueTypes.contains(n)) glueTypes << n;
+    }
+    glueTypes.sort();
+    s << "import { " << glueTypes.join(", ") << " } from \""
+      << commonRelPath << "/index.js\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << glueClass << " {\n";
