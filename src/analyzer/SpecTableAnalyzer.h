@@ -21,11 +21,9 @@ private:
     void checkDescriptions          (const QString& filePath, QList<Diagnostic>& out) const;
     void checkExamples              (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkDefineRefs            (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkCleanup               (const QString& filePath, QList<Diagnostic>& out) const;
     void checkTableColumnConsistency (const QString& filePath, QList<Diagnostic>& out) const;
     void checkStepTableContents      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     void checkDomainTermDuplicates        (const QString& filePath, QList<Diagnostic>& out) const;
-    void checkDomainTermColumnTypes       (const QString& filePath, const QMap<QString, QString>& dtTypes, QList<Diagnostic>& out) const;
     void checkDomainTermVsDataTypeNames   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
     // A Collection's element type has to be an Entity: a production class is
@@ -59,6 +57,10 @@ private:
     void checkParseMessages (const QString& filePath, const struct SpectableFile& file,
                              QList<Diagnostic>& out) const;
     // Reads the parse tree, not the file — see SpecTableModelChecks.cpp.
+    // Reads the parse tree, not the file — see SpecTableModelChecks.cpp.
+    void checkDomainTermColumnTypes(const QString& filePath, const struct SpectableFile& file,
+                                    const QMap<QString, QString>& dtTypes,
+                                    QList<Diagnostic>& out) const;
     void checkAttributeFieldTypes(const QString& filePath, const struct SpectableFile& file,
                                  const SpecTableSymbols& visible,
                                  QList<Diagnostic>& out) const;

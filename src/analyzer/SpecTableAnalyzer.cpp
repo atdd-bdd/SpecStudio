@@ -45,11 +45,9 @@ QList<Diagnostic> SpecTableAnalyzer::analyzeFile(const QString& filePath) const
     checkDescriptions          (filePath, diags);
     checkExamples              (filePath, visible, diags);
     checkDefineRefs            (filePath, visible, diags);
-    checkCleanup               (filePath, diags);
     checkTableColumnConsistency(filePath, diags);
     checkStepTableContents     (filePath, visible, diags);
     checkDomainTermDuplicates       (filePath, diags);
-    checkDomainTermColumnTypes      (filePath, m_index->domainTermTypes(), diags);
     checkDomainTermVsDataTypeNames  (filePath, visible, diags);
     checkCollectionElementTypes     (filePath, visible, diags);
     checkDuplicateDeclarations      (filePath, diags);
@@ -335,43 +333,6 @@ void SpecTableAnalyzer::checkDefineRefs(const QString& filePath,
 // Check 6 — Cleanup block may only contain Then and And steps
 // ---------------------------------------------------------------------------
 
-void SpecTableAnalyzer::checkCleanup(const QString& filePath,
-                                      QList<Diagnostic>& out) const
-{
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    static QRegularExpression reCleanup(R"(^\s*Cleanup\b)",
-                                        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reTopLevel(
-        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reInvalidStep(R"(^\s*(Given|When|WhenThen)\b)",
-                                            QRegularExpression::CaseInsensitiveOption);
-
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines.append(in.readLine());
-
-    bool inCleanup = false;
-    for (int i = 0; i < lines.size(); ++i) {
-        if (reCleanup.match(lines[i]).hasMatch()) {
-            inCleanup = true;
-            continue;
-        }
-        if (inCleanup) {
-            if (reTopLevel.match(lines[i]).hasMatch()) {
-                inCleanup = false;
-                // Don't skip — let the loop re-evaluate this line normally next pass
-                // (but since we just set inCleanup=false it won't be re-checked here)
-                continue;
-            }
-            if (reInvalidStep.match(lines[i]).hasMatch())
-                out.append(makeDiag(filePath, i + 1,
-                    QStringLiteral("Cleanup block may only contain Then and And steps")));
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Check 7 — Table column count consistency within each table block
@@ -670,84 +631,6 @@ void SpecTableAnalyzer::checkDomainTermVsDataTypeNames(
 // Check — DomainTerm name used as an attribute: its DataType must match
 // ---------------------------------------------------------------------------
 
-void SpecTableAnalyzer::checkDomainTermColumnTypes(
-    const QString& filePath,
-    const QMap<QString, QString>& dtTypes,
-    QList<Diagnostic>& out) const
-{
-    if (dtTypes.isEmpty()) return;
-
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    static QRegularExpression reDecl(
-        R"(^\s*(Attributes|Entity)\s+\w+\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reRow(R"(^\s*\|)");
-    static QRegularExpression reSkip(
-        R"(^\s*(Description|Details|Notes|Constraint|Uses|In-Out)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines << in.readLine();
-
-    for (int i = 0; i < lines.size(); ++i) {
-        if (!reDecl.match(lines[i]).hasMatch()) continue;
-
-        // Find the first pipe row (header)
-        int j = i + 1;
-        while (j < lines.size()
-               && !reRow.match(lines[j]).hasMatch()
-               && (lines[j].trimmed().isEmpty() || reSkip.match(lines[j]).hasMatch()))
-            ++j;
-        if (j >= lines.size() || !reRow.match(lines[j]).hasMatch()) continue;
-
-        // Parse header columns
-        const QStringList hParts = lines[j].split('|');
-        QStringList headers;
-        for (int p = 1; p < hParts.size() - 1; ++p)
-            headers << hParts[p].trimmed();
-
-        int attrCol = -1, typeCol = -1;
-        for (int c = 0; c < headers.size(); ++c) {
-            const QString h = headers[c];
-            if (h.compare("Attribute", Qt::CaseInsensitive) == 0 ||
-                h.compare("Name", Qt::CaseInsensitive) == 0)
-                attrCol = c;
-            if (h.compare("Type", Qt::CaseInsensitive) == 0 ||
-                h.compare("DataType", Qt::CaseInsensitive) == 0)
-                typeCol = c;
-        }
-        if (attrCol < 0 || typeCol < 0) continue;
-
-        // Check each data row
-        for (int k = j + 1; k < lines.size(); ++k) {
-            const QString& ln = lines[k];
-            if (ln.trimmed().isEmpty() || ln.trimmed().startsWith('#')) continue;
-            if (!reRow.match(ln).hasMatch()) break;
-
-            const QStringList rParts = ln.split('|');
-            QStringList row;
-            for (int p = 1; p < rParts.size() - 1; ++p)
-                row << rParts[p].trimmed();
-
-            if (attrCol >= row.size() || row[attrCol].isEmpty()) continue;
-            const QString attrName = row[attrCol];
-            if (!dtTypes.contains(attrName)) continue;
-
-            const QString dtType = dtTypes[attrName];
-            if (typeCol >= row.size() || row[typeCol].isEmpty()) continue;
-            const QString declaredType = row[typeCol];
-
-            if (dtType.compare(declaredType, Qt::CaseInsensitive) != 0)
-                out.append(makeDiag(filePath, k + 1,
-                    QStringLiteral("DomainTerm '%1' has type '%2' but is declared as '%3' here")
-                        .arg(attrName, dtType, declaredType),
-                    Diagnostic::Severity::Warning));
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Check — every Attributes/Entity field must declare a recognized type:

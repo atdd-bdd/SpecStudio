@@ -1039,6 +1039,22 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                             QString("Unrecognized step modifier '%1' -- expected "
                                     "CompareOnly, EveryCell or Vertical").arg(badModifier),
                             true);
+                // A Cleanup block runs after the Scenario to put things back, so
+                // it asserts and tidies -- Then and And. A Given or a When there
+                // would be arranging or acting after the test is over, which is
+                // a Scenario's job. Checked on the raw keyword, before And is
+                // normalised to whatever preceded it.
+                if (state == State::InCleanup
+                    && (kw.compare("Given", Qt::CaseInsensitive) == 0
+                     || kw.compare("When", Qt::CaseInsensitive) == 0
+                     || kw.compare("WhenThen", Qt::CaseInsensitive) == 0)) {
+                    emitMsg(lineNum,
+                            QString("Cleanup may only contain Then and And steps, and this "
+                                    "is a %1 -- arranging or acting belongs in a Scenario")
+                                .arg(kw),
+                            false);
+                }
+
                 lastKw = normalizeKeyword(kw, lastKw);
                 Step st;
                 st.keyword      = lastKw;

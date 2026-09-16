@@ -222,6 +222,46 @@ void SpecTableAnalyzer::checkAttributeFieldTypes(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
+// An attribute named after a DomainTerm, typed as something else
+// ---------------------------------------------------------------------------
+//
+// A DomainTerm says what a word means in this domain, including the type it
+// stands for. An attribute that borrows the word and then declares a different
+// type is saying two things at once, and the specification no longer agrees
+// with itself.
+//
+// Moved off regular expressions on 2026-09-15, the same walk as
+// checkAttributeFieldTypes: find the declaration, find the header row, work out
+// which column is called Type, walk the rows. The parse tree has all of it, and
+// f.line points at the row.
+
+void SpecTableAnalyzer::checkDomainTermColumnTypes(const QString& filePath,
+                                                    const SpectableFile& file,
+                                                    const QMap<QString, QString>& dtTypes,
+                                                    QList<Diagnostic>& out) const
+{
+    if (dtTypes.isEmpty()) return;
+
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+
+        for (const Field& f : as.fields) {
+            const QString declared = f.type.trimmed();
+            if (f.name.isEmpty() || declared.isEmpty()) continue;
+            if (!dtTypes.contains(f.name)) continue;
+
+            const QString termType = dtTypes.value(f.name);
+            if (termType.compare(declared, Qt::CaseInsensitive) == 0) continue;
+
+            out.append(makeDiag(filePath, f.line,
+                QStringLiteral("DomainTerm '%1' has type '%2' but is declared as '%3' here")
+                    .arg(f.name, termType, declared),
+                Diagnostic::Severity::Warning));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point — parse once, run every model check
 // ---------------------------------------------------------------------------
 
@@ -237,6 +277,7 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     checkDuplicateScenarioNames (filePath, file, out);
     checkEmptyAttrSets          (filePath, file, out);
     checkAttributeFieldTypes    (filePath, file, m_index->projectSymbols(), out);
+    checkDomainTermColumnTypes  (filePath, file, m_index->domainTermTypes(), out);
     // The same reading the converter uses, rather than a second one that can
     // disagree with it.
     for (const ParseMessage& m : validateStepTables(file))
