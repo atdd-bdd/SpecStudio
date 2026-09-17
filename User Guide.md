@@ -179,6 +179,11 @@ Define ABillingAddress =
 Refer to it later with `=ABillingAddress`. Defines keep long tables out of
 scenarios and give recurring examples a name worth reading.
 
+A Define can also name one value: `Define TBR = -1  # not yet rolled`. Then
+`=TBR` may stand in any cell -- a step table, an `Examples` table, or the
+`Default` column of an Attributes table -- and is read as though `-1` had been
+written there. The `#` comment is not part of the value.
+
 ### Scenario — behaviour, as Given / When / Then
 
 ```

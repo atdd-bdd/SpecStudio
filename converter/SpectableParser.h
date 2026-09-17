@@ -28,6 +28,16 @@ void resolveDomainTermTypes(SpectableFile& file);
 // the author never opened.
 QVector<ParseMessage> validateFieldTypes(const SpectableFile& file);
 
+// Expands "=Name" to the scalar Define it names, in the two places the
+// generators do not: a Default column, and a cell of an Examples table. Step
+// tables already resolve at generation time, in every language, so a cell there
+// is left alone.
+//
+// A docstring Define expands to its text; a table-form Define is not one value
+// and is left as written, for the same reason EveryCell refuses it. Called after
+// the context merge, because the Define may be a sibling's.
+void resolveDefineReferences(SpectableFile& file);
+
 class SpectableParser
 {
 public:

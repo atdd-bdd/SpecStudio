@@ -250,6 +250,73 @@ void SpecTableAnalyzer::checkDomainTermColumnTypes(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
+// One name, two kinds
+// ---------------------------------------------------------------------------
+//
+// The duplicate-declaration check is keyed by kind, so it catches two DataTypes
+// called Score and says nothing about a DataType and an Attributes block that
+// share the name. That one is worse. The generators decide what a step's table
+// means by asking isDataType and isAttrSetType in turn, and they ask in
+// different orders in different places -- so a step naming ": Score" is a typed
+// grid in one branch and an attribute-set table in another, and which one wins
+// depends on which branch runs first.
+//
+// Only the kinds a generator tells apart are in play: Entity and Attributes
+// (one namespace between them, both attribute sets), DataType, Collection and
+// DomainTerm. A Define lives behind "=" and a Scenario behind its own keyword,
+// so neither can be confused with a type.
+//
+// Asked of the index rather than this file's parse tree, because the two
+// declarations are very likely in different files -- that is how it happens
+// without anyone noticing.
+
+void SpecTableAnalyzer::checkNameDeclaredAsTwoKinds(const QString& filePath,
+                                                     const SpecTableSymbols& visible,
+                                                     QList<Diagnostic>& out) const
+{
+    struct Kind { const char* label; const QMap<QString, SymbolLocation>* map; };
+    const Kind kinds[] = {
+        { "Entity",     &visible.entities    },
+        { "Attributes", &visible.attributes  },
+        { "DataType",   &visible.dataTypes   },
+        { "Collection", &visible.collections },
+        { "DomainTerm", &visible.domainTerms },
+    };
+
+    // name -> every (kind, where) it is declared as
+    struct Decl { QString name; QString kind; SymbolLocation where; };
+    QMap<QString, QVector<Decl>> byName;   // keyed lower-case; Decl keeps the author's casing
+    for (const Kind& k : kinds)
+        for (auto it = k.map->cbegin(); it != k.map->cend(); ++it)
+            byName[it.key().toLower()].append({ it.key(), QString::fromLatin1(k.label), it.value() });
+
+    for (auto it = byName.cbegin(); it != byName.cend(); ++it) {
+        const QVector<Decl>& decls = it.value();
+        if (decls.size() < 2) continue;
+
+        // Report once per file that holds one of the declarations, at that
+        // declaration, naming the others -- so opening either file shows it.
+        for (const Decl& here : decls) {
+            if (here.where.filePath != filePath) continue;
+
+            QStringList others;
+            for (const Decl& d : decls) {
+                if (&d == &here) continue;
+                others << QStringLiteral("%1 at %2:%3")
+                              .arg(d.kind, QFileInfo(d.where.filePath).fileName())
+                              .arg(d.where.line);
+            }
+            out.append(makeDiag(filePath, here.where.line,
+                QStringLiteral("'%1' is declared here as %2 and also as %3. A name can be "
+                               "one kind of thing: the generators decide what a step's table "
+                               "means by asking which kind this is, and with two answers the "
+                               "result depends on which they ask first")
+                    .arg(here.name, here.kind, others.join(", "))));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point — parse once, run every model check
 // ---------------------------------------------------------------------------
 
@@ -261,6 +328,7 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     // The same resolution the converter does, so Analyze and the generators
     // agree about what a field type means.
     resolveDomainTermTypes(file);
+    resolveDefineReferences(file);
 
     checkParseMessages          (filePath, file, out);
     checkEmptyScenarios         (filePath, file, out);
@@ -269,6 +337,7 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     checkEmptyAttrSets          (filePath, file, out);
     checkAttributeFieldTypes    (filePath, file, m_index->projectSymbols(), out);
     checkDomainTermColumnTypes  (filePath, file, m_index->domainTermTypes(), out);
+    checkNameDeclaredAsTwoKinds (filePath, m_index->projectSymbols(), out);
 
     // The same reading the converter uses, rather than a second one that can
     // disagree with it.

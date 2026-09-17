@@ -992,6 +992,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 def.name = dm.captured(1);
                 def.line = lineNum;
                 QString afterEq = dm.captured(2).trimmed();
+                // A trailing comment is not part of the value. "Define TBR = -1
+                // # Roll has not occurred" holds -1, not "-1  # Roll has not
+                // occurred" -- which is what every =TBR used to expand to, and
+                // nobody had ever written one. A # with no space before it is
+                // kept, so a value like #123 survives.
+                const int hash = afterEq.indexOf(" #");
+                if (hash >= 0) afterEq = afterEq.left(hash).trimmed();
                 if (!afterEq.isEmpty()) {
                     def.scalarValue = afterEq;
                     def.isTable     = false;
@@ -1159,6 +1166,39 @@ void resolveDomainTermTypes(SpectableFile& file)
             if (!resolved.isEmpty()) f.type = resolved;
         }
     }
+}
+
+void resolveDefineReferences(SpectableFile& file)
+{
+    if (file.defines.isEmpty()) return;
+
+    // Only what one cell can hold. A table-form Define stays out of this map, so
+    // a cell naming one is left as written and reported elsewhere.
+    QMap<QString, QString> scalar;
+    for (const Define& d : file.defines) {
+        if (d.isTable) continue;
+        scalar.insert(d.name.toLower(), d.hasDocString ? d.docString : d.scalarValue);
+    }
+    if (scalar.isEmpty()) return;
+
+    auto expand = [&](QString& cell) {
+        const QString c = cell.trimmed();
+        if (!c.startsWith('=')) return;
+        const QString name = c.mid(1).trimmed().toLower();
+        if (scalar.contains(name)) cell = scalar.value(name);
+    };
+
+    // Default columns. A default of =TBR is the same idea as a cell of =TBR: the
+    // author wants the value the Define holds, not the text "=TBR".
+    for (AttrSet& as : file.attrSets)
+        for (Field& f : as.fields)
+            expand(f.defaultValue);
+
+    // Examples tables, on every kind of named block.
+    for (NamedBlock& nb : file.namedBlocks)
+        for (QStringList& row : nb.examples.rows)
+            for (QString& cell : row)
+                expand(cell);
 }
 
 QVector<ParseMessage> validateFieldTypes(const SpectableFile& file)

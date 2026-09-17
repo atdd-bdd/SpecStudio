@@ -144,6 +144,7 @@ int main(int argc, char* argv[])
     // field declaring one is resolved to what it stands for before any generator
     // sees it. After the merge, because the term may be declared in a sibling.
     resolveDomainTermTypes(file);
+    resolveDefineReferences(file);
 
     // Emit FILE: before any messages so the IDE's output parser attributes
     // warnings to this file even when multiple converters run concurrently.

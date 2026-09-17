@@ -57,6 +57,9 @@ private:
     void checkParseMessages (const QString& filePath, const struct SpectableFile& file,
                              QList<Diagnostic>& out) const;
     // Reads the parse tree, not the file — see SpecTableModelChecks.cpp.
+    // Asks the index, because the two declarations are usually in different files.
+    void checkNameDeclaredAsTwoKinds(const QString& filePath, const SpecTableSymbols& visible,
+                                     QList<Diagnostic>& out) const;
     // Reads the parse tree, not the file — see SpecTableModelChecks.cpp.
     void checkDomainTermColumnTypes(const QString& filePath, const struct SpectableFile& file,
                                     const QMap<QString, QString>& dtTypes,

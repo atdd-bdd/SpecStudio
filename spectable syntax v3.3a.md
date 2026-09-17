@@ -150,14 +150,26 @@ rows rather than one value, and there is nothing to hand the constructor.
 
 ### 2.6 Define Blocks
 
+A Define names a value so that `=Name` can stand for it elsewhere. It has
+three forms.
+
 ```
-Define <Name>
+Define <Name> = <Value>            # one value, to the end of the line
+
+Define <Name> =                    # one multi-line value
+"""
+<Text>
+"""
+
+Define <Name>                      # a table, used in place of a step table
 Uses <Comment>?
 | Attribute1 | Value1 |
 | Attribute2 | Value2 |
 ```
 
 #### Rules
+* A `#` comment may follow the value of the one-line form; it is not part of
+  the value. `Define TBR = -1  # not yet rolled` defines `-1`.
 * `Uses` may describe:
   * the purpose of the block
   * related rules
@@ -260,6 +272,11 @@ Reference          ::= "=" Identifier
 
 * `=Name` must refer to a valid Define block.
 * Must match expected type.
+* A one-line or multi-line Define may stand in a cell of a step table, a cell
+  of an `Examples` table, or the `Default` column of an Attributes or Entity
+  table. The cell is read as though the value had been written there:
+  `| Roll1 | Pins | =TBR |` gives Roll1 the default `-1`.
+* A table-form Define stands only in place of a whole step table.
 
 ### 4.6 Scenario Semantics
 
