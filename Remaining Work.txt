@@ -62,85 +62,20 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
-### Replace SpecTableIndex's own reading of the syntax with the parser. The
-  checks are off regular expressions now, but the symbol table they consult is
-  not: SpecTableIndex::parseFile still scans each file with its own patterns to
-  find what is declared where, and keeps its own list of built-in types
-  (k_builtinDataTypes) beside the parser's. That list is the one that fell
-  behind the generators once and made Analyze report an undeclared type for a
-  specification that built. The index already parses every file with
-  SpectableParser for fileWithContext; the symbol table could be filled from
-  those parse trees instead, and parseFile, attributeRows, defineInfo and
-  collectionElementType deleted. Every remaining regular expression in
-  src/analyzer would go with them. About a day, proved the same way: capture
-  analyze_cli output on all four corpora first, and account for every line
-  that moves.
-
-  Small overlap to settle at the same time: checkDomainTermVsDataTypeNames
-  warns about a DomainTerm named like a DataType, and checkNameDeclaredAsTwoKinds
-  now reports the same pair as an error. The built-in half of the older check
-  (a DomainTerm called Integer) is the only part the newer one does not cover.
-
-### A table after a Detail statement. Detail is a named comment today -- a line
-  of prose attached to the block above it, carried no further. A BusinessRule is
-  often easier to explain in a small table than in a sentence: the conditions
-  down one side, what each produces down the other, or a few worked cases that
-  are illustration rather than assertion.
-
-  So: allow a pipe table to follow a Detail line, and treat it as part of that
-  comment. Documentation, not behaviour -- nothing generated, nothing asserted.
-  It differs from an Examples: table precisely in that nothing checks it.
-
-  Worth settling first:
-    - Is it only Detail, or every named comment? Description and Notes would
-      want the same thing for the same reason.
-    - Does it reach the generated code? The "copy named comments into generated
-      comments" item below would then have a table to render, which in Java is
-      a block comment and in Python a docstring.
-    - How does it end -- the first blank line, or the first non-pipe line? A
-      Define table ends at the first line that is not a pipe row, and following
-      that would be the least surprising.
-    - Analyze should say something if such a table looks like an Examples table
-      that was meant to be checked: an author who writes conditions and expected
-      results under Detail may think they are being tested.
-
-  The parser change is small: Detail is already recognised and skipped, and a
-  table after it currently falls to the "no active block" branch. Recording it
-  needs a field on the block and a state, like the docstring handling.
-
-### Spell-check the prose in a specification. A specification is mostly words --
-  step text, Scenario names, Description and Notes columns, docstrings -- and
-  nothing checks any of it today.
-
-  What it needs:
-    - camelCase and PascalCase split into their words before lookup, so
-      shippingAddress checks as "shipping" and "address" rather than failing as
-      one unknown word. snake_case and kebab-case likewise. This is what makes
-      it usable at all on a file full of identifiers.
-    - a misspelling underlined in the editor, the way a diagnostic is.
-    - a context menu on the underlined word offering the suggestions, with
-      "Add to Dictionary" among them.
-    - "Remove from Dictionary", so a word added by mistake can be taken back.
-      Wanted, though less urgent than adding.
-
-  Open questions worth settling before starting:
-    - Which dictionary, and where does the user's own live? A project dictionary
-      committed with the specifications would let a team share its vocabulary --
-      every domain term, every product name -- while a personal one would not.
-      Probably both, with the project one in the solution folder.
-    - Should a declared name (Entity, Attributes, DataType, DomainTerm, Define,
-      every attribute name) be treated as spelled correctly by definition? The
-      parse tree already knows all of them, so this is cheap and would remove
-      most of the noise before a dictionary is consulted at all.
-    - Which regions of the file to check. Checking a table cell holding a value
-      would be wrong; checking a Notes column would be right. The parser can
-      tell them apart, which is another reason to do this against the model
-      rather than the raw text.
-
-  No dependency has been chosen. Qt has no spell checker; Hunspell is the usual
-  answer and would be the first third-party library in the IDE, so it needs the
-  same look the JSON and HTTP decisions got -- see the note above about curl and
-  child processes in the test trees.
+### Spelling, the parts still open. The checker is in (see Done). What it
+  does not do yet, each a small piece on top of it:
+    - A project dictionary beside the specifications, committed with them, so
+      a team shares its vocabulary; today the added words are personal, in
+      the user's data folder. Would read a second file at the solution root
+      and offer "Add to Project Dictionary" beside the personal one.
+    - Declared names accepted by definition: an Entity, DataType, DomainTerm
+      or Define named in the parse tree is spelled the way it is spelled.
+      Cheap, since the index already has them; removes most of the noise a
+      file full of identifiers makes before the dictionary is asked.
+    - snake_case and kebab-case split like camelCase.
+    - The .featurex and .feature editors, which have prose too and check
+      nothing.
+    - A dictionary other than en_US, chosen in Settings.
 
 ### Have a tab / untab (indent/outdent) command for the file; decide whether
   there should also be a whole-file reformat/indent-normalize command. Not
@@ -238,26 +173,6 @@ Altered so that it is separated into Issues and Future Features
   show a plain QMessageBox with detailed text rather than the richer mockup
   in the appendix.
 
-### A table of one-line Defines. Today each constant is its own line:
-
-    Define TBR = -1  # Roll has not occurred
-    Define TBS = -1  # Score not yet computable
-
-  A specification with a dozen constants would rather say them once, as a table:
-
-    Define
-    | Name  | Value  | Notes                     |
-    | TBR   | -1     | Roll has not occurred     |
-    | TBS   | -1     | Score not yet computable  |
-
-  Each row is exactly a one-line Define -- same scalarValue, same =Name use --
-  so the parser is the only thing that changes: a bare "Define" with no name,
-  followed by a table whose header has Name and Value, becomes one Define per
-  row, at that row's line. Nothing downstream moves; =TBR already resolves in
-  step tables, Examples tables and Default columns. Half a day. The one
-  decision is what a table-form Define with a *name* means when its header is
-  Name | Value -- today that is a vertical key/value Define standing in for a
-  step table, and it must keep meaning that.
 ## Doing Later 
 
 
@@ -432,6 +347,54 @@ Altered so that it is separated into Issues and Future Features
 
 
 ## --- Done ---
+
+[x] A table under any named comment. Description, Details, Notes, Constraint
+    and Uses may each be followed directly by a table, and the table is the
+    comment's: documentation, read by nothing, generated from nothing,
+    asserted by nothing -- which is what distinguishes it from an Examples:
+    table. A block waiting for its own table (an Attributes header, a step
+    naming a set, an Examples: line) still takes the table, so the placement
+    the syntax document shows for Uses keeps working. The parser records every
+    named comment now, text and rows, on the block it belongs to (NamedComment
+    on NamedBlock, AttrSet, Scenario, Step, or the file). A Details table in a
+    BusinessRule used to draw one "Unexpected table row" warning per row.
+
+[x] A table of one-line Defines. A bare "Define" followed by a table with
+    Name and Value columns is one Define per row, at that row's line; any
+    other column is documentation. Bowling's two Define lines are now one
+    table. Corpora identical; all nine regenerations byte-identical.
+
+[x] Spelling in the .spectable editor. Hunspell 1.7.2 vendored as source under
+    third_party/hunspell (MPL 1.1 / GPL 2 / LGPL 2.1; licence files beside
+    it), the en_US dictionary from SCOWL compiled into the binary and written
+    out to the application's data folder on first use, since Hunspell reads
+    files. Every run of letters in a line is checked except a quoted file name,
+    an all-capitals abbreviation, anything with a digit, and a docstring; a
+    camel-cased name is split into its words first, so TotalScore passes and
+    TotlScore is marked at Totl. Misspellings get the red spell-check
+    underline on top of whatever colour they had. Right-click offers up to
+    eight suggestions, Add to Dictionary, and Remove from Dictionary for a word
+    that was added. The added words live in their own file, one per line --
+    "user words.txt" in the data folder -- so an upgrade cannot lose them and
+    they can be edited or copied. Edit > Check Spelling switches it off.
+    tools/spell_cli exercises the same checker from a terminal, which is how
+    the splitting, the suggestions, and the add/remove round trip through the
+    file were verified.
+
+[x] SpecTableIndex reads the parse trees. Its own regex reading of the syntax
+    (parseFile, and the three readers that reopened a file to answer a
+    question about one block) is gone; the symbol table is filled from the
+    SpectableFile each file already parses into, and attributeRows,
+    defineInfo, collectionElementType and domainTermTypes answer from the
+    same trees. The parser records what the index needs and had not kept: the
+    Specification line, ScenarioGroup headings, a DomainTerm with no type,
+    the resolved Import and Insert paths, and an `imported` mark on what an
+    Import merged in, so a symbol belongs to the file that declares it. The
+    built-in DataType list is now the parser's alone (builtinDataTypeNames);
+    Analyze's copy, which once fell behind, is a reference to it. Not one
+    regular expression is left in src/analyzer that reads a .spectable. All
+    four corpora identical; an Import probe resolves the set, the Define and
+    reports no false duplicate.
 
 [x] Analyze is off regular expressions. The last ten checks that reopened the
     file and matched line patterns are gone; every check about one file's

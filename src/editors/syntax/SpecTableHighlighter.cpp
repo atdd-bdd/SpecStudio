@@ -1,5 +1,7 @@
 #include "SpecTableHighlighter.h"
 
+#include "../../spell/SpellChecker.h"
+
 SpecTableHighlighter::SpecTableHighlighter(QTextDocument* parent)
     : GherkinHighlighter(parent)
 {
@@ -142,6 +144,61 @@ void SpecTableHighlighter::highlightBlock(const QString& text)
             int length = m.capturedLength(m.lastCapturedIndex() > 0 ? 1 : 0);
             if (start >= 0 && length > 0)
                 setFormat(start, length, rule.format);
+        }
+    }
+
+    checkSpelling(text);
+}
+
+// ---------------------------------------------------------------------------
+// Spelling
+// ---------------------------------------------------------------------------
+//
+// Every run of letters is a candidate: step text, names, comments, cells.
+// What is left out is what is not English by nature -- a file name inside
+// quotes, an abbreviation in capitals, anything with a digit in it -- and a
+// docstring, which never reaches here. A camel-cased name is checked one word
+// at a time, so TotalScore passes and TotlScore is marked at "Totl".
+
+void SpecTableHighlighter::checkSpelling(const QString& text)
+{
+    SpellChecker* checker = SpellChecker::instance();
+    if (!checker->isEnabled() || !checker->isAvailable()) return;
+
+    static const QRegularExpression reQuoted(R"("[^"]*")");
+    static const QRegularExpression reToken(R"([A-Za-z][A-Za-z']*)");
+
+    QVector<QPair<int, int>> quoted;
+    auto qit = reQuoted.globalMatch(text);
+    while (qit.hasNext()) {
+        const auto m = qit.next();
+        quoted.append({ m.capturedStart(), m.capturedEnd() });
+    }
+    auto inQuotes = [&](int pos) {
+        for (const auto& q : quoted)
+            if (pos >= q.first && pos < q.second) return true;
+        return false;
+    };
+
+    auto it = reToken.globalMatch(text);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const int start = m.capturedStart();
+        if (inQuotes(start)) continue;
+        const QString token = m.captured();
+        if (!SpellChecker::isCheckable(token)) continue;
+
+        for (const SpellChecker::Part& part : SpellChecker::splitCamelCase(token)) {
+            QString word = part.text;
+            // A possessive or a trailing quote is not part of the word.
+            if (word.endsWith("'s")) word.chop(2);
+            while (word.endsWith(QLatin1Char('\''))) word.chop(1);
+            if (!SpellChecker::isCheckable(word) || checker->isCorrect(word)) continue;
+
+            QTextCharFormat f = format(start + part.offset);
+            f.setUnderlineStyle(QTextCharFormat::SpellCheckUnderline);
+            f.setUnderlineColor(Qt::red);
+            setFormat(start + part.offset, part.length, f);
         }
     }
 }

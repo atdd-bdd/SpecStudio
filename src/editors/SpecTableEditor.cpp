@@ -1,6 +1,7 @@
 #include "SpecTableEditor.h"
 #include "SpecTableBlocks.h"
 #include "syntax/SpecTableHighlighter.h"
+#include "../spell/SpellChecker.h"
 #include "../analyzer/SpecTableIndex.h"
 #include "../ui/dialogs/AttributeTableDialog.h"
 #include "../ui/dialogs/BackgroundCleanupDialog.h"
@@ -36,7 +37,11 @@
 SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
     : PlainTextEditor(filePath, parent)
 {
-    setHighlighter(new SpecTableHighlighter(textEdit()->document()));
+    auto* highlighter = new SpecTableHighlighter(textEdit()->document());
+    setHighlighter(highlighter);
+    // A word added to the dictionary stops being wrong in every open file.
+    connect(SpellChecker::instance(), &SpellChecker::changed,
+            highlighter, [highlighter] { highlighter->rehighlight(); });
 
     m_staticKeywords = {
         "Specification ", "Entity ", "Collection ", "DomainTerm ", "DataType ", "Attributes ",
@@ -1825,6 +1830,8 @@ void SpecTableEditor::refreshDynamicCompletions()
 
 void SpecTableEditor::populateContextMenu(QMenu* menu)
 {
+    addSpellingActions(menu);
+
     // Background / Cleanup display — always available for .spectable files
     {
         const QString fp = filePath();
@@ -2220,4 +2227,83 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         auto* extDef = menu->addAction(tr("Extract as Define..."));
         connect(extDef, &QAction::triggered, this, &SpecTableEditor::extractAsDefine);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Spelling
+// ---------------------------------------------------------------------------
+//
+// The word is found the way the highlighter finds it -- the run of letters
+// under the cursor, split at its camel-case boundaries -- so what the menu
+// offers to fix is exactly what is underlined.
+
+void SpecTableEditor::addSpellingActions(QMenu* menu)
+{
+    SpellChecker* checker = SpellChecker::instance();
+    if (!checker->isEnabled() || !checker->isAvailable()) return;
+
+    const QTextCursor cursor = textEdit()->textCursor();
+    const QString     line   = cursor.block().text();
+    const int         column = cursor.positionInBlock();
+
+    static const QRegularExpression reToken(R"([A-Za-z][A-Za-z']*)");
+    QString word;
+    int     wordStart = -1;
+    auto it = reToken.globalMatch(line);
+    while (it.hasNext() && wordStart < 0) {
+        const auto m = it.next();
+        if (column < m.capturedStart() || column > m.capturedEnd()) continue;
+        const QString token = m.captured();
+        if (!SpellChecker::isCheckable(token)) return;
+        for (const SpellChecker::Part& part : SpellChecker::splitCamelCase(token)) {
+            const int from = m.capturedStart() + part.offset;
+            if (column < from || column > from + part.length) continue;
+            QString w = part.text;
+            if (w.endsWith("'s")) w.chop(2);
+            while (w.endsWith(QLatin1Char('\''))) w.chop(1);
+            word      = w;
+            wordStart = from;
+            break;
+        }
+    }
+    if (wordStart < 0 || !SpellChecker::isCheckable(word)) return;
+
+    const bool userWord = checker->isUserWord(word);
+    if (!userWord && checker->isCorrect(word)) return;
+
+    QAction* first = menu->actions().isEmpty() ? nullptr : menu->actions().first();
+    auto insert = [&](const QString& label) {
+        auto* act = new QAction(label, menu);
+        menu->insertAction(first, act);
+        return act;
+    };
+
+    if (!userWord) {
+        const QStringList suggestions = checker->suggestions(word);
+        if (suggestions.isEmpty()) {
+            insert(tr("(no spelling suggestions)"))->setEnabled(false);
+        }
+        for (const QString& s : suggestions) {
+            auto* act = insert(s);
+            QFont f = act->font(); f.setBold(true); act->setFont(f);
+            const int start = wordStart, length = word.length();
+            connect(act, &QAction::triggered, this, [this, start, length, s] {
+                QTextCursor tc = textEdit()->textCursor();
+                tc.movePosition(QTextCursor::StartOfBlock);
+                tc.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, start);
+                tc.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor, length);
+                tc.insertText(s);
+            });
+        }
+        auto* addAct = insert(tr("Add '%1' to Dictionary").arg(word));
+        connect(addAct, &QAction::triggered, this, [checker, word] {
+            checker->addToUserDictionary(word);
+        });
+    } else {
+        auto* removeAct = insert(tr("Remove '%1' from Dictionary").arg(word));
+        connect(removeAct, &QAction::triggered, this, [checker, word] {
+            checker->removeFromUserDictionary(word);
+        });
+    }
+    menu->insertSeparator(first);
 }

@@ -184,6 +184,17 @@ A Define can also name one value: `Define TBR = -1  # not yet rolled`. Then
 `Default` column of an Attributes table -- and is read as though `-1` had been
 written there. The `#` comment is not part of the value.
 
+Several constants are better said once, as a table. A bare `Define` with no
+name, followed by a table with `Name` and `Value` columns, is one Define per
+row -- a `Notes` column, or any other, is documentation:
+
+```
+Define
+| Name | Value | Notes                    |
+| TBR  | -1    | Roll has not occurred    |
+| TBS  | -1    | Score not yet computable |
+```
+
 ### Scenario — behaviour, as Given / When / Then
 
 ```
@@ -286,6 +297,22 @@ Examples: CartInput
 Each `Examples:` row becomes a test case. `Calculation` behaves the same way
 and reads better for pure arithmetic. A step can invoke one with
 `applying <RuleName>`.
+
+A rule is often clearer as a grid than as a sentence. Any named comment --
+`Description`, `Details`, `Notes`, `Constraint`, `Uses` -- may be followed
+directly by a table, and the table is part of the comment:
+
+```
+Details The discount bands are
+| From | To  | Rate |
+| 0    | 99  | 0%   |
+| 100  |     | 10%  |
+```
+
+Nothing reads it and nothing tests it, which is what makes it different from
+the `Examples:` table below it. The one exception is a block that is waiting
+for its own table -- an `Attributes` header, a step naming a set, an
+`Examples:` line -- which takes the table even with a comment in between.
 
 ### Background and Cleanup
 
@@ -477,6 +504,25 @@ generating anything. Cells are flagged as valid, wrong type, missing, or
 
 **Display Background... / Display Cleanup...** — show what runs around every
 scenario in the file.
+
+### Spelling
+
+A specification is mostly words, and a misspelled one is underlined in red as
+you type -- in step text, names, comments and table cells alike. A camel-cased
+name is checked one word at a time, so `TotalScore` passes and `TotlScore` is
+marked at `Totl`. Anything written entirely in capitals (`TBR`, `JSON`),
+anything with a digit in it, file names inside quotes, and the contents of a
+docstring are left alone.
+
+Right-click an underlined word for the likely spellings; pick one and it
+replaces the word. **Add '...' to Dictionary** accepts a word for good, in every
+file; right-click a word you added for **Remove '...' from Dictionary**. The
+words you add are kept in a file of their own, `user words.txt` in the
+application's data folder, one per line, so they survive an upgrade and can be
+edited or copied to another machine.
+
+**Edit → Check Spelling** switches the whole thing off and on. The dictionary is
+American English (en_US), compiled into AlignThree.
 
 ---
 

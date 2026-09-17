@@ -87,6 +87,18 @@ the Windows copy failed in silence and the 0.9.0 packages shipped the superseded
 guide, which still claimed tests generate in "C#, Java, or Rust". A rename should
 cost one edit to a list, not a silently incomplete release.
 
+## Third-party code in the binary
+
+**Hunspell 1.7.2** (`third_party/hunspell`) is compiled into AlignThree for
+spelling. It is tri-licensed MPL 1.1 / GPL 2 / LGPL 2.1 and is used under the
+MPL: its source is in the repository unmodified, with `COPYING.MPL`,
+`license.hunspell` and `license.myspell` beside it, and nothing in the licence
+touches the rest of the program. The **en_US dictionary** (`resources/dictionaries`)
+is from SCOWL by way of the LibreOffice dictionaries repository; its terms are in
+`README_en_US.txt` beside the files. Both are compiled in, so no package script
+needs to copy them -- but a distribution that lists what it contains should name
+them.
+
 ---
 
 ## Windows x64

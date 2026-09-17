@@ -75,6 +75,9 @@ set(SOURCES
     editors/syntax/FeatureXHighlighter.cpp
     editors/syntax/SpecTableHighlighter.h
     editors/syntax/SpecTableHighlighter.cpp
+
+    spell/SpellChecker.h
+    spell/SpellChecker.cpp
     editors/SpecTableEditor.h
     editors/SpecTableEditor.cpp
     editors/SpecTableBlocks.h
@@ -142,6 +145,7 @@ set(SOURCES
 qt_add_executable(AlignThree WIN32 MACOSX_BUNDLE
     ${SOURCES}
     ${CMAKE_CURRENT_SOURCE_DIR}/../resources/help.qrc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../resources/dictionaries.qrc
 )
 
 target_include_directories(AlignThree PRIVATE
@@ -156,6 +160,7 @@ target_link_libraries(AlignThree PRIVATE
     Qt6::Gui
     Qt6::PrintSupport
     Qt6::Network
+    hunspell
 )
 
 # SecretStore talks to the Windows Credential Manager directly (CredWriteW and

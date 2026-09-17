@@ -12,6 +12,7 @@
 #include "../ui/dialogs/FindReplaceDialog.h"
 #include "../ui/dialogs/HelpDialog.h"
 #include "../editors/BaseEditor.h"
+#include "../spell/SpellChecker.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -208,6 +209,12 @@ void MainWindow::setupMenuBar()
     editMenu->addSeparator();
     auto* actFindUsages = editMenu->addAction(tr("Find All Usages..."), QKeySequence(Qt::SHIFT | Qt::Key_F12));
     auto* actRename     = editMenu->addAction(tr("Rename Step..."),     QKeySequence(Qt::Key_F2));
+    editMenu->addSeparator();
+    auto* actSpelling = editMenu->addAction(tr("Check Spelling"));
+    actSpelling->setCheckable(true);
+    actSpelling->setChecked(SpellChecker::instance()->isEnabled());
+    connect(actSpelling, &QAction::toggled, this,
+            [](bool on) { SpellChecker::instance()->setEnabled(on); });
 
     connect(actGoToLine, &QAction::triggered, this, [this] {
         auto* ed = m_editorTabs->currentEditor();

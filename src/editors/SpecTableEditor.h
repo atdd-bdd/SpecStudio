@@ -38,6 +38,10 @@ protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
     void populateContextMenu(QMenu* menu) override;
 
+    // The spelling items go at the top of the menu: the suggestions for the
+    // misspelled word under the cursor, then Add / Remove for the dictionary.
+    void addSpellingActions(QMenu* menu);
+
 private:
     bool handleTableTabKey();
     bool tryExpandSnippet();

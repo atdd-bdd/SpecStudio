@@ -1,0 +1,17 @@
+<!--
+  The spelling dictionary is compiled into the binary, for the same reason the
+  help text is (see help.qrc): there is no file path reliably beside the
+  executable on all three platforms. Hunspell reads dictionaries from files
+  only, so SpellChecker writes these two out to the application data folder
+  the first time it runs and loads them from there.
+
+  en_US from SCOWL, via the LibreOffice dictionaries repository; the licence
+  is README_en_US.txt beside the files.
+-->
+<RCC>
+  <qresource prefix="/dictionaries">
+    <file>dictionaries/en_US.aff</file>
+    <file>dictionaries/en_US.dic</file>
+    <file>dictionaries/README_en_US.txt</file>
+  </qresource>
+</RCC>
