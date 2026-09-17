@@ -52,6 +52,16 @@ QVector<ParseMessage> validateAttributeDefaults(const SpectableFile& file);
 // resolve a name identically.
 void mergeContext(SpectableFile& file, const SpectableFile& ctx);
 
+// The built-in DataType names, as written: Integer, String, Decimal and the
+// rest. One list, here, for the parser's own type check, for Analyze's symbol
+// table and for the editor's completions. Analyze kept its own copy once, and
+// it fell behind: Decimal was accepted by every generator while Analyze called
+// it undeclared.
+const QStringList& builtinDataTypeNames();
+// True for a built-in, case-insensitively, and for the aliases the generators
+// also accept (int, long, bool).
+bool isBuiltinDataType(const QString& name);
+
 class SpectableParser
 {
 public:

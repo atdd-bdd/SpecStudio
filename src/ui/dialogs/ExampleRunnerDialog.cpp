@@ -124,7 +124,8 @@ ExampleRunnerDialog::ValidationResult ExampleRunnerDialog::run(
 
     // attrDef[0] = header row: Attribute, Type, Default, Notes, In-Out, ...
     const QStringList& hdr = attrDef[0];
-    int typeCol  = hdr.indexOf("Type",   Qt::CaseInsensitive);
+    int typeCol  = hdr.indexOf("DataType", Qt::CaseInsensitive);
+    if (typeCol < 0) typeCol = hdr.indexOf("Type", Qt::CaseInsensitive);
     int inOutCol = hdr.indexOf("In-Out", Qt::CaseInsensitive);
     if (inOutCol < 0) inOutCol = hdr.indexOf("In/Out", Qt::CaseInsensitive);
 

@@ -151,7 +151,7 @@ rows rather than one value, and there is nothing to hand the constructor.
 ### 2.6 Define Blocks
 
 A Define names a value so that `=Name` can stand for it elsewhere. It has
-three forms.
+four forms.
 
 ```
 Define <Name> = <Value>            # one value, to the end of the line
@@ -165,11 +165,19 @@ Define <Name>                      # a table, used in place of a step table
 Uses <Comment>?
 | Attribute1 | Value1 |
 | Attribute2 | Value2 |
+
+Define                             # several one-line Defines at once
+| Name | Value | Notes                    |
+| TBR  | -1    | Roll has not occurred    |
+| TBS  | -1    | Score not yet computable |
 ```
 
 #### Rules
 * A `#` comment may follow the value of the one-line form; it is not part of
   the value. `Define TBR = -1  # not yet rolled` defines `-1`.
+* A bare `Define` with no name is followed by a table whose header has a
+  `Name` and a `Value` column; each row is exactly a one-line Define. Other
+  columns, such as `Notes`, are documentation.
 * `Uses` may describe:
   * the purpose of the block
   * related rules
@@ -242,6 +250,35 @@ Reference          ::= "=" Identifier
 * It does not end a table: a `Uses` between a step and its table leaves the
   table attached to that step.
 * It must contain human‑readable text.
+
+### 4.1.1 A table under a named comment
+
+* Any named comment -- `Description`, `Details`, `Notes`, `Constraint` or
+  `Uses` -- may be followed directly by a table. The table is part of the
+  comment: a business rule is often clearer as a small grid of conditions and
+  outcomes than as a sentence, and this is where such a grid goes.
+
+  ```
+  BusinessRule Discount
+  Description Ten percent over a hundred
+  Details The bands are
+  | From | To  | Rate |
+  | 0    | 99  | 0%   |
+  | 100  |     | 10%  |
+  Examples: DiscountInput
+  | Amount | Rate |
+  | 150    | 10   |
+  ```
+
+* It is documentation. Nothing reads it, nothing is generated from it and
+  nothing asserts it -- which is exactly how it differs from an `Examples:`
+  table.
+* It must follow the comment directly; a blank line or any other line in
+  between ends the comment.
+* A block that is waiting for its own table takes the table instead: an
+  `Attributes` header, a step naming an attribute set, an `Examples:` line.
+  A named comment between such a block and its table leaves the table where
+  it was going.
 * It may describe:
   * underlying primitive types
   * related business rules

@@ -1,71 +1,157 @@
+// The project-wide symbol table, filled from the converter's own parse trees.
+//
+// Until 2026-09-16 this file read every specification a second time with its
+// own regular expressions -- one pattern per keyword to find what was declared
+// where, and three more readers (attributeRows, defineInfo,
+// collectionElementType) that reopened a file and walked it again to answer a
+// question about one block. It was the last place in Analyze that read the
+// language differently from the generators, and it kept its own list of
+// built-in types, which fell behind theirs once.
+//
+// Now each file is parsed once with SpectableParser, the symbols are read off
+// the SpectableFile, and every question about a block is answered from the
+// same structure the generators read.
+
 #include "SpecTableIndex.h"
 
 #include "SpectableParser.h"
 
-#include <QDir>
-#include <QFile>
 #include <QFileInfo>
-#include <QRegularExpression>
-#include <QTextStream>
 
 // ---------------------------------------------------------------------------
-// SpecTableIndex
+// Symbols declared in one parse tree
+// ---------------------------------------------------------------------------
+//
+// A file's tree also holds what its Imports declare, so that the generators can
+// write those classes here; those carry `imported` and are left out, because a
+// symbol belongs to the file that declares it -- the imported file has its own
+// tree and its own entry.
+
+static void symbolsOf(const SpectableFile& file, const QString& abs, SpecTableSymbols& out)
+{
+    auto at = [&](int line) { return SymbolLocation{ abs, line }; };
+
+    if (!file.specName.isEmpty())
+        out.specifications.insert(file.specName, at(file.specLine));
+
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext || as.imported) continue;
+        if (as.kind.compare("Entity", Qt::CaseInsensitive) == 0)
+            out.entities.insert(as.name, at(as.line));
+        else
+            out.attributes.insert(as.name, at(as.line));
+    }
+    for (const Collection& c : file.collections)
+        if (!c.isContext) out.collections.insert(c.name, at(c.line));
+    for (const DomainTerm& dt : file.domainTerms)
+        if (!dt.isContext) out.domainTerms.insert(dt.name, at(dt.line));
+    for (const Define& d : file.defines)
+        if (!d.isContext && !d.imported) out.defines.insert(d.name, at(d.line));
+
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (nb.isContext || nb.imported) continue;
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
+            out.dataTypes.insert(nb.name, at(nb.line));
+        else if (nb.kind.compare("BusinessRule", Qt::CaseInsensitive) == 0)
+            out.businessRules.insert(nb.name, at(nb.line));
+        else if (nb.kind.compare("Calculation", Qt::CaseInsensitive) == 0)
+            out.calculations.insert(nb.name, at(nb.line));
+    }
+
+    for (const Scenario& s : file.scenarios)
+        out.scenarios.insert(s.name.trimmed(), at(s.line));
+    for (const ScenarioGroup& g : file.scenarioGroups)
+        out.scenarioGroups.insert(g.name, at(g.line));
+}
+
+static void mergeSymbols(SpecTableSymbols& into, const SpecTableSymbols& from)
+{
+    for (auto it = from.entities.cbegin();       it != from.entities.cend();       ++it) into.entities.insert(it.key(), it.value());
+    for (auto it = from.domainTerms.cbegin();    it != from.domainTerms.cend();    ++it) into.domainTerms.insert(it.key(), it.value());
+    for (auto it = from.dataTypes.cbegin();      it != from.dataTypes.cend();      ++it) into.dataTypes.insert(it.key(), it.value());
+    for (auto it = from.attributes.cbegin();     it != from.attributes.cend();     ++it) into.attributes.insert(it.key(), it.value());
+    for (auto it = from.collections.cbegin();    it != from.collections.cend();    ++it) into.collections.insert(it.key(), it.value());
+    for (auto it = from.businessRules.cbegin();  it != from.businessRules.cend();  ++it) into.businessRules.insert(it.key(), it.value());
+    for (auto it = from.calculations.cbegin();   it != from.calculations.cend();   ++it) into.calculations.insert(it.key(), it.value());
+    for (auto it = from.scenarios.cbegin();      it != from.scenarios.cend();      ++it) into.scenarios.insert(it.key(), it.value());
+    for (auto it = from.scenarioGroups.cbegin(); it != from.scenarioGroups.cend(); ++it) into.scenarioGroups.insert(it.key(), it.value());
+    for (auto it = from.specifications.cbegin(); it != from.specifications.cend(); ++it) into.specifications.insert(it.key(), it.value());
+    for (auto it = from.defines.cbegin();        it != from.defines.cend();        ++it) into.defines.insert(it.key(), it.value());
+}
+
+// ---------------------------------------------------------------------------
+// Building
 // ---------------------------------------------------------------------------
 
 void SpecTableIndex::rebuildProject(const QStringList& specTableFiles,
                                     const QStringList& externalFiles)
 {
     m_fileSymbols.clear();
-    m_fileImports.clear();
-    m_fileInserts.clear();
     m_project = {};
     m_externalFilePaths.clear();
     m_parsed.clear();
 
-    // The converter's reading, once per file, so that a check can ask for the
-    // file with its siblings merged in without parsing the project again.
-    {
-        SpectableParser parser;
-        for (const QString& f : externalFiles + specTableFiles) {
-            const QString abs = QFileInfo(f).absoluteFilePath();
-            if (!m_parsed.contains(abs)) m_parsed.insert(abs, parser.parse(f));
-        }
-    }
+    SpectableParser parser;
 
-    // Parse external files first so their symbols are available project-wide
+    // Each file once, then whatever they Import that was not already listed:
+    // a specification imported from outside the project still declares names
+    // this project uses, and its symbols were always visible project-wide.
+    QStringList toParse;
     for (const QString& f : externalFiles) {
         const QString abs = QFileInfo(f).absoluteFilePath();
         m_externalFilePaths.insert(abs);
-        QSet<QString> visited;
-        SpecTableSymbols sym;
-        parseFile(f, sym, visited);
+        toParse << abs;
+    }
+    for (const QString& f : specTableFiles)
+        toParse << QFileInfo(f).absoluteFilePath();
+
+    for (int i = 0; i < toParse.size(); ++i) {
+        const QString abs = toParse[i];
+        if (m_parsed.contains(abs) || !QFileInfo::exists(abs)) continue;
+        m_parsed.insert(abs, parser.parse(abs));
+        for (const QString& imp : m_parsed.value(abs).imports)
+            if (!m_parsed.contains(imp) && !toParse.contains(imp)) toParse << imp;
     }
 
-    for (const QString& f : specTableFiles) {
-        QSet<QString> visited;
-        SpecTableSymbols sym;
-        parseFile(f, sym, visited);
+    for (auto it = m_parsed.cbegin(); it != m_parsed.cend(); ++it) {
+        SpecTableSymbols& sym = m_fileSymbols[it.key()];
+        symbolsOf(it.value(), it.key(), sym);
+        mergeSymbols(m_project, sym);
     }
+}
 
-    // Merge all file-level symbols into the project-wide view
-    for (const auto& sym : m_fileSymbols) {
-        for (auto it = sym.entities.cbegin();       it != sym.entities.cend();       ++it) m_project.entities.insert(it.key(), it.value());
-        for (auto it = sym.domainTerms.cbegin();    it != sym.domainTerms.cend();    ++it) m_project.domainTerms.insert(it.key(), it.value());
-        for (auto it = sym.dataTypes.cbegin();      it != sym.dataTypes.cend();      ++it) m_project.dataTypes.insert(it.key(), it.value());
-        for (auto it = sym.attributes.cbegin();     it != sym.attributes.cend();     ++it) m_project.attributes.insert(it.key(), it.value());
-        for (auto it = sym.collections.cbegin();    it != sym.collections.cend();    ++it) m_project.collections.insert(it.key(), it.value());
-        for (auto it = sym.businessRules.cbegin();  it != sym.businessRules.cend();  ++it) m_project.businessRules.insert(it.key(), it.value());
-        for (auto it = sym.calculations.cbegin();   it != sym.calculations.cend();   ++it) m_project.calculations.insert(it.key(), it.value());
-        for (auto it = sym.scenarios.cbegin();      it != sym.scenarios.cend();      ++it) m_project.scenarios.insert(it.key(), it.value());
-        for (auto it = sym.scenarioGroups.cbegin(); it != sym.scenarioGroups.cend(); ++it) m_project.scenarioGroups.insert(it.key(), it.value());
-        for (auto it = sym.specifications.cbegin(); it != sym.specifications.cend(); ++it) m_project.specifications.insert(it.key(), it.value());
-        for (auto it = sym.defines.cbegin();        it != sym.defines.cend();        ++it) m_project.defines.insert(it.key(), it.value());
+SpecTableSymbols SpecTableIndex::buildFor(const QString& filePath) const
+{
+    // The file's own declarations and, as the old reader also gave, those of
+    // every file it Imports -- the tree already holds them.
+    const QString abs = QFileInfo(filePath).absoluteFilePath();
+    const SpectableFile file = m_parsed.contains(abs) ? m_parsed.value(abs)
+                                                      : SpectableParser().parse(abs);
+    SpecTableSymbols result;
+    symbolsOf(file, abs, result);
+    for (const QString& imp : file.imports) {
+        if (m_parsed.contains(imp)) {
+            SpecTableSymbols s;
+            symbolsOf(m_parsed.value(imp), imp, s);
+            mergeSymbols(result, s);
+        } else if (QFileInfo::exists(imp)) {
+            SpecTableSymbols s;
+            symbolsOf(SpectableParser().parse(imp), imp, s);
+            mergeSymbols(result, s);
+        }
     }
+    return result;
 }
 
 SpecTableSymbols SpecTableIndex::symbolsForFile(const QString& filePath) const
 {
     return m_fileSymbols.value(QFileInfo(filePath).absoluteFilePath());
+}
+
+const SpectableFile* SpecTableIndex::parsedFile(const QString& filePath) const
+{
+    const auto it = m_parsed.constFind(QFileInfo(filePath).absoluteFilePath());
+    return it == m_parsed.cend() ? nullptr : &it.value();
 }
 
 SpectableFile SpecTableIndex::fileWithContext(const QString& filePath) const
@@ -86,52 +172,108 @@ bool SpecTableIndex::isExternalFile(const QString& absFilePath) const
     return m_externalFilePaths.contains(QFileInfo(absFilePath).absoluteFilePath());
 }
 
-SpecTableSymbols SpecTableIndex::buildFor(const QString& filePath) const
-{
-    QSet<QString> visited;
-    SpecTableSymbols result;
-    parseFile(filePath, result, visited);
-    return result;
-}
-
 QStringList SpecTableIndex::importsFor(const QString& filePath) const
 {
-    return m_fileImports.value(QFileInfo(filePath).absoluteFilePath());
+    const SpectableFile* f = parsedFile(filePath);
+    return f ? f->imports : QStringList();
 }
 
 QStringList SpecTableIndex::insertsFor(const QString& filePath) const
 {
-    return m_fileInserts.value(QFileInfo(filePath).absoluteFilePath());
+    const SpectableFile* f = parsedFile(filePath);
+    return f ? f->inserts : QStringList();
+}
+
+// ---------------------------------------------------------------------------
+// Questions about one block, answered from its tree
+// ---------------------------------------------------------------------------
+
+// The tree that declares the symbol, and the declaration in it. A name
+// declared in two files resolves to whichever the project map recorded, which
+// is the same choice the old reader made.
+template <typename T, typename Pred>
+static const T* findIn(const QMap<QString, SpectableFile>& parsed,
+                       const SymbolLocation& where, const QVector<T>& (*vec)(const SpectableFile&),
+                       Pred pred)
+{
+    const auto it = parsed.constFind(where.filePath);
+    if (it == parsed.cend()) return nullptr;
+    for (const T& item : vec(it.value()))
+        if (pred(item)) return &item;
+    return nullptr;
+}
+
+QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
+{
+    SymbolLocation where = m_project.attributes.value(name);
+    if (where.filePath.isEmpty()) where = m_project.entities.value(name);
+    if (where.filePath.isEmpty()) return {};
+
+    const AttrSet* as = findIn<AttrSet>(m_parsed, where,
+        [](const SpectableFile& f) -> const QVector<AttrSet>& { return f.attrSets; },
+        [&](const AttrSet& a) {
+            return !a.imported && !a.isContext && a.name.compare(name, Qt::CaseInsensitive) == 0;
+        });
+    if (!as) return {};
+
+    // The table as the parser read it: one row per field, in the columns the
+    // language defines. An In-Out column appears only when a field uses it.
+    bool anyInOut = false;
+    for (const Field& f : as->fields) if (!f.inOut.isEmpty()) anyInOut = true;
+
+    QVector<QStringList> rows;
+    QStringList header{ "Name", "DataType", "Default", "Notes" };
+    if (anyInOut) header << "In-Out";
+    rows << header;
+    for (const Field& f : as->fields) {
+        QStringList row{ f.name, f.type, f.defaultValue, f.notes };
+        if (anyInOut) row << f.inOut;
+        rows << row;
+    }
+    return rows;
+}
+
+QString SpecTableIndex::collectionElementType(const QString& name) const
+{
+    const SymbolLocation where = m_project.collections.value(name);
+    if (where.filePath.isEmpty()) return {};
+
+    const Collection* c = findIn<Collection>(m_parsed, where,
+        [](const SpectableFile& f) -> const QVector<Collection>& { return f.collections; },
+        [&](const Collection& col) {
+            return !col.isContext && col.name.compare(name, Qt::CaseInsensitive) == 0;
+        });
+    return c ? c->elementType : QString();
+}
+
+QPair<QString, QVector<QStringList>> SpecTableIndex::defineInfo(const QString& name) const
+{
+    const SymbolLocation where = m_project.defines.value(name);
+    if (where.filePath.isEmpty()) return {};
+
+    const Define* d = findIn<Define>(m_parsed, where,
+        [](const SpectableFile& f) -> const QVector<Define>& { return f.defines; },
+        [&](const Define& def) {
+            return !def.imported && !def.isContext && def.name.compare(name, Qt::CaseInsensitive) == 0;
+        });
+    if (!d) return {};
+    if (d->isTable)       return { {}, d->tableRows };
+    if (d->hasDocString)  return { d->docString, {} };
+    return { d->scalarValue, {} };
 }
 
 QMap<QString, QString> SpecTableIndex::domainTermTypes() const
 {
-    static QRegularExpression reDT(
-        R"(^\s*DomainTerm\s+(\w+)\s*:\s*(\w+))",
-        QRegularExpression::CaseInsensitiveOption);
-
     QMap<QString, QString> result;
-    for (auto it = m_project.domainTerms.cbegin(); it != m_project.domainTerms.cend(); ++it) {
-        const QString& fp = it.value().filePath;
-        const int targetLine = it.value().line;
-
-        QFile f(fp);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
-        QTextStream in(&f);
-        int lineNum = 0;
-        while (!in.atEnd()) {
-            const QString ln = in.readLine();
-            ++lineNum;
-            if (lineNum == targetLine) {
-                auto m = reDT.match(ln);
-                if (m.hasMatch())
-                    result.insert(it.key(), m.captured(2));
-                break;
-            }
-        }
-    }
+    for (auto it = m_parsed.cbegin(); it != m_parsed.cend(); ++it)
+        for (const DomainTerm& dt : it.value().domainTerms)
+            if (!dt.isContext && !dt.type.isEmpty()) result.insert(dt.name, dt.type);
     return result;
 }
+
+// ---------------------------------------------------------------------------
+// Names declared more than once
+// ---------------------------------------------------------------------------
 
 QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicatesOfKind(SymbolKind kind) const
 {
@@ -159,262 +301,13 @@ QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicatesOfKind(SymbolKi
 QMap<QString, QVector<SymbolLocation>> SpecTableIndex::duplicateDomainTerms() const
 {
     QMap<QString, QVector<SymbolLocation>> all;
-    for (auto fit = m_fileSymbols.cbegin(); fit != m_fileSymbols.cend(); ++fit) {
+    for (auto fit = m_fileSymbols.cbegin(); fit != m_fileSymbols.cend(); ++fit)
         for (auto it = fit.value().domainTerms.cbegin(); it != fit.value().domainTerms.cend(); ++it)
             all[it.key()].append(it.value());
-    }
 
     QMap<QString, QVector<SymbolLocation>> dupes;
     for (auto it = all.cbegin(); it != all.cend(); ++it)
         if (it.value().size() > 1)
             dupes.insert(it.key(), it.value());
     return dupes;
-}
-
-QVector<QStringList> SpecTableIndex::attributeRows(const QString& name) const
-{
-    // Look up in Attributes declarations first, then Entity declarations
-    QString filePath = m_project.attributes.value(name).filePath;
-    if (filePath.isEmpty())
-        filePath = m_project.entities.value(name).filePath;
-    if (filePath.isEmpty()) return {};
-
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
-
-    static QRegularExpression reDecl(R"(^\s*(Attributes|Entity)\s+(\w+))",
-                                     QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reRow(R"(^\s*\|)");
-
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines << in.readLine();
-
-    for (int i = 0; i < lines.size(); ++i) {
-        auto m = reDecl.match(lines[i]);
-        if (!m.hasMatch() || m.captured(2).compare(name, Qt::CaseInsensitive) != 0)
-            continue;
-
-        static QRegularExpression reSkipLine(
-            R"(^\s*(Description|Details|Notes|Constraint|Uses|In-Out)\b)",
-            QRegularExpression::CaseInsensitiveOption);
-        static QRegularExpression reTopLevel(
-            R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-            QRegularExpression::CaseInsensitiveOption);
-
-        QVector<QStringList> result;
-        for (int j = i + 1; j < lines.size(); ++j) {
-            const QString& ln = lines[j];
-            if (!reRow.match(ln).hasMatch()) {
-                if (ln.trimmed().isEmpty()) continue;
-                if (!ln.isEmpty() && ln[0].isSpace()) continue; // indented continuation
-                if (ln.trimmed().startsWith('#')) continue;     // commented-out line
-                if (reSkipLine.match(ln).hasMatch()) continue;  // metadata keyword
-                break; // new top-level block or unrecognised non-pipe line
-            }
-            const QStringList parts = ln.split('|');
-            QStringList cells;
-            for (int p = 1; p < parts.size() - 1; ++p)
-                cells << parts[p].trimmed();
-            if (!cells.isEmpty() && !cells[0].startsWith('#'))  // skip commented-out rows
-                result << cells;
-        }
-        return result;
-    }
-    return {};
-}
-
-QString SpecTableIndex::collectionElementType(const QString& name) const
-{
-    const QString filePath = m_project.collections.value(name).filePath;
-    if (filePath.isEmpty()) return {};
-
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
-
-    static QRegularExpression reDecl(R"(^\s*Collection\s+(\w+))",
-                                     QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reRow(R"(^\s*\|)");
-
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines << in.readLine();
-
-    for (int i = 0; i < lines.size(); ++i) {
-        auto m = reDecl.match(lines[i]);
-        if (!m.hasMatch() || m.captured(1).compare(name, Qt::CaseInsensitive) != 0)
-            continue;
-
-        QStringList header, data;
-        for (int j = i + 1; j < lines.size(); ++j) {
-            const QString& ln = lines[j];
-            if (!reRow.match(ln).hasMatch()) {
-                if (ln.trimmed().isEmpty()) continue;
-                if (!ln.isEmpty() && ln[0].isSpace()) continue; // indented continuation
-                if (ln.trimmed().startsWith('#')) continue;    // commented-out line
-                break; // new top-level block or unrecognised non-pipe line
-            }
-            const QStringList parts = ln.split('|');
-            QStringList cells;
-            for (int p = 1; p < parts.size() - 1; ++p)
-                cells << parts[p].trimmed();
-            if (cells.isEmpty() || cells[0].startsWith('#')) continue;
-            if (header.isEmpty()) header = cells;
-            else { data = cells; break; } // one data row per Collection
-        }
-        if (header.isEmpty() || data.isEmpty()) return {};
-
-        int dtCol = -1;
-        for (int c = 0; c < header.size(); ++c)
-            if (header[c].compare("DataType", Qt::CaseInsensitive) == 0) { dtCol = c; break; }
-        if (dtCol < 0 || dtCol >= data.size()) return {};
-        return data[dtCol];
-    }
-    return {};
-}
-
-QPair<QString, QVector<QStringList>> SpecTableIndex::defineInfo(const QString& name) const
-{
-    const QString filePath = m_project.defines.value(name).filePath;
-    if (filePath.isEmpty()) return {};
-
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
-
-    static QRegularExpression reDecl(R"(^\s*Define\s+(\w+)\s*(?:=\s*(.*))?$)",
-                                     QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reRow2(R"(^\s*\|)");
-
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines << in.readLine();
-
-    for (int i = 0; i < lines.size(); ++i) {
-        auto m = reDecl.match(lines[i]);
-        if (!m.hasMatch() || m.captured(1).compare(name, Qt::CaseInsensitive) != 0)
-            continue;
-
-        const QString afterEq = m.captured(2).trimmed();
-        if (!afterEq.isEmpty())
-            return { afterEq, {} };
-
-        // Docstring define — accumulate until closing """
-        if (i + 1 < lines.size() && lines[i + 1].trimmed() == "\"\"\"") {
-            QString docStr;
-            for (int j = i + 2; j < lines.size(); ++j) {
-                if (lines[j].trimmed() == "\"\"\"") break;
-                docStr += lines[j] + "\n";
-            }
-            if (docStr.endsWith('\n')) docStr.chop(1);
-            return { docStr, {} };
-        }
-
-        // Table define — collect rows
-        QVector<QStringList> rows;
-        for (int j = i + 1; j < lines.size(); ++j) {
-            const QString& ln = lines[j];
-            if (!reRow2.match(ln).hasMatch()) {
-                if (ln.trimmed().isEmpty()) continue;
-                if (ln.trimmed().startsWith('#')) continue;  // commented-out line
-                break;
-            }
-            QStringList parts = ln.split('|');
-            QStringList cells;
-            for (int p = 1; p < parts.size() - 1; ++p)
-                cells << parts[p].trimmed();
-            if (!cells.isEmpty() && !cells[0].startsWith('#'))  // skip commented-out rows
-                rows << cells;
-        }
-        return { {}, rows };
-    }
-    return {};
-}
-
-void SpecTableIndex::parseFile(const QString& filePath,
-                               SpecTableSymbols& out,
-                               QSet<QString>& visited) const
-{
-    const QString abs = QFileInfo(filePath).absoluteFilePath();
-    if (visited.contains(abs)) return;
-    visited.insert(abs);
-
-    QFile f(abs);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-
-    static QRegularExpression reEntity       (R"(^\s*Entity\s+(\w+))",          QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDomainTerm   (R"(^\s*DomainTerm\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDataType     (R"(^\s*DataType\s+(\w+))",        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reAttributes   (R"(^\s*Attributes\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reCollection   (R"(^\s*Collection\s+(\w+))",      QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reBizRule      (R"(^\s*BusinessRule\s+(\w+))",    QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reCalc         (R"(^\s*Calculation\s+(\w+))",     QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reScenario     (R"(^\s*Scenario\s*:?\s*(.+)$)",      QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reScenarioGrp  (R"(^\s*ScenarioGroup\s*:?\s*(.+)$)", QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reSpecification(R"(^\s*Specification\s+(.+)$)",   QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDefine       (R"(^\s*Define\s+(\w+))",           QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reImport       ("^\\s*Import\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reInsert       ("^\\s*Insert\\s+\"([^\"]+)\"",    QRegularExpression::CaseInsensitiveOption);
-
-    SpecTableSymbols& fileSym = m_fileSymbols[abs];
-    QStringList&      fileImp = m_fileImports[abs];
-    QStringList&      fileIns = m_fileInserts[abs];
-
-    QTextStream in(&f);
-    int lineNum = 0;
-    while (!in.atEnd()) {
-        const QString line = in.readLine();
-        ++lineNum;
-        QRegularExpressionMatch m;
-
-        m = reEntity.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.entities.insert(n, loc); out.entities.insert(n, loc); continue; }
-
-        m = reDomainTerm.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.domainTerms.insert(n, loc); out.domainTerms.insert(n, loc); continue; }
-
-        m = reDataType.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.dataTypes.insert(n, loc); out.dataTypes.insert(n, loc); continue; }
-
-        m = reAttributes.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.attributes.insert(n, loc); out.attributes.insert(n, loc); continue; }
-
-        m = reCollection.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.collections.insert(n, loc); out.collections.insert(n, loc); continue; }
-
-        m = reBizRule.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.businessRules.insert(n, loc); out.businessRules.insert(n, loc); continue; }
-
-        m = reCalc.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.calculations.insert(n, loc); out.calculations.insert(n, loc); continue; }
-
-        m = reScenario.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); SymbolLocation loc{abs, lineNum}; fileSym.scenarios.insert(n, loc); out.scenarios.insert(n, loc); continue; }
-
-        m = reScenarioGrp.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); SymbolLocation loc{abs, lineNum}; fileSym.scenarioGroups.insert(n, loc); out.scenarioGroups.insert(n, loc); continue; }
-
-        m = reSpecification.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1).trimmed(); SymbolLocation loc{abs, lineNum}; fileSym.specifications.insert(n, loc); out.specifications.insert(n, loc); continue; }
-
-        m = reDefine.match(line);
-        if (m.hasMatch()) { const QString n = m.captured(1); SymbolLocation loc{abs, lineNum}; fileSym.defines.insert(n, loc); out.defines.insert(n, loc); continue; }
-
-        m = reImport.match(line);
-        if (m.hasMatch()) {
-            const QString resolved = QFileInfo(
-                QFileInfo(abs).absolutePath() + "/" + m.captured(1)).absoluteFilePath();
-            if (!fileImp.contains(resolved))
-                fileImp.append(resolved);
-            parseFile(resolved, out, visited);
-            continue;
-        }
-
-        m = reInsert.match(line);
-        if (m.hasMatch()) {
-            const QString resolved = QFileInfo(
-                QFileInfo(abs).absolutePath() + "/" + m.captured(1)).absoluteFilePath();
-            if (!fileIns.contains(resolved))
-                fileIns.append(resolved);
-        }
-    }
 }

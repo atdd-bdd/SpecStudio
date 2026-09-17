@@ -4,6 +4,20 @@
 #include <QStringList>
 #include <QVector>
 
+// A named comment -- Description, Details, Notes, Constraint or Uses -- and
+// the table that may follow it. The table is part of the comment: a
+// BusinessRule is often clearer as a small grid of conditions and outcomes
+// than as a sentence, and this is where such a grid goes. Nothing reads it,
+// nothing is generated from it, nothing asserts it; it is kept so that the
+// editor and the tools can show it, and so that the parser does not call it
+// an unexpected table.
+struct NamedComment {
+    QString              keyword;   // as written: Description, Details, ...
+    QString              text;      // the rest of the line
+    QVector<QStringList> rows;      // the table under it, if any
+    int                  line = 0;
+};
+
 // One field row from an Attributes or Entity table
 struct Field {
     QString name;
@@ -21,8 +35,12 @@ struct AttrSet {
     QString        kind;   // "Attributes" or "Entity"
     QVector<Field> fields;
     QString        uses;   // Uses named comment -- documentation only, never executable
+    QVector<NamedComment> comments;   // every named comment in the block, tables included
     int            line      = 0;
     bool           isContext = false;  // from a context file — symbols only, no class generation
+    bool           imported  = false;  // merged from a file this one Imports: generated here,
+                                       // but declared there, which is where a symbol table
+                                       // and a diagnostic should place it
 };
 
 // A Define block (constant value, table, or docstring)
@@ -38,6 +56,7 @@ struct Define {
     QString              uses;         // Uses named comment
     int                  line       = 0;
     bool                 isContext  = false;  // from a context file
+    bool                 imported   = false;  // merged from an Imported file; see AttrSet
 };
 
 // A table attached to a step
@@ -75,6 +94,7 @@ struct Step {
     int       orphanTableLine     = 0;
     int       docStringIndent = 0; // column of the opening """, for dedenting content lines
     QString   uses;         // Uses named comment
+    QVector<NamedComment> comments;   // named comments on the step, tables included
     int       line = 0;
 };
 
@@ -84,6 +104,7 @@ struct Scenario {
     QStringList   tags;           // @Tags — passed through as test annotations
     QStringList   generatorTags;  // $Tags — consumed by generator for filtering only
     QString       uses;           // Uses named comment
+    QVector<NamedComment> comments;   // named comments between the steps, tables included
     QVector<Step> steps;
     int           line = 0;
 };
@@ -112,9 +133,11 @@ struct NamedBlock {
     QStringList  tags;           // @Tags — passed through as test annotations
     QStringList  generatorTags;  // $Tags — consumed by generator for filtering only
     QString      description;    // the Description named comment, if it has one
+    QVector<NamedComment> comments;   // every named comment in the block, tables included
     ExamplesBlock examples;
     bool         hasExamples = false;
     bool         isContext   = false;  // from a context file — used for isEnumType lookup only
+    bool         imported    = false;  // merged from an Imported file; see AttrSet
     QString      uses;           // Uses named comment
     int          line        = 0;
 };
@@ -144,10 +167,22 @@ struct DomainTerm {
     bool    isContext = false;
 };
 
+// A ScenarioGroup heading. Nothing is generated for one; it is a name the
+// editor can find and the index can list.
+struct ScenarioGroup {
+    QString name;
+    int     line = 0;
+};
+
 // Top-level result of parsing one .spectable file
 struct SpectableFile {
     QString                specName;
+    int                    specLine = 0;   // the Specification line
     QString                filePath;
+    QStringList            imports;        // absolute paths named by Import, in order
+    QStringList            inserts;        // absolute paths named by Insert, in order
+    QVector<ScenarioGroup> scenarioGroups;
+    QVector<NamedComment>  comments;       // named comments belonging to no block
     QStringList            tags;           // @Tags before Specification line — applied to all blocks
     QStringList            generatorTags;  // $Tags before Specification line — applied to all blocks
     QVector<AttrSet>       attrSets;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"
 
 #include <QMap>
 #include <QSet>
@@ -11,15 +12,10 @@
 // Built-in AttributeSet names that need no declaration
 static const QStringList k_builtinAttributeSets = { "EnumerationValues", "ValidValues" };
 
-// Built-in DataType names that need no declaration
-// Keep in step with the generators' own list, which is the one that decides
-// whether a build succeeds. Decimal used to be missing here while every
-// generator accepted it, so Analyze reported an undeclared type for a
-// specification that then built and ran perfectly.
-static const QStringList k_builtinDataTypes = {
-    "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal",
-    "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
-};
+// The built-in DataType names are the parser's list, not a copy of it. This
+// header used to keep its own, and it fell behind: Decimal was accepted by
+// every generator while Analyze reported it undeclared.
+inline const QStringList& k_builtinDataTypes = builtinDataTypeNames();
 
 struct SymbolLocation {
     QString filePath;
@@ -95,13 +91,13 @@ struct SpecTableSymbols
     }
 };
 
-// Parses one .spectable file and populates a SpecTableSymbols map.
-// Imports are followed transitively (up to one level) so callers can
-// resolve cross-file references.
+// The project-wide symbol table, read off the converter's parse trees. Every
+// file is parsed once per rebuildProject(); each question below is answered
+// from those trees rather than by reading a file again.
 class SpecTableIndex
 {
 public:
-    // Parse filePath and all files it Import-s. Returns combined symbols.
+    // The symbols filePath declares, and those of every file it Imports.
     SpecTableSymbols buildFor(const QString& filePath) const;
 
     // Parse the entire project directory. externalFiles are parsed for symbol visibility
@@ -123,6 +119,10 @@ public:
     // is to the generators. Each file is parsed once per rebuildProject().
     SpectableFile fileWithContext(const QString& filePath) const;
 
+    // The file's own tree, as parsed at the last rebuildProject(); null if the
+    // file was not part of it.
+    const SpectableFile* parsedFile(const QString& filePath) const;
+
     // Returns true if filePath was loaded as an external file in the last rebuildProject().
     bool isExternalFile(const QString& absFilePath) const;
 
@@ -130,7 +130,10 @@ public:
     QStringList importsFor(const QString& filePath) const;
     QStringList insertsFor(const QString& filePath) const;
 
-    // Returns the pipe-table rows defined under "Attributes <name>" (first row = headers).
+    // The fields declared under "Attributes <name>" or "Entity <name>", as table
+    // rows: a header of Name | DataType | Default | Notes (and In-Out when any
+    // field uses it), then one row per field in that order. The parser's
+    // reading, so the columns are always in this order whatever the file wrote.
     QVector<QStringList> attributeRows(const QString& name) const;
 
     // Returns the element type (the "DataType" column value) of a "Collection <name>"
@@ -160,16 +163,11 @@ public:
     QMap<QString, QString> domainTermTypes() const;
 
 private:
-    void parseFile(const QString& filePath, SpecTableSymbols& out,
-                   QSet<QString>& visited) const;
-
-    // Cache: file → symbols declared IN that file only (no transitive imports)
-    mutable QMap<QString, SpecTableSymbols> m_fileSymbols;
-    mutable QMap<QString, QStringList>      m_fileImports; // absolute paths (recursively parsed)
-    mutable QMap<QString, QStringList>      m_fileInserts; // absolute paths (data files, not parsed)
+    // file -> symbols declared IN that file only (no transitive imports)
+    QMap<QString, SpecTableSymbols> m_fileSymbols;
 
     // The converter's own reading of each file, keyed by absolute path.
-    QMap<QString, SpectableFile>            m_parsed;
+    QMap<QString, SpectableFile>    m_parsed;
 
     SpecTableSymbols m_project;
     QSet<QString>    m_externalFilePaths; // absolute paths of files added as external

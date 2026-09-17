@@ -23,6 +23,24 @@ bool SpectableParser::isPipeRow(const QString& trimmed)
     return trimmed.startsWith('|');
 }
 
+const QStringList& builtinDataTypeNames()
+{
+    static const QStringList names = {
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Decimal",
+        "Boolean", "Date", "Time", "DateTime", "Duration", "YesNo"
+    };
+    return names;
+}
+
+bool isBuiltinDataType(const QString& name)
+{
+    const QString t = name.trimmed().toLower();
+    if (t == "int" || t == "long" || t == "bool") return true;
+    for (const QString& n : builtinDataTypeNames())
+        if (n.compare(t, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
 QString SpectableParser::normalizeKeyword(const QString& kw, const QString& last)
 {
     const QString kwLow = kw.toLower();
@@ -318,6 +336,31 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     bool inCleanupBlock = false; // true while collecting cleanup steps
     int  tableCols      = -1;    // column count of the table being read, or -1 between tables
 
+    // The named comment a table may still attach to: set by a Description,
+    // Details, Notes, Constraint or Uses line, kept through its indented
+    // continuations and its rows, cleared by anything else. Points into the
+    // vector of whatever the comment belongs to.
+    QVector<NamedComment>* openComment = nullptr;
+
+    // Where a named comment written now belongs.
+    auto commentOwner = [&]() -> QVector<NamedComment>* {
+        if (curNamedBlock && (state == State::InNamedBlock || state == State::InExamplesTable))
+            return &curNamedBlock->comments;
+        if (curAttr && state == State::InAttrDef) return &curAttr->comments;
+        if (curStep) return &curStep->comments;
+        if (curScen) return &curScen->comments;
+        return &result.comments;
+    };
+    // Whether some block is waiting for the next pipe row as its own table,
+    // in which case a named comment between them does not take it -- the
+    // syntax document places Uses exactly there.
+    auto blockAwaitsTable = [&]() {
+        return state == State::InAttrDef || state == State::InCollectionDef
+            || state == State::InDefineTable || state == State::AwaitStepTable
+            || state == State::InStepTable || state == State::InExamplesTable
+            || state == State::SkipTable;
+    };
+
     // Top-level "Insert" of a .spectable file splices that file's own lines
     // in place (recursively re-parsed by this same loop), unlike Import,
     // which only pulls in AttrSets/Defines/named blocks by reference. Guards
@@ -343,9 +386,18 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         state = State::Top;
     };
 
+    // A bare "Define" followed by a table of Name | Value rows: each row is a
+    // one-line Define, so a specification with a dozen constants can say them
+    // once. Shares InDefineTable with the named table-form Define; curDefine
+    // is null while a list is being read, and these tell the rows apart.
+    bool        defineList = false;
+    int         defineListNameCol  = -1;
+    int         defineListValueCol = -1;
+
     auto endDefineDef = [&]() {
-        curDefine = nullptr;
-        state     = State::Top;
+        curDefine  = nullptr;
+        defineList = false;
+        state      = State::Top;
     };
 
     auto endNamedBlock = [&]() {
@@ -371,6 +423,12 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         QRegularExpression::CaseInsensitiveOption);
     const QString baseDir = QFileInfo(absPath).absolutePath();
 
+    // Every file an Insert names, wherever the Insert stands, so the index can
+    // list them without reading the file again.
+    auto noteInsert = [&](const QString& fullPath) {
+        if (!result.inserts.contains(fullPath)) result.inserts.push_back(fullPath);
+    };
+
     auto appendDocLine = [&](const QString& rawLine, QString& docStr, int lineNum, int indentCols) {
         const QString raw = rawLine.mid(qMin(indentCols, leadingWsCount(rawLine)));
         auto m = reDocInsert.match(raw);
@@ -379,6 +437,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                 : !m.captured(2).isEmpty() ? m.captured(2)
                                                            : m.captured(3);
             const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+            noteInsert(fullPath);
             QFile ins(fullPath);
             if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
                 emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
@@ -414,6 +473,15 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         const int    lineNum  = idx + 1;
         const QString raw     = lines[idx];
         const QString trimmed = raw.trimmed();
+
+        // A named comment's table has to follow it directly: a blank line or
+        // any other line ends the chance. Its own indented continuations and
+        // its rows keep it open. (The comment line itself sets it again below.)
+        if (state != State::InDocString && state != State::InDefineDocString) {
+            const bool continuation = (raw.startsWith(' ') || raw.startsWith('\t'))
+                                      && !isPipeRow(trimmed) && !trimmed.isEmpty();
+            if (!isPipeRow(trimmed) && !continuation) openComment = nullptr;
+        }
 
         // ── DocString accumulation ────────────────────────────────────────────
         // Must come before blank/indentation checks so all content is captured.
@@ -529,6 +597,15 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         if (isPipeRow(trimmed)) {
             QStringList cells = splitPipeRow(trimmed);
 
+            // A table under a named comment is the comment's: documentation,
+            // read by nothing. Unless a block is waiting for this row as its
+            // own table, which wins -- "Given x : T" then "Uses ..." then a
+            // table still gives the step its table.
+            if (openComment && !blockAwaitsTable()) {
+                if (!openComment->isEmpty()) openComment->last().rows.push_back(cells);
+                continue;
+            }
+
             switch (state) {
             case State::SkipTable:
                 break; // discard
@@ -599,6 +676,32 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     if (curDefine->tableRows.size() == 1) {
                         QString h0 = cells.isEmpty() ? "" : cells[0].toLower();
                         curDefine->vertical = (h0 == "attribute" || h0 == "name");
+                    }
+                } else if (defineList) {
+                    if (defineListNameCol < 0) {
+                        // The header row says which column is which. Name and
+                        // Value are required; anything else (Notes) is read past.
+                        for (int ci = 0; ci < cells.size(); ++ci) {
+                            const QString h = cells[ci].toLower();
+                            if (h == "name")  defineListNameCol  = ci;
+                            if (h == "value") defineListValueCol = ci;
+                        }
+                        if (defineListNameCol < 0 || defineListValueCol < 0) {
+                            emitMsg(lineNum, "A Define table needs a Name column and a Value "
+                                             "column -- one Define per row", false);
+                            state = State::SkipTable;
+                        }
+                    } else {
+                        const QString name  = defineListNameCol  < cells.size() ? cells[defineListNameCol]  : QString();
+                        const QString value = defineListValueCol < cells.size() ? cells[defineListValueCol] : QString();
+                        if (!name.isEmpty() && !name.startsWith('#')) {
+                            Define def;
+                            def.name        = name;
+                            def.scalarValue = value;
+                            def.isTable     = false;
+                            def.line        = lineNum;
+                            result.defines.push_back(def);
+                        }
                     }
                 }
                 break;
@@ -719,6 +822,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 const QString ext = QFileInfo(fname).suffix().toLower();
                 if (ext == "csv" || ext == "tsv") {
                     const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+                    noteInsert(fullPath);
                     QFile ins(fullPath);
                     if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
@@ -775,6 +879,11 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // is the very placement the syntax document shows.
         if (firstWord.compare("Uses", Qt::CaseInsensitive) == 0) {
             const QString text = trimmed.mid(firstWord.length()).trimmed();
+            {
+                QVector<NamedComment>* owner = commentOwner();
+                owner->push_back({ "Uses", text, {}, lineNum });
+                openComment = owner;
+            }
             if (!curUses) {
                 emitMsg(lineNum, "Uses comment does not follow anything it can "
                                  "describe, so it is ignored", true);
@@ -793,11 +902,15 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // comments are not captured yet, but they are equally transparent --
         // none of them ends a table either.
         if (isNamedComment(firstWord)) {
+            const QString text = trimmed.mid(firstWord.length()).trimmed();
             if (firstWord.compare("Description", Qt::CaseInsensitive) == 0 && curNamedBlock
                     && (state == State::InNamedBlock || state == State::InExamplesTable)) {
-                const QString text = trimmed.mid(firstWord.length()).trimmed();
                 if (!text.isEmpty()) curNamedBlock->description = text;
             }
+            // Kept whole, whatever it belongs to, and open for a table.
+            QVector<NamedComment>* owner = commentOwner();
+            owner->push_back({ firstWord, text, {}, lineNum });
+            openComment = owner;
             continue;
         }
 
@@ -818,17 +931,23 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 // Said here, at the Import, rather than lost with the messages
                 // of the file that could not be parsed. An error: everything
                 // the file declares is missing from this one.
+                result.imports.push_back(imported);
                 if (!QFileInfo::exists(imported)) {
                     emitMsg(lineNum, QString("Imported file not found: '%1'").arg(im.captured(1)), false);
                     continue;
                 }
                 SpectableFile imp = parseImpl(imported, visited);
-                for (const AttrSet& as : imp.attrSets)
+                for (AttrSet as : imp.attrSets) {
+                    as.imported = true;
                     result.attrSets.push_back(as);
-                for (const Define& def : imp.defines)
+                }
+                for (Define def : imp.defines) {
+                    def.imported = true;
                     result.defines.push_back(def);
+                }
                 for (NamedBlock nb : imp.namedBlocks) {
                     nb.isContext = true;
+                    nb.imported  = true;
                     result.namedBlocks.push_back(nb);
                 }
                 for (const QString& dt : imp.dataTypeNames)
@@ -852,6 +971,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                                                    : insM.captured(3);
                 if (QFileInfo(fname).suffix().compare("spectable", Qt::CaseInsensitive) == 0) {
                     const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+                    noteInsert(fullPath);
                     if (insertedSpectableFiles.contains(fullPath)) {
                         // Already spliced once — skip re-insertion (also guards
                         // against an infinite loop from mutual/self Inserts).
@@ -901,7 +1021,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 const QString fname = !insM.captured(1).isEmpty() ? insM.captured(1)
                                     : !insM.captured(2).isEmpty() ? insM.captured(2)
                                                                    : insM.captured(3);
-                if (!QFileInfo::exists(QFileInfo(baseDir + "/" + fname).absoluteFilePath()))
+                const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
+                noteInsert(fullPath);
+                if (!QFileInfo::exists(fullPath))
                     emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
             }
             continue;
@@ -971,9 +1093,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             // before any generator sees it. Until 2026-09-16 the parser threw
             // this line away and every generator emitted a field of a type
             // nothing writes.
+            //
+            // A term with no ": Type" is still a declared name -- it is what
+            // the index lists and what a duplicate is checked against -- so it
+            // is recorded with an empty type, which resolves nothing.
             if (firstWord.compare("DomainTerm", Qt::CaseInsensitive) == 0) {
                 static QRegularExpression reTerm(
-                    R"(^DomainTerm\s+(\w+)\s*:\s*(\w+)\s*$)",
+                    R"(^DomainTerm\s+(\w+)(?:\s*:\s*(\w+))?\s*$)",
                     QRegularExpression::CaseInsensitiveOption);
                 const auto mt = reTerm.match(trimmed);
                 if (mt.hasMatch()) {
@@ -983,6 +1109,10 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     dt.line = lineNum;
                     result.domainTerms.push_back(dt);
                 }
+            } else if (firstWord.compare("ScenarioGroup", Qt::CaseInsensitive) == 0) {
+                QString name = trimmed.mid(firstWord.length()).trimmed();
+                if (name.startsWith(':')) name = name.mid(1).trimmed();
+                if (!name.isEmpty()) result.scenarioGroups.push_back({ name, lineNum });
             }
             continue;
         }
@@ -997,6 +1127,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // Specification
         if (firstWord.compare("Specification", Qt::CaseInsensitive) == 0) {
             result.specName       = trimmed.mid(firstWord.length()).trimmed();
+            result.specLine       = lineNum;
             result.tags           = pendingTags;          pendingTags.clear();
             result.generatorTags  = pendingGeneratorTags; pendingGeneratorTags.clear();
             continue;
@@ -1037,6 +1168,16 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             curScen = nullptr; curStep = nullptr;
             static QRegularExpression reDef(R"(^Define\s+(\w+)\s*(?:=\s*(.*))?$)",
                 QRegularExpression::CaseInsensitiveOption);
+            // "Define" alone: a table of one-line Defines follows.
+            if (trimmed.compare("Define", Qt::CaseInsensitive) == 0) {
+                curDefine          = nullptr;
+                curUses            = nullptr;
+                defineList         = true;
+                defineListNameCol  = -1;
+                defineListValueCol = -1;
+                state              = State::InDefineTable;
+                continue;
+            }
             auto dm = reDef.match(trimmed);
             if (dm.hasMatch()) {
                 Define def;
@@ -1256,15 +1397,9 @@ QVector<ParseMessage> validateFieldTypes(const SpectableFile& file)
 {
     QVector<ParseMessage> msgs;
 
-    static const QStringList builtins = {
-        "character", "string", "text", "integer", "int", "long", "float",
-        "scientific", "decimal", "boolean", "bool", "date", "time", "datetime",
-        "duration", "yesno"
-    };
-
     auto known = [&](const QString& type) {
         const QString t = type.trimmed().toLower();
-        if (t.isEmpty() || builtins.contains(t)) return true;
+        if (t.isEmpty() || isBuiltinDataType(t)) return true;
         for (const QString& dt : file.dataTypeNames)
             if (dt.compare(type, Qt::CaseInsensitive) == 0) return true;
         for (const AttrSet& as : file.attrSets)

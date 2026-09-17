@@ -85,15 +85,13 @@ void SpecTableAnalyzer::checkDomainTermDuplicates(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
-// Check — DomainTerm name must not collide with any DataType name
-// (user-declared or built-in)
+// Check — DomainTerm name must not collide with a built-in DataType name
 // ---------------------------------------------------------------------------
 
 
 
 // ---------------------------------------------------------------------------
-// Check — DomainTerm name must not collide with any DataType name
-// (user-declared or built-in)
+// Check — DomainTerm name must not collide with a built-in DataType name
 // ---------------------------------------------------------------------------
 
 void SpecTableAnalyzer::checkDomainTermVsDataTypeNames(
@@ -115,18 +113,10 @@ void SpecTableAnalyzer::checkDomainTermVsDataTypeNames(
             }
         }
 
-        for (auto dtIt = visible.dataTypes.cbegin(); dtIt != visible.dataTypes.cend(); ++dtIt) {
-            if (it.key().compare(dtIt.key(), Qt::CaseInsensitive) == 0) {
-                out.append(makeDiag(filePath, it.value().line,
-                    QString("DomainTerm '%1' has the same name as DataType '%2' (declared in %3:%4) — "
-                            "DomainTerm and DataType names must be distinct")
-                        .arg(it.key(), dtIt.key(),
-                             QFileInfo(dtIt.value().filePath).fileName(),
-                             QString::number(dtIt.value().line)),
-                    Diagnostic::Severity::Warning));
-                break;
-            }
-        }
+        // A DomainTerm sharing a name with a declared DataType is reported by
+        // checkNameDeclaredAsTwoKinds, as an error at both declarations; only
+        // the built-ins, which have no declaration to point at, are this
+        // check's to report.
     }
 }
 
