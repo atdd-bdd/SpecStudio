@@ -208,8 +208,11 @@ static QString jsonWriteExpr(const QString& expr, const QString& specType,
         return QString("%1 == null ? null : %1.value").arg(expr);
     if (isEnumType(type, file))
         return QString("%1 == null ? null : %1.name()").arg(expr);
+    // A user DataType is written as its text form, which toString gives: the
+    // production class decides what it holds -- Pins keeps an int -- and only
+    // the text form is its business with the outside.
     if (isUserDataType(type, file))
-        return QString("%1 == null ? null : %1.value").arg(expr);
+        return QString("%1 == null ? null : %1.toString()").arg(expr);
     // String, int, double, boolean, BigDecimal — written natively
     return expr;
 }
@@ -2307,8 +2310,10 @@ static QString genProductionClass(const NamedBlock& nb, const QString& pkg,
     s << "    }\n\n";
     s << "    @Override\n";
     s << "    public int hashCode() { return Objects.hash(value); }\n\n";
+    // The text form, which is what a table cell holds and what toStringList
+    // compares; "Name{value}" was never equal to anything a cell says.
     s << "    @Override\n";
-    s << "    public String toString() { return \"" << name << "{\" + value + \"}\"; }\n";
+    s << "    public String toString() { return value; }\n";
     s << "}\n";
     return out;
 }
