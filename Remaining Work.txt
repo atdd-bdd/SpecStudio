@@ -62,6 +62,25 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
+### Replace SpecTableIndex's own reading of the syntax with the parser. The
+  checks are off regular expressions now, but the symbol table they consult is
+  not: SpecTableIndex::parseFile still scans each file with its own patterns to
+  find what is declared where, and keeps its own list of built-in types
+  (k_builtinDataTypes) beside the parser's. That list is the one that fell
+  behind the generators once and made Analyze report an undeclared type for a
+  specification that built. The index already parses every file with
+  SpectableParser for fileWithContext; the symbol table could be filled from
+  those parse trees instead, and parseFile, attributeRows, defineInfo and
+  collectionElementType deleted. Every remaining regular expression in
+  src/analyzer would go with them. About a day, proved the same way: capture
+  analyze_cli output on all four corpora first, and account for every line
+  that moves.
+
+  Small overlap to settle at the same time: checkDomainTermVsDataTypeNames
+  warns about a DomainTerm named like a DataType, and checkNameDeclaredAsTwoKinds
+  now reports the same pair as an error. The built-in half of the older check
+  (a DomainTerm called Integer) is the only part the newer one does not cover.
+
 ### A table after a Detail statement. Detail is a named comment today -- a line
   of prose attached to the block above it, carried no further. A BusinessRule is
   often easier to explain in a small table than in a sentence: the conditions
@@ -219,13 +238,26 @@ Altered so that it is separated into Issues and Future Features
   show a plain QMessageBox with detailed text rather than the richer mockup
   in the appendix.
 
-### Define with Table 
-Define 
-| Name  | Value  | Notes                     |
-| TBR   | -1     | Roll has not occurred     |
-| TBS   | -1     | Score not yet computable  |
+### A table of one-line Defines. Today each constant is its own line:
 
+    Define TBR = -1  # Roll has not occurred
+    Define TBS = -1  # Score not yet computable
 
+  A specification with a dozen constants would rather say them once, as a table:
+
+    Define
+    | Name  | Value  | Notes                     |
+    | TBR   | -1     | Roll has not occurred     |
+    | TBS   | -1     | Score not yet computable  |
+
+  Each row is exactly a one-line Define -- same scalarValue, same =Name use --
+  so the parser is the only thing that changes: a bare "Define" with no name,
+  followed by a table whose header has Name and Value, becomes one Define per
+  row, at that row's line. Nothing downstream moves; =TBR already resolves in
+  step tables, Examples tables and Default columns. Half a day. The one
+  decision is what a table-form Define with a *name* means when its header is
+  Name | Value -- today that is a vertical key/value Define standing in for a
+  step table, and it must keep meaning that.
 ## Doing Later 
 
 
