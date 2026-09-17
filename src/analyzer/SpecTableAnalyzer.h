@@ -15,14 +15,7 @@ public:
     QList<Diagnostic> analyzeFile(const QString& filePath) const;
 
 private:
-    void checkImports               (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkInserts               (const QString& filePath, QList<Diagnostic>& out) const;
-    void checkStepRefs              (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkDescriptions          (const QString& filePath, QList<Diagnostic>& out) const;
-    void checkExamples              (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkDefineRefs            (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-    void checkTableColumnConsistency (const QString& filePath, QList<Diagnostic>& out) const;
-    void checkStepTableContents      (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
+    // ── Names across files, read from the index ──────────────────────────
     void checkDomainTermDuplicates        (const QString& filePath, QList<Diagnostic>& out) const;
     void checkDomainTermVsDataTypeNames   (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
 
@@ -35,27 +28,26 @@ private:
     // about the rest, so the second declaration is silently not tested.
     void checkDuplicateDeclarations       (const QString& filePath, QList<Diagnostic>& out) const;
 
-    // An Examples: table's columns against the fields its AttributeSet declares,
-    // and each cell against its field's type.
-    void checkExamplesTableContents       (const QString& filePath, const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
-
-    // The Default column of an Attributes/Entity block against the type declared
-    // beside it on the same row.
-    void checkAttributeDefaultValues      (const QString& filePath, QList<Diagnostic>& out) const;
-
-    // The fields an AttributeSet declares, as name -> type. Empty for a built-in
-    // set such as ValidValues, which has no declaration to read.
-    QMap<QString, QString> fieldTypesOf   (const QString& attrSetName) const;
-
-    // The defaults it declares, as name -> default. A missing column is only a
-    // finding when the field has no default to fall back on.
-    QMap<QString, QString> fieldDefaultsOf(const QString& attrSetName) const;
-
-    // PROTOTYPE — checks that read the converter's own parse tree rather than
-    // re-reading the file with regular expressions. See SpecTableModelChecks.cpp.
+    // ── One file's contents, read from the converter's parse tree ────────
+    // See SpecTableModelChecks.cpp. The file arrives with its siblings merged
+    // in as context, exactly as the converter sees it before generating.
     void runModelChecks     (const QString& filePath, QList<Diagnostic>& out) const;
     void checkParseMessages (const QString& filePath, const struct SpectableFile& file,
                              QList<Diagnostic>& out) const;
+    // A step's ": Name" must be an attribute set, DataType or Collection; a
+    // step applying a BusinessRule or Calculation must name one that exists.
+    void checkStepRefs      (const QString& filePath, const struct SpectableFile& file,
+                             const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
+    // A BusinessRule, Calculation or DataType should say what it is.
+    void checkDescriptions  (const QString& filePath, const struct SpectableFile& file,
+                             QList<Diagnostic>& out) const;
+    // A BusinessRule or Calculation needs an Examples: table, a DataType needs
+    // a table of some kind, and the set an Examples: names must exist.
+    void checkExamples      (const QString& filePath, const struct SpectableFile& file,
+                             const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
+    // Every "=Name" must name a Define.
+    void checkDefineRefs    (const QString& filePath, const struct SpectableFile& file,
+                             const SpecTableSymbols& visible, QList<Diagnostic>& out) const;
     // Reads the parse tree, not the file — see SpecTableModelChecks.cpp.
     // Asks the index, because the two declarations are usually in different files.
     void checkNameDeclaredAsTwoKinds(const QString& filePath, const SpecTableSymbols& visible,
@@ -79,9 +71,6 @@ private:
     static Diagnostic makeDiag(const QString& filePath, int line,
                                 const QString& msg,
                                 Diagnostic::Severity sev = Diagnostic::Severity::Error);
-    static void validateDataTypeValue(const QString& filePath, int lineNo,
-                                      const QString& value, const QString& dtype,
-                                      QList<Diagnostic>& out);
 
     SpecTableIndex* m_index;
 };

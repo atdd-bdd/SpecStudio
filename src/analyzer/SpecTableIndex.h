@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SpectableModel.h"
+
 #include <QMap>
 #include <QSet>
 #include <QString>
@@ -114,6 +116,13 @@ public:
     // Only populated after rebuildProject() has been called.
     SpecTableSymbols symbolsForFile(const QString& filePath) const;
 
+    // The file as the converter sees it before generating: its own parse tree
+    // with every other project and external file merged in as context, then
+    // DomainTerms and Define references resolved. Analyze's model checks read
+    // this, so a name declared in a sibling is visible to them exactly as it
+    // is to the generators. Each file is parsed once per rebuildProject().
+    SpectableFile fileWithContext(const QString& filePath) const;
+
     // Returns true if filePath was loaded as an external file in the last rebuildProject().
     bool isExternalFile(const QString& absFilePath) const;
 
@@ -158,6 +167,9 @@ private:
     mutable QMap<QString, SpecTableSymbols> m_fileSymbols;
     mutable QMap<QString, QStringList>      m_fileImports; // absolute paths (recursively parsed)
     mutable QMap<QString, QStringList>      m_fileInserts; // absolute paths (data files, not parsed)
+
+    // The converter's own reading of each file, keyed by absolute path.
+    QMap<QString, SpectableFile>            m_parsed;
 
     SpecTableSymbols m_project;
     QSet<QString>    m_externalFilePaths; // absolute paths of files added as external

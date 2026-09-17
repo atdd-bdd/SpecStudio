@@ -375,8 +375,9 @@ Specification Host
 Insert "data.csv"        <- silently ignored; a CSV needs a step or a docstring
 ```
 
-A file named by an `Insert` that *is* in a working position but cannot be opened
-does report `WARNING: Cannot insert file:`, and Analyze lists it.
+A file named by an `Insert` that does not exist is reported wherever the
+`Insert` stands -- `Inserted file not found: 'data.csv'` -- by Analyze and by the
+build alike. So is an `Import` of a file that is not there.
 
 ---
 
@@ -764,6 +765,15 @@ show. Among the checks:
 - **Misuse** — an unrecognized keyword or step modifier, or a `Cleanup` block
   containing anything but `Then` and `And`
 - **Files** — an `Import` or `Insert` pointing at a file that is not there
+- **Values** — a cell, an `Examples:` row or a `Default` that its column's
+  built-in type cannot read: `four` in an `Integer` column, `25,200.00` in a
+  `Decimal` one
+
+Analyze and the build read a specification the same way. Every check about one
+file's contents runs on the parse tree the generators use, and the table and
+value checks are the very functions the converter runs before it generates --
+so a finding here is the finding the build would make, and the build's
+warnings are these.
 
 Results fill the Analysis tab; double-click one to jump to it.
 

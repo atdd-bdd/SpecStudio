@@ -1,5 +1,7 @@
 #include "SpecTableIndex.h"
 
+#include "SpectableParser.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -18,6 +20,17 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles,
     m_fileInserts.clear();
     m_project = {};
     m_externalFilePaths.clear();
+    m_parsed.clear();
+
+    // The converter's reading, once per file, so that a check can ask for the
+    // file with its siblings merged in without parsing the project again.
+    {
+        SpectableParser parser;
+        for (const QString& f : externalFiles + specTableFiles) {
+            const QString abs = QFileInfo(f).absoluteFilePath();
+            if (!m_parsed.contains(abs)) m_parsed.insert(abs, parser.parse(f));
+        }
+    }
 
     // Parse external files first so their symbols are available project-wide
     for (const QString& f : externalFiles) {
@@ -53,6 +66,19 @@ void SpecTableIndex::rebuildProject(const QStringList& specTableFiles,
 SpecTableSymbols SpecTableIndex::symbolsForFile(const QString& filePath) const
 {
     return m_fileSymbols.value(QFileInfo(filePath).absoluteFilePath());
+}
+
+SpectableFile SpecTableIndex::fileWithContext(const QString& filePath) const
+{
+    const QString abs = QFileInfo(filePath).absoluteFilePath();
+    SpectableFile file = m_parsed.contains(abs) ? m_parsed.value(abs)
+                                                : SpectableParser().parse(filePath);
+    for (auto it = m_parsed.cbegin(); it != m_parsed.cend(); ++it)
+        if (it.key() != abs) mergeContext(file, it.value());
+    // The same resolution the converter does, in the same order.
+    resolveDomainTermTypes(file);
+    resolveDefineReferences(file);
+    return file;
 }
 
 bool SpecTableIndex::isExternalFile(const QString& absFilePath) const

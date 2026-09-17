@@ -43,6 +43,8 @@ struct Define {
 // A table attached to a step
 struct StepTable {
     QVector<QStringList> rows;        // rows[0] is header when hasHeader=true
+    QVector<int>         rowLines;    // the line each row was read from; empty when the
+                                      // rows came from an Inserted file rather than this one
     bool                 hasHeader   = false;
     bool                 vertical    = false;  // explicit Vertical or | Attribute | Value | format
 };
@@ -62,6 +64,7 @@ struct Step {
     StepTable table;
     bool      hasTable   = false;
     QString   defineRef;    // "=DefineName" in place of a table
+    int       defineRefLine = 0;   // the line it was written on, for a diagnostic about it
     QString   docString;    // content between opening and closing """
     bool      hasDocString = false;
     // A pipe table followed this step, but the step named no attribute set, so
@@ -97,7 +100,9 @@ struct ExamplesBlock {
     QString              attrSetName;   // optional — from "Examples: AttrSetName"
     QStringList          header;        // first pipe row (column headers)
     QVector<QStringList> rows;          // data rows (header excluded)
-    int                  line = 0;
+    QVector<int>         rowLines;      // the line each data row was read from
+    int                  headerLine = 0;
+    int                  line = 0;      // the Examples: line itself
 };
 
 // A named spec block (BusinessRule, Calculation, or DataType)
@@ -106,6 +111,7 @@ struct NamedBlock {
     QString      name;
     QStringList  tags;           // @Tags — passed through as test annotations
     QStringList  generatorTags;  // $Tags — consumed by generator for filtering only
+    QString      description;    // the Description named comment, if it has one
     ExamplesBlock examples;
     bool         hasExamples = false;
     bool         isContext   = false;  // from a context file — used for isEnumType lookup only

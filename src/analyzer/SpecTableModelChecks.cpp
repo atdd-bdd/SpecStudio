@@ -1,19 +1,17 @@
-// PROTOTYPE — Analyze reading the converter's own parse tree
+// Analyze reading the converter's own parse tree
 //
-// Every other check in SpecTableAnalyzer works by regular expression over raw
-// lines. The converter does not: it parses the same files into a SpectableFile
-// and generates from that. So Analyze is a second, weaker implementation of the
-// same reading, and the two can disagree. They already have -- SpecTableIndex.h
-// records a release where Analyze reported an undeclared type for a
-// specification that built and ran perfectly, because its built-in type list had
-// fallen behind the generators'.
+// Every check about the contents of one file lives here and reads a
+// SpectableFile -- the same structure the generators read -- rather than the
+// file's lines. It began on 2026-09-13 as a prototype of two checks, chosen
+// because they were awkward in regex and obvious in the model; by 2026-09-16
+// the last regex check was gone. The checks that remain in SpecTableAnalyzer.cpp
+// are about names across files and read the index.
 //
-// This file asks what it costs to stop doing that: link converter/SpectableParser
-// and check the model. The answer is two files and no new dependency -- the
-// parser needs only Qt and SpectableModel.h.
-//
-// The two checks below are chosen because they are awkward in regex and obvious
-// in the model.
+// The file arrives from SpecTableIndex::fileWithContext with every sibling
+// merged in and DomainTerms and Define references resolved, which is what the
+// converter does before it generates. So a name declared elsewhere in the
+// project is visible here exactly as it is to the generators, and the shared
+// validators at the end of runModelChecks say the same thing in both places.
 
 #include "SpecTableAnalyzer.h"
 
@@ -21,6 +19,7 @@
 #include "SpecTableIndex.h"
 
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QSet>
 
 // ---------------------------------------------------------------------------
@@ -169,8 +168,8 @@ void SpecTableAnalyzer::checkEmptyAttrSets(const QString& filePath,
 // and `f.line` points at the row the field came from, so the diagnostic lands
 // where the old one did.
 //
-// The visible symbols still come from the index: a type may be declared in a
-// sibling file, and the parse tree here is one file.
+// The visible symbols come from the index rather than the merged parse tree,
+// so that the message can name what the index knows, which is what the editor shows.
 
 void SpecTableAnalyzer::checkAttributeFieldTypes(const QString& filePath,
                                                   const SpectableFile& file,
@@ -323,14 +322,16 @@ void SpecTableAnalyzer::checkNameDeclaredAsTwoKinds(const QString& filePath,
 void SpecTableAnalyzer::runModelChecks(const QString& filePath,
                                         QList<Diagnostic>& out) const
 {
-    SpectableParser parser;
-    SpectableFile file = parser.parse(filePath);
-    // The same resolution the converter does, so Analyze and the generators
-    // agree about what a field type means.
-    resolveDomainTermTypes(file);
-    resolveDefineReferences(file);
+    // Parsed once per index rebuild, merged with its siblings, resolved --
+    // the converter's view of the file just before it generates.
+    const SpectableFile file = m_index->fileWithContext(filePath);
+    const SpecTableSymbols& visible = m_index->projectSymbols();
 
     checkParseMessages          (filePath, file, out);
+    checkStepRefs               (filePath, file, visible, out);
+    checkDescriptions           (filePath, file, out);
+    checkExamples               (filePath, file, visible, out);
+    checkDefineRefs             (filePath, file, visible, out);
     checkEmptyScenarios         (filePath, file, out);
     checkDuplicateFieldNames    (filePath, file, out);
     checkDuplicateScenarioNames (filePath, file, out);
@@ -340,9 +341,178 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     checkNameDeclaredAsTwoKinds (filePath, m_index->projectSymbols(), out);
 
     // The same reading the converter uses, rather than a second one that can
-    // disagree with it.
-    for (const ParseMessage& m : validateStepTables(file))
+    // disagree with it: every table against its attribute set, and every cell
+    // against its column's type.
+    QVector<ParseMessage> shared;
+    shared += validateStepTables(file);
+    shared += validateExamplesTables(file);
+    shared += validateAttributeDefaults(file);
+    for (const ParseMessage& m : shared)
         out.append(makeDiag(filePath, m.line, m.text,
                             m.warning ? Diagnostic::Severity::Warning
                                       : Diagnostic::Severity::Error));
+}
+
+// ---------------------------------------------------------------------------
+// What a step names
+// ---------------------------------------------------------------------------
+//
+// Moved off regular expressions on 2026-09-16. The old pattern matched a step
+// line ending in ": Name", optionally followed by one of two modifiers -- so a
+// step carrying EveryCell, or two modifiers, was never checked at all. The
+// parser has already read the step, whatever it carries.
+//
+// "applying BusinessRule X" and "applying Calculation X" are Analyze's own
+// reading of the step text: no generator treats them specially.
+
+void SpecTableAnalyzer::checkStepRefs(const QString& filePath,
+                                       const SpectableFile& file,
+                                       const SpecTableSymbols& visible,
+                                       QList<Diagnostic>& out) const
+{
+    static const QRegularExpression reRule(R"(\bapplying\s+BusinessRule\s+(\w+)\s*$)",
+                                           QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression reCalc(R"(\bapplying\s+Calculation\s+(\w+)\s*$)",
+                                           QRegularExpression::CaseInsensitiveOption);
+
+    auto check = [&](const Step& step) {
+        if (step.attrSetName.isEmpty()) return;
+
+        auto m = reRule.match(step.text);
+        if (m.hasMatch()) {
+            if (!visible.hasBusinessRule(m.captured(1)))
+                out.append(makeDiag(filePath, step.line,
+                    QStringLiteral("Unknown BusinessRule '%1'").arg(m.captured(1))));
+            if (!visible.hasAttributeSet(step.attrSetName))
+                out.append(makeDiag(filePath, step.line,
+                    QStringLiteral("Unknown AttributeSet '%1'").arg(step.attrSetName)));
+            return;
+        }
+        m = reCalc.match(step.text);
+        if (m.hasMatch()) {
+            if (!visible.hasCalculation(m.captured(1)))
+                out.append(makeDiag(filePath, step.line,
+                    QStringLiteral("Unknown Calculation '%1'").arg(m.captured(1))));
+            if (!visible.hasAttributeSet(step.attrSetName))
+                out.append(makeDiag(filePath, step.line,
+                    QStringLiteral("Unknown AttributeSet '%1'").arg(step.attrSetName)));
+            return;
+        }
+        if (!visible.hasAttributeSet(step.attrSetName) && !visible.hasDataType(step.attrSetName))
+            out.append(makeDiag(filePath, step.line,
+                QStringLiteral("Unknown AttributeSet, Entity, or DataType '%1'")
+                    .arg(step.attrSetName)));
+    };
+
+    for (const Scenario& s : file.scenarios)
+        for (const Step& step : s.steps) check(step);
+    for (const Step& step : file.backgroundSteps) check(step);
+    for (const Step& step : file.cleanupSteps)    check(step);
+}
+
+// ---------------------------------------------------------------------------
+// A block that does not say what it is
+// ---------------------------------------------------------------------------
+//
+// The parser keeps a named block's Description. The old check looked for one
+// within three lines of the declaration and accepted a legacy "* text" form;
+// now a Description anywhere in the block counts, and the legacy form does not
+// -- the parser has never read it, and reports it as an unrecognised keyword.
+
+void SpecTableAnalyzer::checkDescriptions(const QString& filePath,
+                                           const SpectableFile& file,
+                                           QList<Diagnostic>& out) const
+{
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (nb.isContext || !nb.description.trimmed().isEmpty()) continue;
+        out.append(makeDiag(filePath, nb.line,
+            QStringLiteral("%1 '%2' has no Description").arg(nb.kind, nb.name),
+            Diagnostic::Severity::Warning));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A block with nothing to test it by
+// ---------------------------------------------------------------------------
+//
+// A BusinessRule or Calculation is only tested through its Examples: table,
+// and a DataType through the table of values it accepts. The set an Examples:
+// names has to exist, or the rows have no shape.
+
+void SpecTableAnalyzer::checkExamples(const QString& filePath,
+                                       const SpectableFile& file,
+                                       const SpecTableSymbols& visible,
+                                       QList<Diagnostic>& out) const
+{
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (nb.isContext) continue;
+        const bool hasExamplesLine = nb.examples.line != 0;
+
+        if (hasExamplesLine && !nb.examples.attrSetName.isEmpty()
+                && !visible.hasAttributeSet(nb.examples.attrSetName))
+            out.append(makeDiag(filePath, nb.examples.line,
+                QStringLiteral("Unknown AttributeSet '%1' in Examples:")
+                    .arg(nb.examples.attrSetName)));
+
+        if (hasExamplesLine) continue;
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0)
+            out.append(makeDiag(filePath, nb.line,
+                QStringLiteral("DataType '%1' has no data table or Examples: section").arg(nb.name),
+                Diagnostic::Severity::Warning));
+        else
+            out.append(makeDiag(filePath, nb.line,
+                QStringLiteral("%1 '%2' has no Examples: section").arg(nb.kind, nb.name),
+                Diagnostic::Severity::Warning));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A reference to a Define that does not exist
+// ---------------------------------------------------------------------------
+//
+// Everywhere "=Name" may stand: in place of a step's table, in a cell of a
+// step table, an Examples: table or a table-form Define, and in a Default
+// column. A Default or Examples cell that resolved is no longer written =Name
+// by the time this runs, so what remains is what did not resolve. The old
+// pattern matched "=word" anywhere on any line, docstrings included.
+
+void SpecTableAnalyzer::checkDefineRefs(const QString& filePath,
+                                         const SpectableFile& file,
+                                         const SpecTableSymbols& visible,
+                                         QList<Diagnostic>& out) const
+{
+    static const QRegularExpression reRef(R"(^=\s*([A-Za-z_]\w*))");
+
+    auto check = [&](int line, const QString& cell) {
+        auto m = reRef.match(cell.trimmed());
+        if (!m.hasMatch() || visible.hasDefine(m.captured(1))) return;
+        out.append(makeDiag(filePath, line,
+            QStringLiteral("Undefined value reference '=%1'").arg(m.captured(1))));
+    };
+    auto checkStep = [&](const Step& step) {
+        if (!step.defineRef.isEmpty())
+            check(step.defineRefLine ? step.defineRefLine : step.line, "=" + step.defineRef);
+        for (const QStringList& row : step.table.rows)
+            for (const QString& cell : row) check(step.line, cell);
+    };
+
+    for (const Scenario& s : file.scenarios)
+        for (const Step& step : s.steps) checkStep(step);
+    for (const Step& step : file.backgroundSteps) checkStep(step);
+    for (const Step& step : file.cleanupSteps)    checkStep(step);
+
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (nb.isContext) continue;
+        for (const QStringList& row : nb.examples.rows)
+            for (const QString& cell : row) check(nb.examples.line, cell);
+    }
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+        for (const Field& f : as.fields) check(f.line, f.defaultValue);
+    }
+    for (const Define& d : file.defines) {
+        if (d.isContext) continue;
+        for (const QStringList& row : d.tableRows)
+            for (const QString& cell : row) check(d.line, cell);
+    }
 }

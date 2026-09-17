@@ -130,14 +130,7 @@ int main(int argc, char* argv[])
     // Merge global context: Attributes/Entities/Defines/DataTypes from other project files
     for (const QString& ctxPath : cli.values(ctxOpt)) {
         if (!QFileInfo::exists(ctxPath)) continue;
-        SpectableFile ctx = parser.parse(ctxPath);
-        for (AttrSet& as : ctx.attrSets)         { as.isContext = true; file.attrSets.push_back(as); }
-        for (Collection& col : ctx.collections)   { col.isContext = true; file.collections.push_back(col); }
-        for (DomainTerm& dt : ctx.domainTerms)    { dt.isContext = true; file.domainTerms.push_back(dt); }
-        for (Define& def : ctx.defines)           { def.isContext = true; file.defines.push_back(def); }
-        for (NamedBlock& nb : ctx.namedBlocks)    { nb.isContext = true; file.namedBlocks.push_back(nb); }
-        for (const QString& dt : ctx.dataTypeNames)
-            if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
+        mergeContext(file, parser.parse(ctxPath));
     }
 
     // A DomainTerm stands for a type, and generates nothing of its own, so a
@@ -171,6 +164,20 @@ int main(int argc, char* argv[])
     }
 
     for (const ParseMessage& m : validateStepTables(file)) {
+        const char* sev = m.warning ? "WARNING" : "ERROR";
+        std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
+        if (!m.warning) hasError = true;
+    }
+
+    // An Examples: table and a Default column, by the same rules. These were
+    // the editor's checks alone until 2026-09-16; a build accepted what
+    // Analyze had flagged.
+    for (const ParseMessage& m : validateExamplesTables(file)) {
+        const char* sev = m.warning ? "WARNING" : "ERROR";
+        std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
+        if (!m.warning) hasError = true;
+    }
+    for (const ParseMessage& m : validateAttributeDefaults(file)) {
         const char* sev = m.warning ? "WARNING" : "ERROR";
         std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
         if (!m.warning) hasError = true;

@@ -45,12 +45,6 @@ Altered so that it is separated into Issues and Future Features
 
 ### Maybe add // as a comment indicator.    
 
-### Bowling project: bowling.spectable exists at the repo root with rich
-  scenarios (roll validation, scoring, frame display, game-complete checks),
-  but there's no generated code/glue anywhere yet and it isn't wired to run
-  from the IDE. Still need: generate, wire up glue, run for a passing and a
-  failing case, then change the spec and re-run.
-
 ### True Decimal type separation for C++/Go/JavaScript/Rust: all 4 now correctly
   recognize "Scientific" and "Decimal" as distinct keywords (previously
   Scientific silently produced invalid output — e.g. C++/JS would emit a
@@ -67,33 +61,6 @@ Altered so that it is separated into Issues and Future Features
   *** Will hold for now.   
 
 ## Future Enhancements:
-
-### Finish moving Analyze off regular expressions. Fifteen checks remain, down
-  from seventeen, and they still reopen the file and match line patterns while
-  the converter parses the same text into a SpectableFile. Analyze is a second,
-  weaker reading, and the two can disagree; they have, three times this month.
-
-  SpecTableModelChecks.cpp is where a migrated check goes. Seven live there now.
-
-    Near-mechanical, about a day. Loop the right vector, keep the message word
-    for word, prove the output identical against all three corpora:
-      checkDefineRefs, checkImports, checkInserts, checkDomainTermDuplicates,
-      checkDuplicateDeclarations, checkCollectionElementTypes,
-      checkDescriptions, checkTableColumnConsistency,
-      checkDomainTermVsDataTypeNames
-
-    Really deletions, two to three days, and where the payoff is. These resolve
-    a step to its attribute set, walk a table against declared fields and check
-    cells by type -- logic that already exists in validateStepTables, which the
-    converter and Analyze share. Fold each in and let one function serve both:
-      checkStepTableContents (107 lines), checkExamplesTableContents (80),
-      checkStepRefs (66), checkAttributeDefaultValues (61), checkExamples (59)
-
-  Not the whole seam. SpecTableIndex builds the cross-file symbol table these
-  checks consult and has its own reading of the syntax; migrating the checks
-  does not touch it. SpecTableIndex.h records a release where Analyze reported
-  an undeclared type for a specification that built and ran, because its
-  built-in list had fallen behind the generators'.
 
 ### A table after a Detail statement. Detail is a named comment today -- a line
   of prose attached to the block above it, carried no further. A BusinessRule is
@@ -281,21 +248,6 @@ Define
   attributes give the same message either way (converter/SpectableParser.cpp,
   validateStepTables).
 
-### A keyword for a table whose every cell is an entity. Something like
-  "EveryItem": it would say that each cell holds the text form of an entity
-  rather than a scalar, so the generator calls that entity's string constructor
-  on the cell instead of parsing it as a value.
-
-  The problem does not arise when the cells are String or Decimal — a scalar
-  cell needs no constructor. It arises when a table is a grid of entities and
-  there is no column header to attach a type to, so nothing says what to build
-  from each cell.
-
-  The entity text form this would lean on already exists: "25 USD" for a Money,
-  with a nested entity in single quotes and a value containing spaces in double
-  quotes. Every language has fromText/toString for it.
-
-
 ### What Karate has that SpecTable does not, from writing API.spectable against a
   live service (SpecStudioVariousTests, 2026-08-13). Karate is an API-testing
   DSL built on Gherkin. The array syntax below was checked against Karate's own
@@ -448,6 +400,24 @@ Define
 
 
 ## --- Done ---
+
+[x] Analyze is off regular expressions. The last ten checks that reopened the
+    file and matched line patterns are gone; every check about one file's
+    contents reads the converter's parse tree (SpecTableModelChecks.cpp), and
+    the four that remain in SpecTableAnalyzer.cpp are about names across files
+    and read the index. Two things made it possible. The index now keeps each
+    file parsed and hands Analyze the file with every sibling merged in and
+    resolved -- the converter's own view before it generates -- so a set
+    declared elsewhere is visible to a model check as it is to a generator.
+    And the table checks became shared validators: validateStepTables now
+    checks cell values too, and validateExamplesTables and
+    validateAttributeDefaults are new, so the build warns about a bad value
+    the way the editor does. Three rules moved into the parser outright, since
+    they are rules of the language: a missing Import or Insert, and a ragged
+    table row. Corpora: ErrorTests 46 -> 45 (one duplicate finding about the
+    same column folded into the shared one), VariousTests 6 -> 8 (two values
+    in Data Definition Error that the regex had missed because the set is
+    declared twice), ExampleTests 0.
 
 [x] An unresolvable field type is an error, and a DomainTerm resolves to what
     it stands for (b95a6e8). "DomainTerm Roll : Pins" already said a Roll is a

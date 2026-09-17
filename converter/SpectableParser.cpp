@@ -316,6 +316,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     };
 
     bool inCleanupBlock = false; // true while collecting cleanup steps
+    int  tableCols      = -1;    // column count of the table being read, or -1 between tables
 
     // Top-level "Insert" of a .spectable file splices that file's own lines
     // in place (recursively re-parsed by this same loop), unlike Import,
@@ -380,7 +381,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
             QFile ins(fullPath);
             if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                emitMsg(lineNum, "WARNING: Cannot insert file: " + fname, false);
+                emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
                 return;
             }
             QString content = QTextStream(&ins).readAll();
@@ -459,6 +460,24 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             curStep->docStringIndent = leadingWsCount(raw);
             state = State::InDocString;
             continue;
+        }
+
+        // ── Ragged tables ────────────────────────────────────────────────────
+        // A run of pipe rows is one table, whatever block it belongs to, and
+        // every row should have the columns the first one has. Blank lines do
+        // not end the run; any other line does. A warning, because every reader
+        // of a short row treats the missing cells as empty and carries on.
+        if (isPipeRow(trimmed)) {
+            const int cols = splitPipeRow(trimmed).size();
+            if (cols >= 1) {
+                if (tableCols < 0)
+                    tableCols = cols;
+                else if (cols != tableCols)
+                    emitMsg(lineNum, QString("Table row has %1 column(s) but header has %2")
+                                         .arg(cols).arg(tableCols), true);
+            }
+        } else if (!trimmed.isEmpty()) {
+            tableCols = -1;
         }
 
         // ── Blank lines ──────────────────────────────────────────────────────
@@ -600,9 +619,11 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     curStep->table.vertical  = true;
                     curStep->table.hasHeader = false;
                     curStep->table.rows.push_back(cells);
+                    curStep->table.rowLines.push_back(lineNum);
                 } else {
                     curStep->table.hasHeader = true;
                     curStep->table.rows.push_back(cells);
+                    curStep->table.rowLines.push_back(lineNum);
                 }
                 break;
             }
@@ -610,12 +631,14 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             case State::InStepTable:
                 if (curStep)
                     curStep->table.rows.push_back(cells);
+                    curStep->table.rowLines.push_back(lineNum);
                 break;
 
             case State::InExamplesTable:
                 if (curNamedBlock) {
                     if (curNamedBlock->examples.header.isEmpty()) {
-                        curNamedBlock->examples.header = cells;  // first row = column headers
+                        curNamedBlock->examples.header     = cells;  // first row = column headers
+                        curNamedBlock->examples.headerLine = lineNum;
                         // Warn if headers don't match the built-in ValidValues/EnumerationValues columns
                         const QString asn = curNamedBlock->examples.attrSetName;
                         QStringList expectedCols;
@@ -637,6 +660,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                         }
                     } else {
                         curNamedBlock->examples.rows.push_back(cells);
+                        curNamedBlock->examples.rowLines.push_back(lineNum);
                     }
                 }
                 break;
@@ -674,7 +698,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 if (curStep && (state == State::InScenario || state == State::InBackground
                                 || state == State::InCleanup
                                 || state == State::AwaitStepTable)) {
-                    curStep->defineRef = defName;
+                    curStep->defineRef     = defName;
+                    curStep->defineRefLine = lineNum;
                     curStep->hasTable  = false;
                 }
                 if (state == State::InStepTable || state == State::AwaitStepTable)
@@ -696,7 +721,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
                     QFile ins(fullPath);
                     if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        emitMsg(lineNum, "WARNING: Cannot insert file: " + fname, false);
+                        emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
                     } else {
                         QStringList expectedFields;
                         for (const AttrSet& as : result.attrSets)
@@ -763,10 +788,18 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             continue;
         }
 
-        // The other named comments are not captured yet, but they are equally
-        // transparent — none of them ends a table either.
-        if (isNamedComment(firstWord))
+        // A named block's Description is kept: Analyze asks whether a
+        // BusinessRule, Calculation or DataType has one. The other named
+        // comments are not captured yet, but they are equally transparent --
+        // none of them ends a table either.
+        if (isNamedComment(firstWord)) {
+            if (firstWord.compare("Description", Qt::CaseInsensitive) == 0 && curNamedBlock
+                    && (state == State::InNamedBlock || state == State::InExamplesTable)) {
+                const QString text = trimmed.mid(firstWord.length()).trimmed();
+                if (!text.isEmpty()) curNamedBlock->description = text;
+            }
             continue;
+        }
 
         // End open step table
         if (state == State::InStepTable || state == State::AwaitStepTable)
@@ -782,6 +815,13 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             if (im.hasMatch()) {
                 const QString imported = QFileInfo(
                     QFileInfo(absPath).absolutePath() + "/" + im.captured(1)).absoluteFilePath();
+                // Said here, at the Import, rather than lost with the messages
+                // of the file that could not be parsed. An error: everything
+                // the file declares is missing from this one.
+                if (!QFileInfo::exists(imported)) {
+                    emitMsg(lineNum, QString("Imported file not found: '%1'").arg(im.captured(1)), false);
+                    continue;
+                }
                 SpectableFile imp = parseImpl(imported, visited);
                 for (const AttrSet& as : imp.attrSets)
                     result.attrSets.push_back(as);
@@ -820,7 +860,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                     insertedSpectableFiles.insert(fullPath);
                     QFile ins(fullPath);
                     if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
-                        emitMsg(lineNum, "WARNING: Cannot insert file: " + fname, false);
+                        emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
                         continue;
                     }
                     QStringList insertedLines = QTextStream(&ins).readAll().split('\n');
@@ -853,8 +893,19 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         }
 
         // ── Insert, anywhere other than in step-table position ───────────────
-        if (isSkipKeyword(firstWord))
+        // Nothing is read from it here, but a file that does not exist is
+        // still a mistake in this line, and the one place to say so.
+        if (isSkipKeyword(firstWord)) {
+            auto insM = reDocInsert.match(trimmed);
+            if (insM.hasMatch()) {
+                const QString fname = !insM.captured(1).isEmpty() ? insM.captured(1)
+                                    : !insM.captured(2).isEmpty() ? insM.captured(2)
+                                                                   : insM.captured(3);
+                if (!QFileInfo::exists(QFileInfo(baseDir + "/" + fname).absoluteFilePath()))
+                    emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
+            }
             continue;
+        }
 
         // ── Examples: — captured if inside a named block; otherwise discarded ──
         if (firstWord.startsWith("Examples", Qt::CaseInsensitive)) {
@@ -1247,13 +1298,107 @@ QVector<ParseMessage> validateFieldTypes(const SpectableFile& file)
     return msgs;
 }
 
+// ---------------------------------------------------------------------------
+// One value against the built-in type its column declares
+// ---------------------------------------------------------------------------
+//
+// Moved here from Analyze on 2026-09-16, so that the converter checks a cell
+// the same way the editor does. A user DataType, Entity or Collection is not
+// checked -- its own constructor decides what it accepts, in each language.
+
+static void validateValue(int line, const QString& value, const QString& dtype,
+                          QVector<ParseMessage>& out)
+{
+    if (dtype.isEmpty()) return;
+
+    static const QRegularExpression reInteger (R"(^-?\d+$)");
+    static const QRegularExpression reFloat   (R"(^-?\d+(\.\d+)?([eE][+-]?\d+)?$)");
+    // Decimal has no exponent, and no thousands separator: every generator reads
+    // it with its language's exact-decimal type, and none of them accept a comma.
+    // "25,200.00" in a Decimal column used to reach BigDecimal and throw there.
+    static const QRegularExpression reDecimal (R"(^[+-]?(\d+(\.\d*)?|\.\d+)$)");
+    static const QRegularExpression reDate    (R"(^\d{4}-\d{2}-\d{2}$)");
+    static const QRegularExpression reTime    (R"(^\d{2}:\d{2}(:\d{2})?$)");
+    static const QRegularExpression reDateTime(R"(^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})");
+
+    auto warn = [&](const QString& text) {
+        ParseMessage m;
+        m.line    = line;
+        m.warning = true;
+        m.text    = text;
+        out.push_back(m);
+    };
+
+    const QString ltype = dtype.toLower();
+    if (ltype == "integer") {
+        if (!reInteger.match(value).hasMatch())
+            warn(QString("'%1' is not a valid Integer").arg(value));
+    } else if (ltype == "float") {
+        if (!reFloat.match(value).hasMatch())
+            warn(QString("'%1' is not a valid Float").arg(value));
+    } else if (ltype == "decimal" || ltype == "scientific") {
+        // Scientific is the one numeric type that may carry an exponent.
+        const bool ok = (ltype == "scientific") ? reFloat.match(value).hasMatch()
+                                                : reDecimal.match(value).hasMatch();
+        if (!ok)
+            warn(QString("'%1' is not a valid %2").arg(value, dtype));
+    } else if (ltype == "boolean") {
+        static const QStringList valid{"true", "false"};
+        if (!valid.contains(value.toLower()))
+            warn(QString("'%1' is not a valid Boolean (use true/false)").arg(value));
+    } else if (ltype == "yesno") {
+        static const QStringList valid{"y", "n", "yes", "no", "t", "f", "true", "false"};
+        if (!valid.contains(value.toLower()))
+            warn(QString("'%1' is not a valid YesNo value").arg(value));
+    } else if (ltype == "date") {
+        if (!reDate.match(value).hasMatch())
+            warn(QString("'%1' is not a valid Date (use YYYY-MM-DD)").arg(value));
+    } else if (ltype == "time") {
+        if (!reTime.match(value).hasMatch())
+            warn(QString("'%1' is not a valid Time (use HH:MM or HH:MM:SS)").arg(value));
+    } else if (ltype == "datetime") {
+        if (!reDateTime.match(value).hasMatch())
+            warn(QString("'%1' is not a valid DateTime").arg(value));
+    }
+}
+
+// A cell that states no value to check: blank, a Define reference that is
+// resolved later, or the do-not-care marker.
+static bool statesNoValue(const QString& cell)
+{
+    return cell.isEmpty() || cell.startsWith('=') || cell == "?DNC?";
+}
+
+// The attribute sets by name, the file's own declaration winning over a
+// sibling's of the same name -- a duplicate is reported elsewhere, and the
+// one in this file is the one this file's tables are written against.
+static QMap<QString, const AttrSet*> attrSetsByName(const SpectableFile& file)
+{
+    QMap<QString, const AttrSet*> byName;
+    for (const AttrSet& as : file.attrSets)
+        if (!byName.contains(as.name.toLower()))
+            byName.insert(as.name.toLower(), &as);
+    return byName;
+}
+
+static const Field* fieldOf(const AttrSet& as, const QString& name)
+{
+    for (const Field& f : as.fields)
+        if (f.name.compare(name, Qt::CaseInsensitive) == 0) return &f;
+    return nullptr;
+}
+
+static QString fieldTypeOf(const AttrSet& as, const QString& name)
+{
+    const Field* f = fieldOf(as, name);
+    return f ? f->type.trimmed() : QString();
+}
+
 QVector<ParseMessage> validateStepTables(const SpectableFile& file)
 {
     QVector<ParseMessage> msgs;
 
-    QMap<QString, const AttrSet*> byName;
-    for (const AttrSet& as : file.attrSets)
-        byName.insert(as.name.toLower(), &as);
+    const QMap<QString, const AttrSet*> byName = attrSetsByName(file);
 
     auto check = [&](const Step& step) {
         if (!step.hasTable || step.attrSetName.isEmpty()) return;
@@ -1341,6 +1486,32 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
                                 "— it will be ignored").arg(n, as->name);
             msgs.push_back(m);
         }
+
+        // Each cell against the type its column declares, reported at the
+        // row it was read from -- or at the step, when the rows came from an
+        // Inserted file and have no line here.
+        auto rowLine = [&](int r) {
+            return r < step.table.rowLines.size() ? step.table.rowLines[r] : step.line;
+        };
+        if (step.table.vertical) {
+            for (int r = 0; r < step.table.rows.size(); ++r) {
+                const QStringList& row = step.table.rows[r];
+                if (row.size() < 2) continue;
+                const QString type = fieldTypeOf(*as, row.first().trimmed());
+                for (int c = 1; c < row.size(); ++c)
+                    if (!statesNoValue(row[c].trimmed()))
+                        validateValue(rowLine(r), row[c].trimmed(), type, msgs);
+            }
+        } else {
+            const QStringList& headers = step.table.rows.first();
+            for (int r = 1; r < step.table.rows.size(); ++r) {
+                const QStringList& cells = step.table.rows[r];
+                for (int c = 0; c < qMin(cells.size(), headers.size()); ++c)
+                    if (!statesNoValue(cells[c].trimmed()))
+                        validateValue(rowLine(r), cells[c].trimmed(),
+                                      fieldTypeOf(*as, headers[c].trimmed()), msgs);
+            }
+        }
     };
 
     for (const Scenario& s : file.scenarios)
@@ -1349,4 +1520,105 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
     for (const Step& step : file.cleanupSteps)    check(step);
 
     return msgs;
+}
+
+// ---------------------------------------------------------------------------
+// An Examples: table against the attribute set it names
+// ---------------------------------------------------------------------------
+//
+// The same three questions validateStepTables asks of a step table: a column
+// naming no field, a field with no column and no default, and each cell
+// against its column's type. A built-in set such as ValidValues has no
+// declaration to read, and the generator supplies its shape.
+
+QVector<ParseMessage> validateExamplesTables(const SpectableFile& file)
+{
+    QVector<ParseMessage> msgs;
+    const QMap<QString, const AttrSet*> byName = attrSetsByName(file);
+
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (nb.isContext || nb.examples.line == 0) continue;
+        const AttrSet* as = byName.value(nb.examples.attrSetName.toLower(), nullptr);
+        if (!as || as->fields.isEmpty()) continue;
+        const ExamplesBlock& ex = nb.examples;
+        if (ex.header.isEmpty()) continue;
+
+        // A column naming no field is data the generator drops on the floor.
+        for (const QString& col : ex.header) {
+            const QString c = col.trimmed();
+            if (c.isEmpty() || fieldOf(*as, c)) continue;
+            ParseMessage m;
+            m.line    = ex.headerLine ? ex.headerLine : ex.line;
+            m.warning = true;
+            m.text    = QString("Examples table has column '%1', which is not an attribute of "
+                                "'%2' -- its values are ignored").arg(c, ex.attrSetName);
+            msgs.push_back(m);
+        }
+
+        // A field with no column and no default is one the generator cannot
+        // fill, and it refuses the file for it. A field with a default is filled
+        // from the default, which is what declaring one is for.
+        for (const Field& f : as->fields) {
+            if (f.name.isEmpty()) continue;
+            bool found = false;
+            for (const QString& col : ex.header)
+                if (col.trimmed().compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
+            if (found || !f.defaultValue.trimmed().isEmpty()) continue;
+            ParseMessage m;
+            m.line    = ex.headerLine ? ex.headerLine : ex.line;
+            m.warning = false;
+            m.text    = QString("Examples table for '%1' has no column '%2', and '%2' has no "
+                                "default value").arg(ex.attrSetName, f.name);
+            msgs.push_back(m);
+        }
+
+        for (int r = 0; r < ex.rows.size(); ++r) {
+            const QStringList& row = ex.rows[r];
+            const int line = r < ex.rowLines.size() ? ex.rowLines[r] : ex.line;
+            for (int c = 0; c < qMin(row.size(), ex.header.size()); ++c)
+                if (!statesNoValue(row[c].trimmed()))
+                    validateValue(line, row[c].trimmed(),
+                                  fieldTypeOf(*as, ex.header[c].trimmed()), msgs);
+        }
+    }
+    return msgs;
+}
+
+// ---------------------------------------------------------------------------
+// The Default column of an Attributes or Entity block
+// ---------------------------------------------------------------------------
+//
+// Each default against the type declared beside it on the same row. Blank
+// means no default; "~" is the spec's explicit empty string; "(none)" says
+// there is none. A "=Name" still here is one resolveDefineReferences could not
+// resolve, and is reported as that elsewhere.
+
+QVector<ParseMessage> validateAttributeDefaults(const SpectableFile& file)
+{
+    QVector<ParseMessage> msgs;
+    for (const AttrSet& as : file.attrSets) {
+        if (as.isContext) continue;
+        for (const Field& f : as.fields) {
+            const QString v = f.defaultValue.trimmed();
+            if (statesNoValue(v) || v == "~" || v.compare("(none)", Qt::CaseInsensitive) == 0)
+                continue;
+            validateValue(f.line, v, f.type.trimmed(), msgs);
+        }
+    }
+    return msgs;
+}
+
+// ---------------------------------------------------------------------------
+// A sibling's declarations, made visible
+// ---------------------------------------------------------------------------
+
+void mergeContext(SpectableFile& file, const SpectableFile& ctx)
+{
+    for (AttrSet as : ctx.attrSets)         { as.isContext = true;  file.attrSets.push_back(as); }
+    for (Collection col : ctx.collections)  { col.isContext = true; file.collections.push_back(col); }
+    for (DomainTerm dt : ctx.domainTerms)   { dt.isContext = true;  file.domainTerms.push_back(dt); }
+    for (Define def : ctx.defines)          { def.isContext = true; file.defines.push_back(def); }
+    for (NamedBlock nb : ctx.namedBlocks)   { nb.isContext = true;  file.namedBlocks.push_back(nb); }
+    for (const QString& dt : ctx.dataTypeNames)
+        if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
 }

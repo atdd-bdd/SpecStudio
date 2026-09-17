@@ -38,6 +38,20 @@ QVector<ParseMessage> validateFieldTypes(const SpectableFile& file);
 // the context merge, because the Define may be a sibling's.
 void resolveDefineReferences(SpectableFile& file);
 
+// An Examples: table against the attribute set it names, and the Default
+// column of each Attributes or Entity block against the type beside it. Both
+// ask what validateStepTables asks of a step table -- columns and cells --
+// and both used to be Analyze's alone, so the converter accepted what the
+// editor flagged. Called after the context merge, like the rest.
+QVector<ParseMessage> validateExamplesTables(const SpectableFile& file);
+QVector<ParseMessage> validateAttributeDefaults(const SpectableFile& file);
+
+// Makes a sibling specification's declarations visible to this one, marked as
+// context so nothing is generated for them here. The converter merges every
+// other file in the project this way, and Analyze does the same, so the two
+// resolve a name identically.
+void mergeContext(SpectableFile& file, const SpectableFile& ctx);
+
 class SpectableParser
 {
 public:
