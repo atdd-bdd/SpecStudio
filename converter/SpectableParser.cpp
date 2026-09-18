@@ -1342,9 +1342,14 @@ void resolveDomainTermTypes(SpectableFile& file)
     if (file.domainTerms.isEmpty()) return;
 
     QMap<QString, QString> byName;
-    for (const DomainTerm& dt : file.domainTerms)
-        if (!dt.name.isEmpty() && !dt.type.isEmpty())
-            byName.insert(dt.name.toLower(), dt.type);
+    for (const DomainTerm& dt : file.domainTerms) {
+        if (dt.name.isEmpty() || dt.type.isEmpty()) continue;
+        // A term named like a built-in type is reported by Analyze; it must not
+        // also take the built-in over. "DomainTerm Integer : String" once turned
+        // every Integer field in the project into a String, silently.
+        if (isBuiltinDataType(dt.name)) continue;
+        byName.insert(dt.name.toLower(), dt.type);
+    }
 
     for (AttrSet& as : file.attrSets) {
         for (Field& f : as.fields) {
