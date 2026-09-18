@@ -62,20 +62,9 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
-### Spelling, the parts still open. The checker is in (see Done). What it
-  does not do yet, each a small piece on top of it:
-    - A project dictionary beside the specifications, committed with them, so
-      a team shares its vocabulary; today the added words are personal, in
-      the user's data folder. Would read a second file at the solution root
-      and offer "Add to Project Dictionary" beside the personal one.
-    - Declared names accepted by definition: an Entity, DataType, DomainTerm
-      or Define named in the parse tree is spelled the way it is spelled.
-      Cheap, since the index already has them; removes most of the noise a
-      file full of identifiers makes before the dictionary is asked.
-    - snake_case and kebab-case split like camelCase.
-    - The .featurex and .feature editors, which have prose too and check
-      nothing.
-    - A dictionary other than en_US, chosen in Settings.
+### Spelling, still open: the .featurex and .feature editors check nothing,
+  and the dictionary is en_US only (a choice in Settings would need the
+  other SCOWL dictionaries compiled in, or read from a folder).
 
 ### Have a tab / untab (indent/outdent) command for the file; decide whether
   there should also be a whole-file reformat/indent-normalize command. Not
@@ -83,13 +72,27 @@ Altered so that it is separated into Issues and Future Features
   only special-cases Tab/Backtab for the autocomplete popup.
 
 ### Copy named comments in the .spectable into comments in the generated code.
+  Only into files that are regenerated on every build -- the tests and the
+  common/ *String/*Typed classes -- never into a production template: a
+  production file is written once and never overwritten, so a comment copied
+  there would go stale the first time the specification changed it, and read
+  as if it were current. (Ken, 2026-09-18.) The parser keeps every named
+  comment with its rows now, so the generator side is a loop in nine places.
 
 ### Internal Markdown editor.
 
 ### Cleanup -  
 
-  #### Analyze-implementation command: flag glue-code methods that are never
-  referenced by any step. Not implemented.
+  #### Glue methods no step calls -- DONE at build time (2026-09-18). After
+  merging stubs into an existing glue file, every generator lists the public
+  step methods the file declares that it did not expect, one WARNING each
+  naming the method and the file. Each language's idea of "a public step
+  method" is a one-line pattern (public void, pub fn indented in the impl,
+  exported Go receiver method, def not starting with _, ...) so the
+  developer's private helpers are not reported. The first run found two dead
+  methods in RDD_Example_glue.java: a typo's leftover and an old naming
+  variant. Not in Analyze: Analyze reads specifications, and the glue lives
+  in the output tree of whichever configuration is active.
 
   #### When a step name changes, rename/update the corresponding glue method name
   on the next build/analyze instead of leaving an orphaned method. Not
@@ -158,6 +161,30 @@ Altered so that it is separated into Issues and Future Features
   wants a lowercase module name (address.py). Renaming it would break every
   existing import in both downstream repos, so it needs doing as its own change.
 
+### The IDE's remaining readers of .spectable text, after Simulate Scenario
+  moved to the parse tree (2026-09-18). Three kinds, only the first two worth
+  changing:
+    - ExampleRunnerDialog (13 patterns): finds the Examples: block under the
+      cursor by reading the file, and checks each cell with its own copies of
+      the Integer/Float/Date patterns -- a second validateValue. Should take
+      the block from SpecTableIndex::fileWithContext (NamedBlock.examples,
+      with rowLines) and show what validateExamplesTables says. About half a
+      day, and it deletes the duplicate value rules.
+    - SpecTableEditor (72 patterns): decides what the line under the cursor
+      is -- a step, a table row, an Attributes header, an Insert -- for
+      completions, the context menu, Insert Table Header, Import CSV, and the
+      tooltips. Per-line questions about the file being typed, so it cannot
+      simply take the last parse; it would need the editor to keep a tree of
+      the current text and map a cursor line to the element there (every
+      model element carries its line now). A day or two; the payoff is that
+      the menu offers what the parser would accept.
+    - AppController (31 patterns): Find, Find All, Rename Step, Rename
+      Symbol, and rewriting Import/Insert paths when a file moves. These edit
+      text by pattern, which is what a rename is; leave them.
+  Not readers of the language at all: BuildOutputParser (the converter's
+  WARNING:line:text lines), ProjectIndex (.featurex), the highlighter's colour
+  rules (per-line colouring is what a highlighter is).
+
 ### Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
   AppController.cpp:500) but it's a generic git working-tree diff, not a
   comparison against "the .spectable version that generated the current
@@ -178,22 +205,6 @@ Altered so that it is separated into Issues and Future Features
 
 
 ## Bigger Language Feature Ideas (not scoped/designed yet) ---
-
-### Infer a table's orientation instead of being told it. A step already names
-  the attribute set its table belongs to, so the parser knows the attribute
-  names before it reads the table. That is enough to tell which way the table
-  runs: look for where the *second* attribute's name appears. Across the first
-  row means horizontal; down the first column means vertical. One attribute
-  alone is ambiguous and either reading gives the same answer.
-
-  Keep the Vertical keyword for now — this would make it optional rather than
-  remove it, and an explicit keyword is still worth having where a reader wants
-  the orientation stated.
-
-  Groundwork is already done: as of 2026-09-13 a Vertical table is treated as a
-  horizontal one transposed everywhere it matters, so missing and unknown
-  attributes give the same message either way (converter/SpectableParser.cpp,
-  validateStepTables).
 
 ### What Karate has that SpecTable does not, from writing API.spectable against a
   live service (SpecStudioVariousTests, 2026-08-13). Karate is an API-testing
@@ -347,6 +358,39 @@ Altered so that it is separated into Issues and Future Features
 
 
 ## --- Done ---
+
+[x] Simulate Scenario reads the parse tree. Its 240-line regex reader is gone;
+    the dialog takes SpecTableIndex::fileWithContext (or, with no index, its
+    own parse with the same passes applied), so a Define from a sibling
+    resolves and a table lies the way the generators read it -- including one
+    whose orientation was inferred, which the old reader showed the other way.
+
+[x] A step naming an attribute set with no table after it is an error, at the
+    step (Ken, 2026-09-18): the glue would be called with nothing. Said by the
+    parser, so the converter refuses it and Analyze shows it. ErrorTests
+    62 -> 64: the two "applying" steps in Unknown Names were exactly that.
+
+[x] A table's orientation is inferred when the step does not say. The step
+    names its attribute set, so the field names are known before the table is
+    read: first row all field names -> horizontal; first column all field
+    names while the first row is not -> Vertical, exactly as if written. A
+    table fitting neither is left as written and reported as before. The word
+    stays, and wins when present. inferTableOrientation in the parser, after
+    the context merge, called by the converter and by Analyze's
+    fileWithContext. Corpora identical; every regeneration byte-identical; a
+    three-attribute transposed table with no word builds its two instances.
+
+[x] Glue methods no step calls, flagged at build time in all nine languages
+    (see the Cleanup entry above).
+
+[x] Spelling, finished. A declared name is spelled the way it is declared:
+    the index hands the checker every symbol and attribute name after each
+    rebuild, and such a token is never queried. snake_case and kebab-case
+    were already checked word by word, since _ and - end a token. And a
+    solution dictionary: dictionary.txt beside the .sspec, read when the
+    solution opens, "Add to Solution Dictionary" on the menu beside the
+    personal one, meant to be committed so a team shares its vocabulary.
+    Verified through tools/spell_cli (--project, --project-add, --known).
 
 [x] A table under any named comment. Description, Details, Notes, Constraint
     and Uses may each be followed directly by a table, and the table is the
