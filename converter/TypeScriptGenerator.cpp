@@ -1866,6 +1866,16 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
         } else {
             if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+            // A method the file declares that no step calls any more.
+            {
+                QSet<QString> expected;
+                for (const GlueSig& sig : sigs) expected.insert(sig.method);
+                expected.insert("constructor");
+                static const QRegularExpression decl(R"(^  (?:public )?([A-Za-z]\w*)\()");
+                for (const QString& dead : sourcescan::glueMethodsNoStepCalls(
+                         gluePath, decl, expected, false))
+                    msgs << sourcescan::deadGlueWarning(dead, gluePath);
+            }
         }
     }
 

@@ -1686,6 +1686,15 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
         } else {
             if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+            // A method the file declares that no step calls any more.
+            {
+                QSet<QString> expected;
+                for (const GlueSig& sig : sigs) expected.insert(sig.method);
+                static const QRegularExpression decl(R"(^\s*public func (\w+)\()");
+                for (const QString& dead : sourcescan::glueMethodsNoStepCalls(
+                         gluePath, decl, expected, false))
+                    msgs << sourcescan::deadGlueWarning(dead, gluePath);
+            }
         }
     }
 

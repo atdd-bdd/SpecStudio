@@ -2062,6 +2062,19 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         } else {
             if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);
+            // A method the file declares that no step calls any more.
+            {
+                QSet<QString> expected;
+                for (const GlueSig& sig : sigs) expected.insert(sig.method);
+                expected.insert("new");
+                // Indented: the methods of the impl block. The free helpers the
+                // generator writes at column 0 -- to_vec_vec_i32 and friends --
+                // are not steps.
+                static const QRegularExpression decl(R"(^\s+pub fn (\w+)\()");
+                for (const QString& dead : sourcescan::glueMethodsNoStepCalls(
+                         gluePath, decl, expected, false))
+                    msgs << sourcescan::deadGlueWarning(dead, gluePath);
+            }
         }
     }
 

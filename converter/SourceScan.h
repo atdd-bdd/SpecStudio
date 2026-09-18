@@ -5,8 +5,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QTextStream>
 #include <QVector>
 
 // ---------------------------------------------------------------------------
@@ -256,5 +258,51 @@ public:
 private:
     QVector<QPair<QString, QString>> m_files;   // path, comment-stripped text
 };
+
+// ---------------------------------------------------------------------------
+// Glue methods no step calls
+// ---------------------------------------------------------------------------
+//
+// A glue file is written once and merged into afterwards: a step that is
+// renamed or removed leaves its old method behind, still compiling, called by
+// nothing, and it is invisible until someone reads the file. The generator
+// knows every method it expects -- one per step signature -- so after the
+// merge it lists the public methods the file declares that it does not
+// expect. `decl` matches one declaration per line with the name in group 1,
+// and is the language's idea of a public step method: what the developer's
+// private helpers are not. `stopAt`, when set, ends the scan (a C++ class's
+// "private:" line). Returns the names, in file order.
+
+inline QStringList glueMethodsNoStepCalls(const QString& gluePath,
+                                          const QRegularExpression& decl,
+                                          const QSet<QString>& expected,
+                                          bool hashComments,
+                                          const QString& stopAt = QString())
+{
+    QStringList dead;
+    QFile f(gluePath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return dead;
+    QString scan = hashComments ? stripHashComments(QTextStream(&f).readAll())
+                                : stripCStyleComments(QTextStream(&f).readAll());
+    if (!stopAt.isEmpty()) {
+        const int cut = scan.indexOf(stopAt);
+        if (cut >= 0) scan = scan.left(cut);
+    }
+    for (const QString& line : scan.split('\n')) {
+        const auto m = decl.match(line);
+        if (!m.hasMatch()) continue;
+        const QString name = m.captured(1);
+        if (!expected.contains(name) && !dead.contains(name)) dead << name;
+    }
+    return dead;
+}
+
+// The warning each generator prints for one such method.
+inline QString deadGlueWarning(const QString& method, const QString& gluePath)
+{
+    return QString("WARNING:0:Glue method '%1' in %2 is called by no step -- the step it "
+                   "served was renamed or removed; delete it, or restore the step")
+        .arg(method, gluePath);
+}
 
 } // namespace sourcescan
