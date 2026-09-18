@@ -187,6 +187,8 @@ void SpecTableHighlighter::checkSpelling(const QString& text)
         if (inQuotes(start)) continue;
         const QString token = m.captured();
         if (!SpellChecker::isCheckable(token)) continue;
+        // A declared name is spelled the way it is declared.
+        if (checker->isKnownName(token)) continue;
 
         for (const SpellChecker::Part& part : SpellChecker::splitCamelCase(token)) {
             QString word = part.text;

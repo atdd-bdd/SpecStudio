@@ -66,6 +66,23 @@ public:
     QStringList userWords() const;
     QString     userDictionaryPath() const;
 
+    // A solution's shared words: "dictionary.txt" beside the .sspec, committed
+    // with the specifications, so a team shares its vocabulary. Set when a
+    // solution opens (empty when none is), read then, written on every change.
+    void        setProjectDictionaryPath(const QString& path);
+    QString     projectDictionaryPath() const { return m_projectPath; }
+    void        addToProjectDictionary(const QString& word);
+    void        removeFromProjectDictionary(const QString& word);
+    bool        isProjectWord(const QString& word) const;
+
+    // Names the specifications declare -- every Entity, Attributes, DataType,
+    // DomainTerm, Define, Collection, BusinessRule, Calculation and attribute
+    // name in the project. A declared name is spelled the way it is declared,
+    // so a token that is one is never looked up. Lower-cased; set by whoever
+    // rebuilds the index.
+    void        setKnownNames(const QSet<QString>& lowerCased);
+    bool        isKnownName(const QString& token) const;
+
 signals:
     // A word was added or removed, or checking was switched on or off, so
     // every open editor should look again.
@@ -85,4 +102,12 @@ private:
     bool                      m_loadTried = false;
     QSet<QString>             m_userWords;      // as written
     QSet<QString>             m_userWordsLower; // for the case-insensitive question
+
+    QString                   m_projectPath;
+    QSet<QString>             m_projectWords;
+    QSet<QString>             m_projectWordsLower;
+    QSet<QString>             m_knownNames;
+
+    void loadWordFile(const QString& path, QSet<QString>& words, QSet<QString>& lower);
+    void saveWordFile(const QString& path, const QSet<QString>& words, const QString& heading) const;
 };

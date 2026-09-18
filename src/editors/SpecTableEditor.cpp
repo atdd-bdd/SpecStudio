@@ -1851,7 +1851,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
         const int line = textEdit()->textCursor().block().blockNumber() + 1;
         auto* simAct = menu->addAction(tr("Simulate Scenario..."));
         connect(simAct, &QAction::triggered, this, [fp, line, this] {
-            auto* dlg = new ScenarioSimulatorDialog(fp, line, window());
+            auto* dlg = new ScenarioSimulatorDialog(fp, line, m_index, window());
             dlg->show();
         });
         menu->addSeparator();
@@ -2254,7 +2254,7 @@ void SpecTableEditor::addSpellingActions(QMenu* menu)
         const auto m = it.next();
         if (column < m.capturedStart() || column > m.capturedEnd()) continue;
         const QString token = m.captured();
-        if (!SpellChecker::isCheckable(token)) return;
+        if (!SpellChecker::isCheckable(token) || checker->isKnownName(token)) return;
         for (const SpellChecker::Part& part : SpellChecker::splitCamelCase(token)) {
             const int from = m.capturedStart() + part.offset;
             if (column < from || column > from + part.length) continue;
@@ -2268,8 +2268,9 @@ void SpecTableEditor::addSpellingActions(QMenu* menu)
     }
     if (wordStart < 0 || !SpellChecker::isCheckable(word)) return;
 
-    const bool userWord = checker->isUserWord(word);
-    if (!userWord && checker->isCorrect(word)) return;
+    const bool userWord    = checker->isUserWord(word);
+    const bool projectWord = checker->isProjectWord(word);
+    if (!userWord && !projectWord && checker->isCorrect(word)) return;
 
     QAction* first = menu->actions().isEmpty() ? nullptr : menu->actions().first();
     auto insert = [&](const QString& label) {
@@ -2278,7 +2279,7 @@ void SpecTableEditor::addSpellingActions(QMenu* menu)
         return act;
     };
 
-    if (!userWord) {
+    if (!userWord && !projectWord) {
         const QStringList suggestions = checker->suggestions(word);
         if (suggestions.isEmpty()) {
             insert(tr("(no spelling suggestions)"))->setEnabled(false);
@@ -2299,10 +2300,21 @@ void SpecTableEditor::addSpellingActions(QMenu* menu)
         connect(addAct, &QAction::triggered, this, [checker, word] {
             checker->addToUserDictionary(word);
         });
-    } else {
+        if (!checker->projectDictionaryPath().isEmpty()) {
+            auto* addProjAct = insert(tr("Add '%1' to Solution Dictionary").arg(word));
+            connect(addProjAct, &QAction::triggered, this, [checker, word] {
+                checker->addToProjectDictionary(word);
+            });
+        }
+    } else if (userWord) {
         auto* removeAct = insert(tr("Remove '%1' from Dictionary").arg(word));
         connect(removeAct, &QAction::triggered, this, [checker, word] {
             checker->removeFromUserDictionary(word);
+        });
+    } else {
+        auto* removeAct = insert(tr("Remove '%1' from Solution Dictionary").arg(word));
+        connect(removeAct, &QAction::triggered, this, [checker, word] {
+            checker->removeFromProjectDictionary(word);
         });
     }
     menu->insertSeparator(first);

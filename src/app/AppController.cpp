@@ -1,4 +1,5 @@
 #include "AppController.h"
+#include "../spell/SpellChecker.h"
 #include "../ToolPath.h"
 #include "MainWindow.h"
 #include "../model/Solution.h"
@@ -122,6 +123,10 @@ void AppController::setSolution(Solution* solution)
     delete m_solution;
     m_solution = solution;
     m_treeModel->setSolution(solution);
+
+    // The solution's shared spelling words live beside its .sspec.
+    SpellChecker::instance()->setProjectDictionaryPath(
+        solution ? solution->rootPath() + QDir::separator() + "dictionary.txt" : QString());
 
     if (solution) {
         m_mainWindow->statusBarMgr()->setSolutionName(solution->name());
@@ -616,7 +621,7 @@ void AppController::onSave()
                             stFiles.append(file->absolutePath());
             if (!stFiles.contains(ed->filePath()))
                 stFiles.append(ed->filePath());
-            m_specTableIndex->rebuildProject(stFiles);
+            { m_specTableIndex->rebuildProject(stFiles); SpellChecker::instance()->setKnownNames(m_specTableIndex->declaredNames()); }
             if (auto* ste = qobject_cast<SpecTableEditor*>(
                     m_mainWindow->editorForPath(ed->filePath())))
                 ste->refreshDynamicCompletions();
@@ -1847,7 +1852,7 @@ void AppController::doAnalyze(const QList<Project*>& targets)
         }
 
         if (!specTableFiles.isEmpty() || !externalFiles.isEmpty()) {
-            m_specTableIndex->rebuildProject(specTableFiles, externalFiles);
+            { m_specTableIndex->rebuildProject(specTableFiles, externalFiles); SpellChecker::instance()->setKnownNames(m_specTableIndex->declaredNames()); }
 
             // Info diagnostics for each successfully loaded external file
             for (const QString& extFile : externalFiles) {
@@ -2734,7 +2739,7 @@ void AppController::renameSpecTableSymbol(const QString& oldName)
             for (auto* file : proj->files())
                 if (file->type() == FileType::SpecTable)
                     stFiles.append(file->absolutePath());
-        m_specTableIndex->rebuildProject(stFiles);
+        { m_specTableIndex->rebuildProject(stFiles); SpellChecker::instance()->setKnownNames(m_specTableIndex->declaredNames()); }
         for (auto* ed : m_mainWindow->allOpenEditors())
             if (auto* ste = qobject_cast<SpecTableEditor*>(ed))
                 ste->refreshDynamicCompletions();
@@ -2894,7 +2899,7 @@ void AppController::onOpenFile(const QString& absolutePath)
         }
         if (!specTableFiles.contains(absolutePath))
             specTableFiles.append(absolutePath);
-        m_specTableIndex->rebuildProject(specTableFiles);
+        { m_specTableIndex->rebuildProject(specTableFiles); SpellChecker::instance()->setKnownNames(m_specTableIndex->declaredNames()); }
 
         ste->setIndex(m_specTableIndex);
         if (m_solution) {

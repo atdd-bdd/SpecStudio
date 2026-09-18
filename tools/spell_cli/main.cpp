@@ -27,6 +27,20 @@ int main(int argc, char* argv[])
             out << "added " << QString::fromLocal8Bit(argv[i]) << "\n";
             continue;
         }
+        // --project FILE uses FILE as the solution dictionary; --project-add WORD
+        // writes to it; --known NAME declares a name, as the index would.
+        if (token == "--project" && i + 1 < argc) {
+            checker->setProjectDictionaryPath(QString::fromLocal8Bit(argv[++i]));
+            continue;
+        }
+        if (token == "--project-add" && i + 1 < argc) {
+            checker->addToProjectDictionary(QString::fromLocal8Bit(argv[++i]));
+            continue;
+        }
+        if (token == "--known" && i + 1 < argc) {
+            checker->setKnownNames({ QString::fromLocal8Bit(argv[++i]).toLower() });
+            continue;
+        }
         if (token == "--remove" && i + 1 < argc) {
             checker->removeFromUserDictionary(QString::fromLocal8Bit(argv[++i]));
             out << "removed " << QString::fromLocal8Bit(argv[i]) << "\n";
@@ -34,6 +48,10 @@ int main(int argc, char* argv[])
         }
         if (!SpellChecker::isCheckable(token)) {
             out << token << ": not checked\n";
+            continue;
+        }
+        if (checker->isKnownName(token)) {
+            out << token << ": declared name\n";
             continue;
         }
         for (const SpellChecker::Part& p : SpellChecker::splitCamelCase(token)) {

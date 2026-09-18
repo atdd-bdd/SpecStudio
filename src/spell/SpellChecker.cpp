@@ -89,7 +89,8 @@ bool SpellChecker::isAvailable()
 bool SpellChecker::isCorrect(const QString& word)
 {
     if (!isAvailable()) return true;
-    if (m_userWordsLower.contains(word.toLower())) return true;
+    const QString lower = word.toLower();
+    if (m_userWordsLower.contains(lower) || m_projectWordsLower.contains(lower)) return true;
     // The dictionary is UTF-8 (its .aff says SET UTF-8), so a QString goes
     // across as that.
     return m_hunspell->spell(word.toUtf8().toStdString());
@@ -149,32 +150,47 @@ QVector<SpellChecker::Part> SpellChecker::splitCamelCase(const QString& token)
 // The user's own words
 // ---------------------------------------------------------------------------
 
-void SpellChecker::loadUserWords()
+void SpellChecker::loadWordFile(const QString& path, QSet<QString>& words, QSet<QString>& lower)
 {
-    m_userWords.clear();
-    m_userWordsLower.clear();
-    QFile f(userDictionaryPath());
+    words.clear();
+    lower.clear();
+    if (path.isEmpty()) return;
+    QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return;
     QTextStream in(&f);
     while (!in.atEnd()) {
         const QString w = in.readLine().trimmed();
         if (w.isEmpty() || w.startsWith('#')) continue;
-        m_userWords.insert(w);
-        m_userWordsLower.insert(w.toLower());
+        words.insert(w);
+        lower.insert(w.toLower());
         if (m_hunspell) m_hunspell->add(w.toUtf8().toStdString());
     }
 }
 
-void SpellChecker::saveUserWords() const
+void SpellChecker::saveWordFile(const QString& path, const QSet<QString>& words,
+                                const QString& heading) const
 {
-    QDir().mkpath(dictionaryFolder());
-    QFile f(userDictionaryPath());
+    if (path.isEmpty()) return;
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile f(path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) return;
     QTextStream out(&f);
-    out << "# Words added to the dictionary from AlignThree, one per line.\n";
-    QStringList words = m_userWords.values();
-    words.sort(Qt::CaseInsensitive);
-    for (const QString& w : words) out << w << "\n";
+    out << "# " << heading << "\n";
+    QStringList list = words.values();
+    list.sort(Qt::CaseInsensitive);
+    for (const QString& w : list) out << w << "\n";
+}
+
+void SpellChecker::loadUserWords()
+{
+    loadWordFile(userDictionaryPath(), m_userWords, m_userWordsLower);
+    loadWordFile(m_projectPath, m_projectWords, m_projectWordsLower);
+}
+
+void SpellChecker::saveUserWords() const
+{
+    saveWordFile(userDictionaryPath(), m_userWords,
+                 "Words added to the dictionary from AlignThree, one per line.");
 }
 
 void SpellChecker::addToUserDictionary(const QString& word)
@@ -206,6 +222,74 @@ void SpellChecker::removeFromUserDictionary(const QString& word)
 bool SpellChecker::isUserWord(const QString& word) const
 {
     return m_userWordsLower.contains(word.trimmed().toLower());
+}
+
+// ---------------------------------------------------------------------------
+// The solution's shared words
+// ---------------------------------------------------------------------------
+
+void SpellChecker::setProjectDictionaryPath(const QString& path)
+{
+    if (path == m_projectPath) return;
+    // Words from the old solution stop being right; Hunspell forgets them
+    // one by one, since it has no notion of where a word came from.
+    if (m_hunspell)
+        for (const QString& w : m_projectWords)
+            if (!m_userWordsLower.contains(w.toLower())) m_hunspell->remove(w.toUtf8().toStdString());
+    m_projectPath = path;
+    if (m_loadTried) loadWordFile(m_projectPath, m_projectWords, m_projectWordsLower);
+    else { m_projectWords.clear(); m_projectWordsLower.clear(); }   // read with the rest, on first use
+    emit changed();
+}
+
+void SpellChecker::addToProjectDictionary(const QString& word)
+{
+    const QString w = word.trimmed();
+    if (w.isEmpty() || m_projectPath.isEmpty() || m_projectWords.contains(w)) return;
+    ensureLoaded();
+    m_projectWords.insert(w);
+    m_projectWordsLower.insert(w.toLower());
+    if (m_hunspell) m_hunspell->add(w.toUtf8().toStdString());
+    saveWordFile(m_projectPath, m_projectWords,
+                 "Words this solution's specifications use, one per line. Shared with everyone who opens it.");
+    emit changed();
+}
+
+void SpellChecker::removeFromProjectDictionary(const QString& word)
+{
+    const QString w = word.trimmed();
+    QString stored;
+    for (const QString& u : m_projectWords)
+        if (u.compare(w, Qt::CaseInsensitive) == 0) { stored = u; break; }
+    if (stored.isEmpty()) return;
+    m_projectWords.remove(stored);
+    m_projectWordsLower.remove(stored.toLower());
+    if (m_hunspell && !m_userWordsLower.contains(stored.toLower()))
+        m_hunspell->remove(stored.toUtf8().toStdString());
+    saveWordFile(m_projectPath, m_projectWords,
+                 "Words this solution's specifications use, one per line. Shared with everyone who opens it.");
+    emit changed();
+}
+
+bool SpellChecker::isProjectWord(const QString& word) const
+{
+    return m_projectWordsLower.contains(word.trimmed().toLower());
+}
+
+// ---------------------------------------------------------------------------
+// Names the specifications declare
+// ---------------------------------------------------------------------------
+
+void SpellChecker::setKnownNames(const QSet<QString>& lowerCased)
+{
+    if (lowerCased == m_knownNames) return;
+    m_knownNames = lowerCased;
+    emit changed();
+}
+
+bool SpellChecker::isKnownName(const QString& token) const
+{
+    return m_knownNames.contains(token.trimmed().toLower());
 }
 
 QStringList SpellChecker::userWords() const

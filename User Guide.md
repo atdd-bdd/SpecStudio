@@ -216,7 +216,7 @@ be followed by any number of modifiers, in any order.
 
 | Modifier | What it says |
 |---|---|
-| `Vertical` | The table is transposed — attributes down the left, one column per instance. Reads better when a table has one row and many columns. |
+| `Vertical` | The table is transposed — attributes down the left, one column per instance. Reads better when a table has one row and many columns. Optional: a table whose first column is all attribute names is read this way whether or not the word is there. |
 | `CompareOnly` | Equality is limited to the columns actually shown; the rest are filled with `?DNC?` and not compared. |
 | `EveryCell` | The table is a grid and **each cell holds the text form of the named type**, rather than being one row per instance with a column per attribute. |
 
@@ -514,12 +514,19 @@ marked at `Totl`. Anything written entirely in capitals (`TBR`, `JSON`),
 anything with a digit in it, file names inside quotes, and the contents of a
 docstring are left alone.
 
+A name the specifications declare is spelled the way it is declared: an
+Entity, Attributes, DataType, DomainTerm, Define, Collection, BusinessRule or
+Calculation name, and every attribute name, is never queried. Words joined by
+`_` or `-` are checked one at a time.
+
 Right-click an underlined word for the likely spellings; pick one and it
 replaces the word. **Add '...' to Dictionary** accepts a word for good, in every
-file; right-click a word you added for **Remove '...' from Dictionary**. The
-words you add are kept in a file of their own, `user words.txt` in the
-application's data folder, one per line, so they survive an upgrade and can be
-edited or copied to another machine.
+file, for you; **Add '...' to Solution Dictionary** accepts it for everyone who
+opens the solution. Right-click a word you added for the matching **Remove**.
+Your own words are kept in `user words.txt` in the application's data folder;
+the solution's are in `dictionary.txt` beside the `.sspec`, one word per line,
+meant to be committed with the specifications so a team shares its
+vocabulary. Both are plain text and can be edited by hand.
 
 **Edit → Check Spelling** switches the whole thing off and on. The dictionary is
 American English (en_US), compiled into AlignThree.
