@@ -95,6 +95,18 @@ its columns are compared, `EveryCell` is what a cell holds -- so
 `: Order Vertical CompareOnly` is a transposed table that checks only the
 attributes it names.
 
+**The word is optional.** The step names its attribute set, so the attribute
+names are known before the table is read, and that is enough to see which way
+it runs: a table whose first row is all attribute names is horizontal; one
+whose first column is all attribute names, when its first row is not, is a
+transposed one and is read exactly as if `Vertical` had been written. One
+attribute with one value can be written either way, and there is no ambiguity:
+the first cell is the attribute's name, so `| Reference | A-4 |` and
+`| Reference |` over `| A-4 |` are the same instance. A table that fits
+neither reading is taken as horizontal, and reported as such. Write `Vertical`
+where a reader would want the orientation stated; leave it out where the table
+makes it plain.
+
 ### 2.4.1 EveryCell
 
 A table naming an Entity is normally one row per instance, with a column per

@@ -138,6 +138,7 @@ int main(int argc, char* argv[])
     // sees it. After the merge, because the term may be declared in a sibling.
     resolveDomainTermTypes(file);
     resolveDefineReferences(file);
+    inferTableOrientation(file);
 
     // Emit FILE: before any messages so the IDE's output parser attributes
     // warnings to this file even when multiple converters run concurrently.

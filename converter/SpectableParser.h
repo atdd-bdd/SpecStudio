@@ -46,6 +46,15 @@ void resolveDefineReferences(SpectableFile& file);
 QVector<ParseMessage> validateExamplesTables(const SpectableFile& file);
 QVector<ParseMessage> validateAttributeDefaults(const SpectableFile& file);
 
+// Works out which way a step table runs when the step did not say. The step
+// names its attribute set, so the field names are known before the table is
+// read: a table whose header row is all field names is horizontal; one whose
+// first column is all field names, while its first row is not, is a
+// transposed one, and is marked Vertical as if the word had been written.
+// Anything else is left as written. Called after the context merge, since
+// the set may be declared in a sibling, and before validateStepTables.
+void inferTableOrientation(SpectableFile& file);
+
 // Makes a sibling specification's declarations visible to this one, marked as
 // context so nothing is generated for them here. The converter merges every
 // other file in the project this way, and Analyze does the same, so the two

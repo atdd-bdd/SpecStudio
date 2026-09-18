@@ -8,12 +8,18 @@
 class QFileSystemWatcher;
 class QPushButton;
 class QTextBrowser;
+class SpecTableIndex;
+struct SpectableFile;
 
 class ScenarioSimulatorDialog : public QDialog
 {
     Q_OBJECT
 public:
+    // With an index, the file is shown as the converter sees it -- merged with
+    // the project's other files, Defines from siblings resolved. Without one,
+    // the file on its own.
     explicit ScenarioSimulatorDialog(const QString& filePath, int cursorLine,
+                                     const SpecTableIndex* index = nullptr,
                                      QWidget* parent = nullptr);
 
 public slots:
@@ -45,7 +51,7 @@ private:
         QVector<DisplayDefine>  defines;
     };
 
-    static ParsedFile parseFile(const QString& filePath);
+    static ParsedFile fromModel(const SpectableFile& file);
     static DisplayDefine* findDefine(const QString& name, QVector<DisplayDefine>& defines);
 
     QString buildHtml(const ParsedFile& pf, int cursorLine) const;
@@ -65,6 +71,7 @@ private:
 
     QString m_filePath;
     int     m_cursorLine;
+    const SpecTableIndex* m_index = nullptr;
 
     QTextBrowser*        m_browser = nullptr;
     QPushButton*         m_refresh = nullptr;

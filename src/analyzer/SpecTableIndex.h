@@ -123,6 +123,11 @@ public:
     // file was not part of it.
     const SpectableFile* parsedFile(const QString& filePath) const;
 
+    // Every declared name in the project, lower-cased: each symbol kind above
+    // and every attribute name. For the spell checker, which takes a declared
+    // name as spelled the way it is declared.
+    QSet<QString> declaredNames() const;
+
     // Returns true if filePath was loaded as an external file in the last rebuildProject().
     bool isExternalFile(const QString& absFilePath) const;
 

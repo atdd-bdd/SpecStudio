@@ -1,5 +1,8 @@
 #include "ScenarioSimulatorDialog.h"
 
+#include "../../analyzer/SpecTableIndex.h"
+#include "SpectableParser.h"
+
 #include <QColor>
 #include <QFile>
 #include <QFileInfo>
@@ -18,10 +21,12 @@
 
 ScenarioSimulatorDialog::ScenarioSimulatorDialog(const QString& filePath,
                                                  int cursorLine,
+                                                 const SpecTableIndex* index,
                                                  QWidget* parent)
     : QDialog(parent, Qt::Tool | Qt::WindowCloseButtonHint)
     , m_filePath(filePath)
     , m_cursorLine(cursorLine)
+    , m_index(index)
 {
     setWindowTitle(tr("Scenario Simulator — %1").arg(QFileInfo(filePath).fileName()));
     setAttribute(Qt::WA_DeleteOnClose);
@@ -58,241 +63,52 @@ ScenarioSimulatorDialog::ScenarioSimulatorDialog(const QString& filePath,
 }
 
 // ---------------------------------------------------------------------------
-// Lightweight parser — collects Background, all Scenarios, Cleanup, Defines
+// The file, as the parser reads it
 // ---------------------------------------------------------------------------
+//
+// Until 2026-09-18 this dialog read the specification itself, with regular
+// expressions -- the same second reading Analyze once had, with the same
+// consequence: a table whose orientation the parser inferred was shown the
+// other way round here. Now it takes the converter's parse tree, merged with
+// the project's other files when an index is at hand, so a Define declared in
+// a sibling resolves and every table lies the way the generators read it.
 
-ScenarioSimulatorDialog::ParsedFile ScenarioSimulatorDialog::parseFile(const QString& filePath)
+ScenarioSimulatorDialog::ParsedFile
+ScenarioSimulatorDialog::fromModel(const SpectableFile& file)
 {
     ParsedFile result;
 
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-        return result;
-
-    QTextStream in(&f);
-    const QStringList lines = in.readAll().split('\n');
-
-    enum class State {
-        Top, InBackground, InCleanup, InScenario,
-        InDefineTable, AwaitStepTable, InStepTable, SkipBlock
+    auto toDisplay = [](const Step& st) {
+        DisplayStep d;
+        d.keyword     = st.keyword;
+        d.text        = st.text;
+        d.attrSetName = st.attrSetName;
+        d.defineRef   = st.defineRef;
+        d.tableRows   = st.table.rows;
+        d.vertical    = st.vertical || st.table.vertical;
+        d.hasHeader   = st.table.hasHeader;
+        return d;
     };
 
-    State state       = State::Top;
-    bool  inCleanup   = false;
-    int   lineNum     = 0;
-
-    ParsedScenario* curScenario = nullptr;
-    DisplayStep*    curStep     = nullptr;
-    DisplayDefine*  curDefine   = nullptr;
-    QString         lastKw;
-
-    static const QStringList skipWords = {
-        "Description","Details","Constraint","Notes","Uses","Import","Insert"
-    };
-    static const QStringList blockWords = {
-        "Specification","Entity","Collection","DomainTerm","DataType","Attributes",
-        "Examples","BusinessRule","Calculation","DataType"
-    };
-    static const QStringList scenarioWords = { "Scenario","ScenarioGroup" };
-    static QRegularExpression reStep(
-        R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+)$)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reAttr(
-        R"(\s*:\s*(\w[\w\s]*\w|\w+)(?:\s+(Vertical))?\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reDef(R"(^=(\w+)\s*$)");
-    static QRegularExpression reDefineDecl(
-        R"(^Define\s+(\w+)\s*(?:=\s*(.*))?$)",
-        QRegularExpression::CaseInsensitiveOption);
-
-    auto isPipeRow = [](const QString& t) { return t.startsWith('|'); };
-    auto splitPipe = [](const QString& line) {
-        QStringList parts = line.split('|');
-        QStringList cells;
-        for (int i = 1; i < parts.size() - 1; ++i)
-            cells << parts[i].trimmed();
-        return cells;
-    };
-    auto endStep = [&]() {
-        curStep = nullptr;
-        if (inCleanup)       state = State::InCleanup;
-        else if (curScenario) state = State::InScenario;
-        else                  state = State::InBackground;
-    };
-    auto addStep = [&](DisplayStep st) -> DisplayStep* {
-        if (inCleanup) {
-            result.cleanupSteps << st;
-            return &result.cleanupSteps.last();
-        } else if (curScenario) {
-            curScenario->steps << st;
-            return &curScenario->steps.last();
-        } else {
-            result.backgroundSteps << st;
-            return &result.backgroundSteps.last();
-        }
-    };
-
-    for (const QString& raw : lines) {
-        ++lineNum;
-        const QString trimmed = raw.trimmed();
-
-        if (trimmed.isEmpty()) {
-            if (state == State::InStepTable || state == State::AwaitStepTable) endStep();
-            if (state == State::SkipBlock) state = State::Top;
-            continue;
-        }
-        if (trimmed.startsWith('#')) continue;
-        if ((raw.startsWith(' ') || raw.startsWith('\t')) && !isPipeRow(trimmed)) continue;
-
-        // Pipe row
-        if (isPipeRow(trimmed)) {
-            QStringList cells = splitPipe(trimmed);
-            if (state == State::SkipBlock) {
-            } else if (state == State::InDefineTable && curDefine) {
-                curDefine->tableRows << cells;
-                if (curDefine->tableRows.size() == 1) {
-                    QString h0 = cells.isEmpty() ? "" : cells[0].toLower();
-                    curDefine->vertical = (h0 == "attribute" || h0 == "name");
-                }
-            } else if (state == State::AwaitStepTable && curStep) {
-                curStep->tableRows << cells;
-                state = State::InStepTable;
-                // Orientation comes only from the explicit " : AttrSet Vertical"
-                // clause (curStep->vertical, already set from the step's colon
-                // clause) — never guessed from the header row's text. A header
-                // row that happens to start with "Name" or "Attribute" (a very
-                // common field name) is still a normal horizontal table unless
-                // "Vertical" was written explicitly.
-                curStep->hasHeader = !curStep->vertical;
-            } else if (state == State::InStepTable && curStep) {
-                curStep->tableRows << cells;
-            }
-            continue;
-        }
-
-        if (state == State::InStepTable || state == State::AwaitStepTable) endStep();
-        if (state == State::SkipBlock) state = State::Top;
-
-        const QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
-
-        bool isSkip = false;
-        for (const QString& k : skipWords)
-            if (firstWord.startsWith(k, Qt::CaseInsensitive)) { isSkip = true; break; }
-        if (isSkip) continue;
-
-        // Background
-        if (firstWord.compare("Background", Qt::CaseInsensitive) == 0
-         || trimmed.startsWith("Background:", Qt::CaseInsensitive)) {
-            curStep = nullptr; lastKw = {}; curScenario = nullptr; inCleanup = false;
-            state = State::InBackground;
-            continue;
-        }
-
-        // Cleanup
-        if (firstWord.compare("Cleanup", Qt::CaseInsensitive) == 0
-         || trimmed.startsWith("Cleanup:", Qt::CaseInsensitive)) {
-            curStep = nullptr; lastKw = {}; curScenario = nullptr; inCleanup = true;
-            state = State::InCleanup;
-            continue;
-        }
-
-        // Scenario / ScenarioGroup
-        bool isScenario = false;
-        for (const QString& k : scenarioWords)
-            if (firstWord.startsWith(k, Qt::CaseInsensitive)) { isScenario = true; break; }
-        if (isScenario) {
-            curStep = nullptr; lastKw = {}; inCleanup = false;
-            ParsedScenario sc;
-            sc.keyword   = firstWord;
-            sc.name      = trimmed.mid(firstWord.length()).trimmed();
-            sc.startLine = lineNum;
-            result.scenarios << sc;
-            curScenario = &result.scenarios.last();
-            state = State::InScenario;
-            continue;
-        }
-
-        // Other block keywords → skip block
-        bool isBlock = false;
-        for (const QString& k : blockWords)
-            if (firstWord.startsWith(k, Qt::CaseInsensitive)) { isBlock = true; break; }
-        if (isBlock) {
-            curStep = nullptr; curDefine = nullptr; curScenario = nullptr;
-            state = State::SkipBlock;
-            continue;
-        }
-
-        // Define
-        {
-            auto dm = reDefineDecl.match(trimmed);
-            if (dm.hasMatch()) {
-                curStep = nullptr;
-                DisplayDefine def;
-                def.name = dm.captured(1);
-                QString afterEq = dm.captured(2).trimmed();
-                if (!afterEq.isEmpty()) {
-                    def.scalarValue = afterEq;
-                    def.isTable     = false;
-                    result.defines << def;
-                    curDefine = nullptr;
-                    state = State::Top;
-                } else {
-                    def.isTable = true;
-                    result.defines << def;
-                    curDefine = &result.defines.last();
-                    state = State::InDefineTable;
-                }
-                continue;
-            }
-        }
-
-        // Steps
-        if (state == State::InBackground || state == State::InCleanup
-         || state == State::InScenario) {
-            auto sm = reStep.match(trimmed);
-            if (sm.hasMatch()) {
-                QString kw   = sm.captured(1);
-                QString rest = sm.captured(2).trimmed();
-                if (kw.compare("And", Qt::CaseInsensitive) == 0)
-                    kw = lastKw.isEmpty() ? "Given" : lastKw;
-                else if (kw.compare("WhenThen", Qt::CaseInsensitive) == 0)
-                    kw = QStringLiteral("WhenThen");
-                else
-                    kw = kw[0].toUpper() + kw.mid(1).toLower();
-                lastKw = kw;
-
-                DisplayStep st;
-                st.keyword = kw;
-
-                auto am = reAttr.match(rest);
-                if (am.hasMatch()) {
-                    st.attrSetName = am.captured(1).trimmed();
-                    st.vertical  = !am.captured(2).isEmpty();
-                    st.text        = rest.left(am.capturedStart()).trimmed();
-                } else {
-                    st.text = rest;
-                }
-
-                curStep = addStep(st);
-                state = st.attrSetName.isEmpty()
-                    ? (inCleanup ? State::InCleanup
-                       : (curScenario ? State::InScenario : State::InBackground))
-                    : State::AwaitStepTable;
-                continue;
-            }
-        }
-
-        // Define reference =Name
-        {
-            auto dm = reDef.match(trimmed);
-            if (dm.hasMatch() && curStep) {
-                curStep->defineRef = dm.captured(1);
-                endStep();
-                continue;
-            }
-        }
+    for (const Step& st : file.backgroundSteps) result.backgroundSteps << toDisplay(st);
+    for (const Step& st : file.cleanupSteps)    result.cleanupSteps    << toDisplay(st);
+    for (const Scenario& sc : file.scenarios) {
+        ParsedScenario ps;
+        ps.keyword   = "Scenario";
+        ps.name      = sc.name;
+        ps.startLine = sc.line;
+        for (const Step& st : sc.steps) ps.steps << toDisplay(st);
+        result.scenarios << ps;
     }
-
+    for (const Define& def : file.defines) {
+        DisplayDefine d;
+        d.name        = def.name;
+        d.scalarValue = def.hasDocString ? def.docString : def.scalarValue;
+        d.tableRows   = def.tableRows;
+        d.isTable     = def.isTable;
+        d.vertical    = def.vertical;
+        result.defines << d;
+    }
     return result;
 }
 
@@ -474,7 +290,20 @@ QString ScenarioSimulatorDialog::buildHtml(const ParsedFile& pf, int cursorLine)
 
 void ScenarioSimulatorDialog::refresh()
 {
-    const ParsedFile pf = parseFile(m_filePath);
+    // With an index, the file arrives merged with its siblings and resolved,
+    // as the converter sees it. Without one, its own tree, with the same
+    // orientation inference applied. The file is re-read from disk either way,
+    // since the dialog refreshes as the file is edited and saved.
+    SpectableFile model;
+    if (m_index) {
+        model = m_index->fileWithContext(m_filePath);
+    } else {
+        model = SpectableParser().parse(m_filePath);
+        resolveDomainTermTypes(model);
+        resolveDefineReferences(model);
+        inferTableOrientation(model);
+    }
+    const ParsedFile pf = fromModel(model);
     m_browser->setHtml(buildHtml(pf, m_cursorLine));
 
     if (!m_watcher->files().contains(m_filePath) && QFile::exists(m_filePath))

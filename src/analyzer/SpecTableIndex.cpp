@@ -154,6 +154,21 @@ const SpectableFile* SpecTableIndex::parsedFile(const QString& filePath) const
     return it == m_parsed.cend() ? nullptr : &it.value();
 }
 
+QSet<QString> SpecTableIndex::declaredNames() const
+{
+    QSet<QString> names;
+    for (const auto* m : { &m_project.entities, &m_project.domainTerms, &m_project.dataTypes,
+                            &m_project.attributes, &m_project.collections, &m_project.businessRules,
+                            &m_project.calculations, &m_project.defines })
+        for (auto it = m->cbegin(); it != m->cend(); ++it)
+            names.insert(it.key().toLower());
+    for (auto it = m_parsed.cbegin(); it != m_parsed.cend(); ++it)
+        for (const AttrSet& as : it.value().attrSets)
+            for (const Field& f : as.fields)
+                if (!f.name.isEmpty()) names.insert(f.name.toLower());
+    return names;
+}
+
 SpectableFile SpecTableIndex::fileWithContext(const QString& filePath) const
 {
     const QString abs = QFileInfo(filePath).absoluteFilePath();
@@ -164,6 +179,7 @@ SpectableFile SpecTableIndex::fileWithContext(const QString& filePath) const
     // The same resolution the converter does, in the same order.
     resolveDomainTermTypes(file);
     resolveDefineReferences(file);
+    inferTableOrientation(file);
     return file;
 }
 

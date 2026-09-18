@@ -367,7 +367,17 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     // against re-splicing the same file twice (e.g. a cycle of mutual Inserts).
     QSet<QString> insertedSpectableFiles;
 
+    // A step that names an attribute set has said a table follows. When
+    // nothing did -- no rows, no =Define -- the glue would be called with
+    // nothing, so it is an error, said at the step.
     auto endStepTable = [&]() {
+        if (state == State::AwaitStepTable && curStep && !curStep->hasTable
+                && curStep->defineRef.isEmpty() && !curStep->attrSetName.isEmpty())
+            emitMsg(curStep->line,
+                    QString("Step '%1' names '%2' but no table follows -- add the table, "
+                            "or =Name for a Define, or drop ': %2'")
+                        .arg(curStep->text.trimmed(), curStep->attrSetName),
+                    false);
         curStep = nullptr;
         if (curScen)          state = State::InScenario;
         else if (inCleanupBlock) state = State::InCleanup;
@@ -1311,6 +1321,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         emitMsg(lineNum, QString("Unrecognized keyword '%1'").arg(firstWord), true);
     }
 
+    // A step still waiting for its table when the file ends.
+    if (state == State::AwaitStepTable) endStepTable();
+
     return result;
 }
 
@@ -1761,4 +1774,48 @@ void mergeContext(SpectableFile& file, const SpectableFile& ctx)
     for (NamedBlock nb : ctx.namedBlocks)   { nb.isContext = true;  file.namedBlocks.push_back(nb); }
     for (const QString& dt : ctx.dataTypeNames)
         if (!file.dataTypeNames.contains(dt)) file.dataTypeNames.push_back(dt);
+}
+
+// ---------------------------------------------------------------------------
+// Which way a table runs, when the step did not say
+// ---------------------------------------------------------------------------
+//
+// Groundwork from 2026-09-13: a Vertical table is treated as a transposed
+// horizontal one everywhere, so nothing downstream needs to know the word was
+// inferred rather than written. The word is kept, and still wins when
+// present -- it is worth having where a reader wants the orientation stated.
+
+void inferTableOrientation(SpectableFile& file)
+{
+    const QMap<QString, const AttrSet*> byName = attrSetsByName(file);
+
+    auto infer = [&](Step& step) {
+        if (!step.hasTable || step.vertical || step.everyCell) return;
+        if (!step.table.hasHeader || step.table.rows.size() < 1) return;
+        const AttrSet* as = byName.value(step.attrSetName.toLower(), nullptr);
+        if (!as || as->fields.isEmpty()) return;
+
+        auto isField = [&](const QString& cell) { return fieldOf(*as, cell.trimmed()) != nullptr; };
+
+        const QStringList& header = step.table.rows.first();
+        int headerFields = 0;
+        for (const QString& c : header) if (isField(c)) ++headerFields;
+        const bool headerIsAllFields = !header.isEmpty() && headerFields == header.size();
+        if (headerIsAllFields) return;   // horizontal, as written
+
+        int firstColumnFields = 0;
+        for (const QStringList& row : step.table.rows)
+            if (!row.isEmpty() && isField(row.first())) ++firstColumnFields;
+        const bool firstColumnIsAllFields = firstColumnFields == step.table.rows.size();
+        if (!firstColumnIsAllFields) return;   // neither reading fits; leave it
+
+        step.vertical        = true;
+        step.table.vertical  = true;
+        step.table.hasHeader = false;
+    };
+
+    for (Scenario& s : file.scenarios)
+        for (Step& step : s.steps) infer(step);
+    for (Step& step : file.backgroundSteps) infer(step);
+    for (Step& step : file.cleanupSteps)    infer(step);
 }
