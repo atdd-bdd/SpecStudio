@@ -82,6 +82,8 @@ set(SOURCES
     spell/SpellChecker.cpp
     editors/SpecTableEditor.h
     editors/SpecTableEditor.cpp
+    editors/CursorModel.h
+    editors/CursorModel.cpp
     editors/SpecTableBlocks.h
     editors/SpecTableBlocks.cpp
     editors/SpecConfigEditor.h

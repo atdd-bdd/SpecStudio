@@ -36,7 +36,8 @@ struct AttrSet {
     QVector<Field> fields;
     QString        uses;   // Uses named comment -- documentation only, never executable
     QVector<NamedComment> comments;   // every named comment in the block, tables included
-    int            line      = 0;
+    int            line       = 0;
+    int            headerLine = 0;     // the | Name | DataType | ... row, when there is one
     bool           isContext = false;  // from a context file — symbols only, no class generation
     bool           imported  = false;  // merged from a file this one Imports: generated here,
                                        // but declared there, which is where a symbol table
@@ -55,6 +56,7 @@ struct Define {
     int                  docStringIndent = 0; // column of the opening """, for dedenting content lines
     QString              uses;         // Uses named comment
     int                  line       = 0;
+    int                  listLine   = 0;   // for a row of a Define table: the bare "Define" line above it
     bool                 isContext  = false;  // from a context file
     bool                 imported   = false;  // merged from an Imported file; see AttrSet
 };
@@ -86,6 +88,7 @@ struct Step {
     int       defineRefLine = 0;   // the line it was written on, for a diagnostic about it
     QString   docString;    // content between opening and closing """
     bool      hasDocString = false;
+    int       docStringEndLine = 0;   // the closing """ line, for an editor asking what a line is
     // A pipe table followed this step, but the step named no attribute set, so
     // nothing reads the table and no argument reaches the glue. Recorded rather
     // than merely warned about, so Analyze can ask the model instead of
@@ -180,8 +183,12 @@ struct SpectableFile {
     int                    specLine = 0;   // the Specification line
     QString                filePath;
     QStringList            imports;        // absolute paths named by Import, in order
+    QVector<int>           importLines;    // the line of each Import, same order
     QStringList            inserts;        // absolute paths named by Insert, in order
+    QVector<int>           insertLines;    // the lines Insert appears on
     QVector<ScenarioGroup> scenarioGroups;
+    QVector<int>           backgroundLines;   // each Background heading
+    QVector<int>           cleanupLines;      // each Cleanup heading
     QVector<NamedComment>  comments;       // named comments belonging to no block
     QStringList            tags;           // @Tags before Specification line — applied to all blocks
     QStringList            generatorTags;  // $Tags before Specification line — applied to all blocks

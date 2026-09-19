@@ -2,6 +2,9 @@
 
 #include <QPlainTextEdit>
 #include <QRegularExpression>
+#include <QTextBlock>
+
+#include <functional>
 #include <QSet>
 #include <QStringList>
 #include <QTextEdit>
@@ -28,6 +31,9 @@ public:
     void setAttrSetCompletionWords(const QStringList& words);
     void setTypeCompletionWords(const QStringList& words);
     void setFoldPattern(const QRegularExpression& re);
+    // Or decide fold starts by asking: the SpecTable editor asks its parse
+    // tree, so a fold begins exactly where the parser says a block does.
+    void setFoldStartPredicate(std::function<bool(const QTextBlock&)> isFoldStart);
 
     void setErrorMarks(const QList<QPair<int,int>>& lineColPairs);
     void clearErrorMarks();
@@ -70,6 +76,9 @@ private:
     QStringList m_typeWords;
 
     QRegularExpression m_foldPattern;
+    std::function<bool(const QTextBlock&)> m_foldStart;
+    bool foldsEnabled() const { return m_foldPattern.isValid() || bool(m_foldStart); }
+    bool isFoldStart(const QTextBlock& block) const;
     QSet<int>          m_foldedBlocks;
 
     QList<QTextEdit::ExtraSelection> m_currentLineSelections;

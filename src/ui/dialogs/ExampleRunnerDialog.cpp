@@ -1,14 +1,11 @@
 #include "ExampleRunnerDialog.h"
 #include "../../analyzer/SpecTableIndex.h"
+#include "SpectableParser.h"
 
-#include <QFile>
-#include <QFileInfo>
 #include <QHeaderView>
 #include <QLabel>
-#include <QRegularExpression>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QTextStream>
 #include <QVBoxLayout>
 
 // ---------------------------------------------------------------------------
@@ -49,154 +46,112 @@ ExampleRunnerDialog::ExampleRunnerDialog(const QString& filePath, int cursorLine
 }
 
 // ---------------------------------------------------------------------------
-// Main parse + validate
+// The block under the cursor, from the parse tree
 // ---------------------------------------------------------------------------
+//
+// Until 2026-09-18 this dialog read the file itself: found the block by
+// pattern, walked to its Examples: line, split the rows on pipes, and judged
+// each cell with its own copies of the Integer/Date rules -- a second
+// validateValue, drifting from the first. Now the block, its set and its rows
+// come from the tree the converter reads, merged with the project's other
+// files, and a cell is judged by the one rule the build applies.
 
 ExampleRunnerDialog::ValidationResult ExampleRunnerDialog::run(
     const QString& filePath, int cursorLine, const SpecTableIndex* index)
 {
     ValidationResult res;
 
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        res.errorMsg = tr("Cannot open file: %1").arg(filePath);
-        return res;
-    }
-    QTextStream in(&f);
-    QStringList lines;
-    while (!in.atEnd()) lines << in.readLine();
-
-    static QRegularExpression reDecl(
-        R"(^\s*(BusinessRule|Calculation)\s+(\w[\w\s]*\w|\w+))",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reTopLevel(
-        R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reExamples(R"(^\s*Examples:\s*(\w+))",
-                                          QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reRow(R"(^\s*\|)");
-
-    // Find the enclosing BusinessRule/Calculation block (search backward from cursor)
-    int blockStart = -1;
-    for (int i = qMin(cursorLine - 1, lines.size() - 1); i >= 0; --i) {
-        auto m = reDecl.match(lines[i]);
-        if (m.hasMatch()) {
-            res.keyword   = m.captured(1);
-            res.blockName = m.captured(2).trimmed();
-            blockStart    = i;
-            break;
-        }
-        // Hit a different top-level keyword before finding our block
-        auto tm = reTopLevel.match(lines[i]);
-        if (tm.hasMatch() && !reDecl.match(lines[i]).hasMatch())
-            break;
+    SpectableFile file;
+    if (index) {
+        file = index->fileWithContext(filePath);
+    } else {
+        file = SpectableParser().parse(filePath);
+        resolveDomainTermTypes(file);
+        resolveDefineReferences(file);
     }
 
-    if (blockStart < 0) {
+    // The block the cursor is in: the last thing that starts at or above the
+    // cursor, whatever kind of thing it is. Only a BusinessRule or Calculation
+    // has examples to run.
+    int lastStart = 0;
+    for (const AttrSet& x : file.attrSets)      if (!x.isContext && x.line <= cursorLine) lastStart = qMax(lastStart, x.line);
+    for (const Collection& x : file.collections) if (!x.isContext && x.line <= cursorLine) lastStart = qMax(lastStart, x.line);
+    for (const Define& x : file.defines)         if (!x.isContext && x.line <= cursorLine) lastStart = qMax(lastStart, x.line);
+    for (const Scenario& x : file.scenarios)     if (x.line <= cursorLine)                 lastStart = qMax(lastStart, x.line);
+    const NamedBlock* block = nullptr;
+    for (const NamedBlock& nb : file.namedBlocks) {
+        if (nb.isContext || nb.line > cursorLine) continue;
+        if (nb.line >= lastStart) { lastStart = nb.line; block = &nb; }
+    }
+    if (!block || (block->kind.compare("BusinessRule", Qt::CaseInsensitive) != 0
+                   && block->kind.compare("Calculation", Qt::CaseInsensitive) != 0)) {
         res.errorMsg = tr("Cursor is not inside a BusinessRule or Calculation block.");
         return res;
     }
+    res.keyword   = block->kind;
+    res.blockName = block->name;
 
-    // Find the Examples: line inside the block
-    int examplesLine = -1;
-    for (int i = blockStart + 1; i < lines.size(); ++i) {
-        if (i != blockStart && reTopLevel.match(lines[i]).hasMatch()) break;
-        auto em = reExamples.match(lines[i]);
-        if (em.hasMatch()) {
-            res.attrSetName = em.captured(1);
-            examplesLine    = i;
-            break;
-        }
-    }
-
-    if (examplesLine < 0) {
+    const ExamplesBlock& ex = block->examples;
+    if (ex.line == 0) {
         res.errorMsg = tr("No Examples: section found in %1 '%2'.")
                            .arg(res.keyword, res.blockName);
         return res;
     }
+    res.attrSetName = ex.attrSetName;
 
-    // Look up the AttributeSet definition for field types
-    const QVector<QStringList> attrDef = index->attributeRows(res.attrSetName);
-    if (attrDef.size() < 2) {
+    // The set's fields, the file's own declaration first if it has one.
+    const AttrSet* as = nullptr;
+    for (const AttrSet& x : file.attrSets)
+        if (x.name.compare(res.attrSetName, Qt::CaseInsensitive) == 0
+                && (!as || (as->isContext && !x.isContext))) as = &x;
+    if (!as || as->fields.isEmpty()) {
         res.errorMsg = tr("AttributeSet '%1' not found or has no fields.").arg(res.attrSetName);
         return res;
     }
-
-    // attrDef[0] = header row: Attribute, Type, Default, Notes, In-Out, ...
-    const QStringList& hdr = attrDef[0];
-    int typeCol  = hdr.indexOf("DataType", Qt::CaseInsensitive);
-    if (typeCol < 0) typeCol = hdr.indexOf("Type", Qt::CaseInsensitive);
-    int inOutCol = hdr.indexOf("In-Out", Qt::CaseInsensitive);
-    if (inOutCol < 0) inOutCol = hdr.indexOf("In/Out", Qt::CaseInsensitive);
-
-    for (int r = 1; r < attrDef.size(); ++r) {
-        const QStringList& row = attrDef[r];
-        if (row.isEmpty()) continue;
+    for (const Field& f : as->fields) {
         FieldInfo fi;
-        fi.name  = row[0];
-        fi.type  = (typeCol >= 0 && typeCol < row.size()) ? row[typeCol] : "";
-        fi.inOut = (inOutCol >= 0 && inOutCol < row.size()) ? row[inOutCol] : "In";
-        if (fi.inOut.isEmpty()) fi.inOut = "In";
+        fi.name  = f.name;
+        fi.type  = f.type.trimmed();
+        fi.inOut = f.inOut.isEmpty() ? QStringLiteral("In") : f.inOut;
         res.fields << fi;
     }
 
-    // Collect Examples table rows
-    bool inTable = false;
-    QStringList exHeaders;
-    for (int i = examplesLine + 1; i < lines.size(); ++i) {
-        if (lines[i].trimmed().isEmpty()) { if (inTable) break; continue; }
-        if (!inTable && reTopLevel.match(lines[i]).hasMatch()) break;
-        if (!reRow.match(lines[i]).hasMatch()) { if (inTable) break; continue; }
-
-        const QStringList parts = lines[i].split('|');
-        QStringList cells;
-        for (int p = 1; p < parts.size() - 1; ++p)
-            cells << parts[p].trimmed();
-
-        if (!inTable) {
-            // First row = column headers
-            exHeaders = cells;
-            inTable = true;
-        } else {
-            res.dataRows << cells;
-        }
-    }
-
+    res.dataRows = ex.rows;
     if (res.dataRows.isEmpty()) {
         res.errorMsg = tr("No data rows found in the Examples table for %1 '%2'.")
                            .arg(res.keyword, res.blockName);
         return res;
     }
 
-    // Reorder fields to match the example table's column order
+    // Columns in the table's own order; a column naming no field is shown as
+    // it is, and the build's own finding about it is reported below.
     QVector<FieldInfo> orderedFields;
-    for (const QString& col : exHeaders) {
+    for (const QString& col : ex.header) {
         bool found = false;
-        for (const FieldInfo& fi : res.fields) {
-            if (fi.name.compare(col, Qt::CaseInsensitive) == 0) {
-                orderedFields << fi;
-                found = true;
-                break;
-            }
-        }
+        for (const FieldInfo& fi : res.fields)
+            if (fi.name.compare(col.trimmed(), Qt::CaseInsensitive) == 0) { orderedFields << fi; found = true; break; }
         if (!found) {
             FieldInfo unknown;
-            unknown.name  = col;
+            unknown.name  = col.trimmed();
             unknown.inOut = "In";
             orderedFields << unknown;
         }
     }
     res.fields = orderedFields;
 
-    // Validate each data row
     for (const QStringList& row : res.dataRows) {
         QVector<CellState> rowStates;
-        for (int c = 0; c < res.fields.size(); ++c) {
-            const QString val = (c < row.size()) ? row[c] : "";
-            rowStates << validateCell(val, res.fields[c]);
-        }
+        for (int c = 0; c < res.fields.size(); ++c)
+            rowStates << validateCell(c < row.size() ? row[c].trimmed() : QString(), res.fields[c]);
         res.states << rowStates;
     }
+
+    // What the build would say about this table -- a column naming no field,
+    // a field with no column and no default -- from the same validator.
+    const int lastLine = ex.rowLines.isEmpty() ? ex.line : ex.rowLines.last();
+    for (const ParseMessage& m : validateExamplesTables(file))
+        if (m.line >= ex.line && m.line <= lastLine && !m.text.contains("is not a valid"))
+            res.findings << m.text;
 
     return res;
 }
@@ -217,34 +172,16 @@ ExampleRunnerDialog::CellState ExampleRunnerDialog::validateCell(
         return isOutput ? CellState::Output : CellState::Missing;
 
     if (value.startsWith('='))
-        return CellState::Valid;   // Define reference — trust it
+        return CellState::Valid;   // Define reference that did not resolve -- reported elsewhere
 
     if (isOutput)
         return CellState::Output;   // Don't type-validate outputs
 
-    if (!field.type.isEmpty() && !isValidType(QString(value).replace('~', ' '), field.type))
+    // The one rule the build applies, not a copy of it.
+    if (!field.type.isEmpty() && !isValidValueForType(QString(value).replace('~', ' '), field.type))
         return CellState::InvalidType;
 
     return CellState::Valid;
-}
-
-bool ExampleRunnerDialog::isValidType(const QString& value, const QString& type)
-{
-    const QString ltype = type.toLower();
-    static QRegularExpression reInt (R"(^-?\d+$)");
-    static QRegularExpression reFlt (R"(^-?\d+(\.\d+)?([eE][+-]?\d+)?$)");
-    static QRegularExpression reDate(R"(^\d{4}-\d{2}-\d{2}$)");
-    static QRegularExpression reTime(R"(^\d{2}:\d{2}(:\d{2})?$)");
-    static QRegularExpression reDT  (R"(^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})");
-
-    if (ltype == "integer")  return reInt.match(value).hasMatch();
-    if (ltype == "float")    return reFlt.match(value).hasMatch();
-    if (ltype == "boolean")  { auto l = value.toLower(); return l=="true"||l=="false"; }
-    if (ltype == "yesno")    { auto l = value.toLower(); return l=="y"||l=="n"||l=="yes"||l=="no"||l=="t"||l=="f"||l=="true"||l=="false"; }
-    if (ltype == "date")     return reDate.match(value).hasMatch();
-    if (ltype == "time")     return reTime.match(value).hasMatch();
-    if (ltype == "datetime") return reDT.match(value).hasMatch();
-    return true;  // String, Text, etc. — always valid
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +247,9 @@ void ExampleRunnerDialog::buildTable(const ValidationResult& r)
 
     const QString summary = tr("%1 rows — %2 valid, %3 invalid type, %4 missing value")
                                 .arg(rows).arg(validCount).arg(invalidCount).arg(missingCount);
-    m_summary->setText(tr("<b>%1: %2</b> &nbsp; Examples: %3 &nbsp;&nbsp; %4")
-                           .arg(r.keyword, r.blockName, r.attrSetName, summary));
+    QString text = tr("<b>%1: %2</b> &nbsp; Examples: %3 &nbsp;&nbsp; %4")
+                       .arg(r.keyword, r.blockName, r.attrSetName, summary);
+    for (const QString& finding : r.findings)
+        text += "<br/><span style='color:#C0392B;'>" + finding.toHtmlEscaped() + "</span>";
+    m_summary->setText(text);
 }

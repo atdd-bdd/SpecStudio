@@ -34,13 +34,13 @@ private:
         QVector<FieldInfo>     fields;
         QVector<QStringList>   dataRows;
         QVector<QVector<CellState>> states;
+        QStringList findings;   // what the build says about the table as a whole
         QString errorMsg;
     };
 
     static ValidationResult run(const QString& filePath, int cursorLine,
                                  const SpecTableIndex* index);
     static CellState validateCell(const QString& value, const FieldInfo& field);
-    static bool isValidType(const QString& value, const QString& type);
 
     void buildTable(const ValidationResult& r);
 

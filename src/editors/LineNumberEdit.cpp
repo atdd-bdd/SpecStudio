@@ -73,7 +73,7 @@ int LineNumberEdit::lineNumberAreaWidth() const
     int max = qMax(1, blockCount());
     while (max >= 10) { max /= 10; ++digits; }
     int numWidth = 8 + fontMetrics().horizontalAdvance(QLatin1Char('9')) * digits;
-    return numWidth + (m_foldPattern.isValid() ? kFoldArrowWidth : 0);
+    return numWidth + (foldsEnabled() ? kFoldArrowWidth : 0);
 }
 
 void LineNumberEdit::resizeEvent(QResizeEvent* event)
@@ -105,7 +105,7 @@ void LineNumberEdit::lineNumberAreaPaintEvent(QPaintEvent* event)
     QPainter painter(m_lineNumberArea);
     painter.fillRect(event->rect(), QColor(245, 245, 245));
 
-    const bool hasFold = m_foldPattern.isValid();
+    const bool hasFold = foldsEnabled();
     const int  w       = m_lineNumberArea->width();
     const int  numW    = w - (hasFold ? kFoldArrowWidth : 0);
 
@@ -122,7 +122,7 @@ void LineNumberEdit::lineNumberAreaPaintEvent(QPaintEvent* event)
                              Qt::AlignRight,
                              QString::number(blockNumber + 1));
 
-            if (hasFold && m_foldPattern.match(block.text()).hasMatch()) {
+            if (hasFold && isFoldStart(block)) {
                 const bool folded = m_foldedBlocks.contains(blockNumber);
                 const int  cx     = numW + kFoldArrowWidth / 2;
                 const int  cy     = top + fontMetrics().height() / 2;
@@ -155,6 +155,20 @@ void LineNumberEdit::lineNumberAreaPaintEvent(QPaintEvent* event)
 // ---------------------------------------------------------------------------
 // Code folding
 // ---------------------------------------------------------------------------
+
+void LineNumberEdit::setFoldStartPredicate(std::function<bool(const QTextBlock&)> isFoldStart)
+{
+    m_foldStart = std::move(isFoldStart);
+    m_foldPattern = QRegularExpression();
+    updateLineNumberAreaWidth();
+    viewport()->update();
+}
+
+bool LineNumberEdit::isFoldStart(const QTextBlock& block) const
+{
+    if (m_foldStart) return m_foldStart(block);
+    return m_foldPattern.isValid() && m_foldPattern.match(block.text()).hasMatch();
+}
 
 void LineNumberEdit::setFoldPattern(const QRegularExpression& re)
 {
@@ -229,7 +243,7 @@ void LineNumberEdit::toggleFold(int blockNumber)
 
 void LineNumberEdit::lineNumberAreaMousePress(const QPoint& pos)
 {
-    if (!m_foldPattern.isValid()) return;
+    if (!foldsEnabled()) return;
 
     const int w    = m_lineNumberArea->width();
     const int numW = w - kFoldArrowWidth;
@@ -241,7 +255,7 @@ void LineNumberEdit::lineNumberAreaMousePress(const QPoint& pos)
 
     while (block.isValid() && top <= pos.y()) {
         if (block.isVisible() && bottom > pos.y()) {
-            if (m_foldPattern.match(block.text()).hasMatch())
+            if (isFoldStart(block))
                 toggleFold(block.blockNumber());
             break;
         }

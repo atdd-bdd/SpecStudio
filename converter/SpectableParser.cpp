@@ -274,22 +274,38 @@ SpectableFile SpectableParser::parse(const QString& filePath)
     return parseImpl(filePath, visited);
 }
 
+SpectableFile SpectableParser::parseText(const QString& text, const QString& filePath)
+{
+    QSet<QString> visited;
+    visited.insert(QFileInfo(filePath).absoluteFilePath());
+    return parseLines(text, filePath, visited);
+}
+
 SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>& visited)
 {
     const QString absPath = QFileInfo(filePath).absoluteFilePath();
     if (visited.contains(absPath)) return {};
     visited.insert(absPath);
 
-    SpectableFile result;
-    result.filePath = filePath;
-
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        SpectableFile result;
+        result.filePath = filePath;
         result.messages.push_back({ 0, "Cannot open file: " + filePath, false });
         return result;
     }
-    QTextStream in(&f);
-    QStringList lines = in.readAll().split('\n');
+    return parseLines(QTextStream(&f).readAll(), filePath, visited);
+}
+
+SpectableFile SpectableParser::parseLines(const QString& text, const QString& filePath,
+                                          QSet<QString>& visited)
+{
+    const QString absPath = QFileInfo(filePath).absoluteFilePath();
+
+    SpectableFile result;
+    result.filePath = filePath;
+
+    QStringList lines = text.split('\n');
 
     enum class State {
         Top,
@@ -401,6 +417,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
     // once. Shares InDefineTable with the named table-form Define; curDefine
     // is null while a list is being read, and these tell the rows apart.
     bool        defineList = false;
+    int         defineListLine     = 0;
     int         defineListNameCol  = -1;
     int         defineListValueCol = -1;
 
@@ -435,8 +452,9 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
 
     // Every file an Insert names, wherever the Insert stands, so the index can
     // list them without reading the file again.
-    auto noteInsert = [&](const QString& fullPath) {
+    auto noteInsert = [&](const QString& fullPath, int line) {
         if (!result.inserts.contains(fullPath)) result.inserts.push_back(fullPath);
+        if (!result.insertLines.contains(line)) result.insertLines.push_back(line);
     };
 
     auto appendDocLine = [&](const QString& rawLine, QString& docStr, int lineNum, int indentCols) {
@@ -447,7 +465,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                 : !m.captured(2).isEmpty() ? m.captured(2)
                                                            : m.captured(3);
             const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
-            noteInsert(fullPath);
+            noteInsert(fullPath, lineNum);
             QFile ins(fullPath);
             if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
                 emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
@@ -500,7 +518,8 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 if (curStep) {
                     if (curStep->docString.endsWith('\n'))
                         curStep->docString.chop(1);
-                    curStep->hasDocString = true;
+                    curStep->hasDocString     = true;
+                    curStep->docStringEndLine = lineNum;
                 }
                 state   = curScen ? State::InScenario
                                   : (inCleanupBlock ? State::InCleanup : State::InBackground);
@@ -639,6 +658,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
             case State::InAttrDef:
                 if (attrHeaders.isEmpty()) {
                     attrHeaders = cells;
+                    if (curAttr) curAttr->headerLine = lineNum;
                     // Warn on unrecognised header columns
                     static const QStringList knownHeaders = {
                         "attribute", "name", "type", "datatype",
@@ -710,6 +730,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                             def.scalarValue = value;
                             def.isTable     = false;
                             def.line        = lineNum;
+                            def.listLine    = defineListLine;
                             result.defines.push_back(def);
                         }
                     }
@@ -832,7 +853,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 const QString ext = QFileInfo(fname).suffix().toLower();
                 if (ext == "csv" || ext == "tsv") {
                     const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
-                    noteInsert(fullPath);
+                    noteInsert(fullPath, lineNum);
                     QFile ins(fullPath);
                     if (!ins.open(QIODevice::ReadOnly | QIODevice::Text)) {
                         emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
@@ -942,6 +963,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 // of the file that could not be parsed. An error: everything
                 // the file declares is missing from this one.
                 result.imports.push_back(imported);
+                result.importLines.push_back(lineNum);
                 if (!QFileInfo::exists(imported)) {
                     emitMsg(lineNum, QString("Imported file not found: '%1'").arg(im.captured(1)), false);
                     continue;
@@ -981,7 +1003,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                                                    : insM.captured(3);
                 if (QFileInfo(fname).suffix().compare("spectable", Qt::CaseInsensitive) == 0) {
                     const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
-                    noteInsert(fullPath);
+                    noteInsert(fullPath, lineNum);
                     if (insertedSpectableFiles.contains(fullPath)) {
                         // Already spliced once — skip re-insertion (also guards
                         // against an infinite loop from mutual/self Inserts).
@@ -1032,7 +1054,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                                     : !insM.captured(2).isEmpty() ? insM.captured(2)
                                                                    : insM.captured(3);
                 const QString fullPath = QFileInfo(baseDir + "/" + fname).absoluteFilePath();
-                noteInsert(fullPath);
+                noteInsert(fullPath, lineNum);
                 if (!QFileInfo::exists(fullPath))
                     emitMsg(lineNum, QString("Inserted file not found: '%1'").arg(fname), false);
             }
@@ -1183,6 +1205,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
                 curDefine          = nullptr;
                 curUses            = nullptr;
                 defineList         = true;
+                defineListLine     = lineNum;
                 defineListNameCol  = -1;
                 defineListValueCol = -1;
                 state              = State::InDefineTable;
@@ -1222,6 +1245,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // Background
         if (firstWord.compare("Background", Qt::CaseInsensitive) == 0 ||
             trimmed.startsWith("Background:", Qt::CaseInsensitive)) {
+            result.backgroundLines.push_back(lineNum);
             curScen = nullptr; curStep = nullptr; lastKw = {};
             inCleanupBlock = false;
             state = State::InBackground;
@@ -1231,6 +1255,7 @@ SpectableFile SpectableParser::parseImpl(const QString& filePath, QSet<QString>&
         // Cleanup
         if (firstWord.compare("Cleanup", Qt::CaseInsensitive) == 0 ||
             trimmed.startsWith("Cleanup:", Qt::CaseInsensitive)) {
+            result.cleanupLines.push_back(lineNum);
             curScen = nullptr; curStep = nullptr; lastKw = {};
             inCleanupBlock = true;
             state = State::InCleanup;
@@ -1513,6 +1538,13 @@ static void validateValue(int line, const QString& value, const QString& dtype,
         if (!reDateTime.match(value).hasMatch())
             warn(QString("'%1' is not a valid DateTime").arg(value));
     }
+}
+
+bool isValidValueForType(const QString& value, const QString& type)
+{
+    QVector<ParseMessage> msgs;
+    validateValue(0, value, type, msgs);
+    return msgs.isEmpty();
 }
 
 // A cell that states no value to check: blank, a Define reference that is

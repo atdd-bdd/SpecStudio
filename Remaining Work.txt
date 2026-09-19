@@ -161,29 +161,12 @@ Altered so that it is separated into Issues and Future Features
   wants a lowercase module name (address.py). Renaming it would break every
   existing import in both downstream repos, so it needs doing as its own change.
 
-### The IDE's remaining readers of .spectable text, after Simulate Scenario
-  moved to the parse tree (2026-09-18). Three kinds, only the first two worth
-  changing:
-    - ExampleRunnerDialog (13 patterns): finds the Examples: block under the
-      cursor by reading the file, and checks each cell with its own copies of
-      the Integer/Float/Date patterns -- a second validateValue. Should take
-      the block from SpecTableIndex::fileWithContext (NamedBlock.examples,
-      with rowLines) and show what validateExamplesTables says. About half a
-      day, and it deletes the duplicate value rules.
-    - SpecTableEditor (72 patterns): decides what the line under the cursor
-      is -- a step, a table row, an Attributes header, an Insert -- for
-      completions, the context menu, Insert Table Header, Import CSV, and the
-      tooltips. Per-line questions about the file being typed, so it cannot
-      simply take the last parse; it would need the editor to keep a tree of
-      the current text and map a cursor line to the element there (every
-      model element carries its line now). A day or two; the payoff is that
-      the menu offers what the parser would accept.
-    - AppController (31 patterns): Find, Find All, Rename Step, Rename
-      Symbol, and rewriting Import/Insert paths when a file moves. These edit
-      text by pattern, which is what a rename is; leave them.
-  Not readers of the language at all: BuildOutputParser (the converter's
-  WARNING:line:text lines), ProjectIndex (.featurex), the highlighter's colour
-  rules (per-line colouring is what a highlighter is).
+### What still reads .spectable text by pattern, after 2026-09-18: nothing
+  that classifies a line. AppController's Find, Rename Step, Rename Symbol and
+  the Import/Insert path rewrite edit text by pattern, which is what a rename
+  is, and LineNumberEdit's completion asks whether the cursor sits after a
+  colon on a half-typed step line -- a question about the keystroke, not the
+  language. Both stay.
 
 ### Diff against "the version that generated the current tests". The Diff
   tab compares whole versions now (see Done), but which version the tests
@@ -341,6 +324,24 @@ Altered so that it is separated into Issues and Future Features
 
 
 ## --- Done ---
+
+[x] The editor asks the parse tree what a line is (2026-09-18). Seventy
+    regular expressions in SpecTableEditor, one per question -- is this a
+    step, which set does it name, is it an Examples: line, an Attributes
+    header, an Import, a Uses -- are gone. CursorModel parses the text as it
+    stands (SpectableParser::parseText; kept until the document revision
+    changes) and answers by line, every model element carrying the line it
+    came from; the parser records the few it did not (an Attributes header
+    row, a docstring's closing line, Background and Cleanup headings, Import
+    and Insert lines, the bare Define above a Define table). The editor's own
+    step pattern knew Vertical and not CompareOnly or EveryCell, so a step
+    carrying either was not a step to the context menu; now the menu offers
+    exactly what the parser would accept. Folding asks the same model. The
+    ExampleRunnerDialog likewise: block, set and rows from the tree, cells
+    judged by the one value rule the build applies (isValidValueForType),
+    and the build's own findings about the table shown beneath the summary.
+    tools/cursor_cli prints what the model says of each line of a file,
+    which is how the answers were checked.
 
 [x] The Diff tab shows whole versions, two ways (2026-09-18). git's patch --
     hunks with + and - in the margin -- is gone; DiffView lines the earlier

@@ -74,10 +74,69 @@ SpecTableEditor::SpecTableEditor(const QString& filePath, QWidget* parent)
             emit symbolAtCursor({});
     });
 
-    lineNumberEdit()->setFoldPattern(
-        QRegularExpression(
-            R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-            QRegularExpression::CaseInsensitiveOption));
+    lineNumberEdit()->setFoldStartPredicate([this](const QTextBlock& block) {
+        return model().isBlockStart(lineOf(block));
+    });
+}
+
+// "applying BusinessRule X" / "applying Calculation X": Analyze's own reading
+// of a step, with a shape of its own; the table helpers leave such steps alone.
+static bool isApplyingStep(const Step& step)
+{
+    const QString t = step.text.simplified().toLower();
+    return t.contains("applying businessrule") || t.contains("applying calculation");
+}
+
+// ---------------------------------------------------------------------------
+// The parse tree of the current text
+// ---------------------------------------------------------------------------
+//
+// Until 2026-09-18 every question about the line under the cursor was answered
+// by a regular expression of the editor's own -- seventy of them, one per
+// question, each a private reading of the language. The step pattern knew
+// Vertical and not CompareOnly or EveryCell, so a step carrying either was not
+// a step to the context menu. Now the text is parsed as it stands and the
+// tree is asked; the parse is kept until the document's revision changes.
+
+const CursorModel& SpecTableEditor::model() const
+{
+    m_model.update(textEdit()->document()->toPlainText(), filePath(),
+                   textEdit()->document()->revision());
+    return m_model;
+}
+
+QTextBlock SpecTableEditor::endOfEnclosingBlock(const QTextBlock& from) const
+{
+    const int last = model().endOfEnclosingBlock(lineOf(from), documentLines());
+    return textEdit()->document()->findBlockByNumber(last - 1);
+}
+
+QString SpecTableEditor::stepLineNaming(const QString& line, const Step& step, const QString& newName)
+{
+    // Everything before the colon stays as typed; the set and its modifiers
+    // are written afresh.
+    const int colon = line.lastIndexOf(':');
+    QString head = colon >= 0 ? line.left(colon) : line;
+    while (head.endsWith(' ') || head.endsWith('\t')) head.chop(1);
+    QString out = head + " : " + newName;
+    if (step.vertical)    out += " Vertical";
+    if (step.compareOnly) out += " CompareOnly";
+    if (step.everyCell)   out += " EveryCell";
+    return out;
+}
+
+QStringList SpecTableEditor::attributeNamesOf(const Step& step)
+{
+    QStringList names;
+    if (step.table.rows.isEmpty()) return names;
+    if (step.table.vertical) {
+        for (const QStringList& row : step.table.rows)
+            if (!row.isEmpty() && !row.first().trimmed().isEmpty()) names << row.first().trimmed();
+    } else {
+        for (const QString& h : step.table.rows.first())
+            if (!h.trimmed().isEmpty()) names << h.trimmed();
+    }
+    return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -502,16 +561,15 @@ void SpecTableEditor::appendUsesReference(const QString& name)
     tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
     const QString lineText = tc.selectedText();
 
-    static QRegularExpression reUses(
-        R"(^(\s*Uses)\b(.*)$)", QRegularExpression::CaseInsensitiveOption);
-    auto m = reUses.match(lineText);
-    if (!m.hasMatch()) return;
+    const NamedComment* comment = model().namedCommentAt(lineOf(tc.block()));
+    if (!comment || comment->keyword.compare("Uses", Qt::CaseInsensitive) != 0) return;
 
-    const QString prefix = m.captured(1);
-    const QString rest   = m.captured(2).trimmed();
+    QString indent;
+    for (const QChar ch : lineText) { if (!ch.isSpace()) break; indent += ch; }
+    const QString rest    = comment->text.trimmed();
     const QString newRest = rest.isEmpty() ? name : rest + QStringLiteral(", ") + name;
 
-    tc.insertText(prefix + " " + newRest);
+    tc.insertText(indent + "Uses " + newRest);
 }
 
 // ---------------------------------------------------------------------------
@@ -645,12 +703,11 @@ bool SpecTableEditor::handleTableTabKey()
 void SpecTableEditor::formatAllTables()
 {
     QTextDocument* doc = textEdit()->document();
-    static QRegularExpression reRow(R"(^\s*\|)");
 
     QList<int> starts;
     bool prevWasRow = false;
     for (int i = 0; i < doc->blockCount(); ++i) {
-        const bool isRow = reRow.match(doc->findBlockByNumber(i).text()).hasMatch();
+        const bool isRow = doc->findBlockByNumber(i).text().trimmed().startsWith('|');
         if (isRow && !prevWasRow) starts.append(i);
         prevWasRow = isRow;
     }
@@ -721,14 +778,14 @@ void SpecTableEditor::transposeTable()
 {
     QTextDocument* doc = textEdit()->document();
     QTextCursor tc = textEdit()->textCursor();
-    static QRegularExpression reRow(R"(^\s*\|)");
+    auto isRow = [](const QTextBlock& b) { return b.isValid() && b.text().trimmed().startsWith('|'); };
 
     QTextBlock cur = tc.block();
-    if (!reRow.match(cur.text()).hasMatch()) return;
+    if (!isRow(cur)) return;
 
     QTextBlock first = cur, last = cur;
-    while (reRow.match(first.previous().text()).hasMatch()) first = first.previous();
-    while (reRow.match(last.next().text()).hasMatch())      last  = last.next();
+    while (isRow(first.previous())) first = first.previous();
+    while (isRow(last.next()))      last  = last.next();
 
     auto parseRow = [](const QString& line) -> QStringList {
         QString t = line.trimmed();
@@ -775,27 +832,6 @@ void SpecTableEditor::transposeTable()
     tc.insertText(newLines.join("\n"));
 }
 
-// Finds the last non-empty line of the top-level block (Scenario/ScenarioGroup/
-// Background/Cleanup/BusinessRule/Calculation/etc.) containing `from`, so a
-// new declaration can be inserted right after that block ends instead of
-// splicing into its middle.
-static QTextBlock endOfEnclosingBlock(const QTextBlock& from)
-{
-    static QRegularExpression reTopLevel(
-        R"(^\s*(Specification|Entity|Collection|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    QTextBlock last = from;
-    QTextBlock b = from.next();
-    while (b.isValid()) {
-        if (reTopLevel.match(b.text()).hasMatch())
-            break;
-        if (!b.text().trimmed().isEmpty())
-            last = b;
-        b = b.next();
-    }
-    return last;
-}
-
 // ---------------------------------------------------------------------------
 // Auto-insert table header when Enter is pressed at the end of a step line
 // ---------------------------------------------------------------------------
@@ -816,12 +852,12 @@ void SpecTableEditor::autoInsertTableHeader()
     QString indent;
     for (const QChar ch : prevLine) { if (!ch.isSpace()) break; indent += ch; }
 
+    const CursorModel& cm       = model();
+    const int          prevLineNo = lineOf(prevBlk);
+
     // ── Case 1: Attributes/Entity line → insert standard header ──────────────
     {
-        static QRegularExpression reAttrDecl(
-            R"(^\s*(Attributes|Entity)\s+\S+)",
-            QRegularExpression::CaseInsensitiveOption);
-        if (reAttrDecl.match(prevLine).hasMatch()) {
+        if (cm.attrSetAt(prevLineNo)) {
             const QString hdr = indent + "| Attribute | Type | Default | Notes |";
             tc.movePosition(QTextCursor::StartOfBlock);
             tc.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
@@ -832,10 +868,7 @@ void SpecTableEditor::autoInsertTableHeader()
 
     // ── Case 1b: Collection line → insert its declaration header ─────────────
     {
-        static QRegularExpression reCollDecl(
-            R"(^\s*Collection\s+\S+)",
-            QRegularExpression::CaseInsensitiveOption);
-        if (reCollDecl.match(prevLine).hasMatch()) {
+        if (cm.collectionAt(prevLineNo)) {
             const QString hdr  = indent + "| DataType | Minimum | Maximum | Notes |";
             const QString data = indent + "|          |         |         |       |";
             tc.movePosition(QTextCursor::StartOfBlock);
@@ -848,12 +881,9 @@ void SpecTableEditor::autoInsertTableHeader()
     // ── Case 2: Examples: Name — ValidValues/EnumerationValues built-ins, a
     //    known AttrSet, or an unknown one (prompt to create/pick) ────────────
     {
-        static QRegularExpression reExamples(
-            R"(^\s*Examples:\s*(\w+)\s*$)",
-            QRegularExpression::CaseInsensitiveOption);
-        auto m = reExamples.match(prevLine);
-        if (m.hasMatch()) {
-            const QString name      = m.captured(1);
+        const NamedBlock* exBlock = nullptr;
+        if (cm.isExamplesLine(prevLineNo, &exBlock) && !exBlock->examples.attrSetName.isEmpty()) {
+            const QString name      = exBlock->examples.attrSetName;
             const QString nameLower = name.toLower();
 
             if (nameLower == "validvalues" || nameLower == "enumerationvalues") {
@@ -961,18 +991,12 @@ void SpecTableEditor::autoInsertTableHeader()
 
     // ── Case 3: Step line with : AttrSetName ──────────────────────────────────
     {
-        static QRegularExpression reStep(
-            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
-            QRegularExpression::CaseInsensitiveOption);
-        static QRegularExpression reApplying(
-            R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
-            QRegularExpression::CaseInsensitiveOption);
+        const Step* step = cm.stepAt(prevLineNo);
+        if (!step || step->attrSetName.isEmpty() || isApplyingStep(*step)) return;
 
-        auto m = reStep.match(prevLine);
-        if (!m.hasMatch() || reApplying.match(prevLine).hasMatch()) return;
-
-        const QString name       = m.captured(1);
-        const bool    vertical = !m.captured(2).trimmed().isEmpty();
+        const QString name     = step->attrSetName;
+        const bool    vertical = step->vertical;
+        const Step    stepCopy = *step;   // the model is re-read below; keep what is needed
 
         if (!m_index) return;
         const SpecTableSymbols& syms = m_index->projectSymbols();
@@ -1023,13 +1047,7 @@ void SpecTableEditor::autoInsertTableHeader()
                     prev.movePosition(QTextCursor::PreviousBlock);
                     prev.movePosition(QTextCursor::StartOfBlock);
                     prev.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
-                    QString newLine = prev.selectedText();
-                    newLine.replace(
-                        QRegularExpression(R"(:\s*)" + QRegularExpression::escape(name)
-                                           + R"((\s+Vertical)?\s*$)",
-                                           QRegularExpression::CaseInsensitiveOption),
-                        ": " + picked + (vertical ? " Vertical" : ""));
-                    prev.insertText(newLine);
+                    prev.insertText(stepLineNaming(prev.selectedText(), stepCopy, picked));
                     // Then fall through to insert the header for the picked set
                     QTimer::singleShot(0, this, [this, picked, vertical, indent]() {
                         if (!m_index) return;
@@ -1136,18 +1154,12 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
     // "Examples: Name" line (inside a BusinessRule/Calculation/DataType).
     QTextBlock ownerBlk = firstRow.previous();
     if (!ownerBlk.isValid()) return;
-    const QString ownerLine = ownerBlk.text();
 
-    static QRegularExpression reBareStep(
-        R"(^\s*(Given|When|Then|And|WhenThen)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reExamplesOwner(
-        R"(^\s*Examples:\s*(\w+)\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-
-    const bool isStepOwner = reBareStep.match(ownerLine).hasMatch();
-    auto exOwnerMatch = reExamplesOwner.match(ownerLine);
-    const bool isExamplesOwner = exOwnerMatch.hasMatch();
+    const CursorModel& cm = model();
+    const Step*       ownerStep    = cm.stepAt(lineOf(ownerBlk));
+    const NamedBlock* ownerExamples = nullptr;
+    const bool isStepOwner     = ownerStep != nullptr;
+    const bool isExamplesOwner = !isStepOwner && cm.isExamplesLine(lineOf(ownerBlk), &ownerExamples);
     if (!isStepOwner && !isExamplesOwner) return;
 
     if (!m_index) return;
@@ -1159,15 +1171,11 @@ void SpecTableEditor::checkAdHocTableAttributeSet()
     // prompting for one.
     QString existingName;
     if (isExamplesOwner) {
-        existingName = exOwnerMatch.captured(1);
+        existingName = ownerExamples->examples.attrSetName;
         const QString nameLower = existingName.toLower();
         if (nameLower == "validvalues" || nameLower == "enumerationvalues") return;
     } else {
-        static QRegularExpression reColonName(
-            R"(:\s*(\w+)(?:\s+(?:Vertical|CompareOnly))?\s*$)",
-            QRegularExpression::CaseInsensitiveOption);
-        auto cm = reColonName.match(ownerLine);
-        if (cm.hasMatch()) existingName = cm.captured(1);
+        existingName = ownerStep->attrSetName;
     }
     if (!existingName.isEmpty()
         && (syms.hasAttributeSet(existingName) || syms.dataTypes.contains(existingName)))
@@ -1265,18 +1273,13 @@ void SpecTableEditor::offerCreateAttributeSetFromTable(
         ownerCur.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
         QString newOwnerLine = ownerLineBlock.text();
         if (!ownerIsStepLine) {
-            newOwnerLine.replace(
-                QRegularExpression(R"(^(\s*Examples:\s*).*$)",
-                                   QRegularExpression::CaseInsensitiveOption),
-                R"(\1)" + picked);
+            QString indent;
+            for (const QChar ch : newOwnerLine) { if (!ch.isSpace()) break; indent += ch; }
+            newOwnerLine = indent + "Examples: " + picked;
         } else if (existingName.isEmpty()) {
             newOwnerLine += " : " + picked;
-        } else {
-            newOwnerLine.replace(
-                QRegularExpression(R"(:\s*)" + QRegularExpression::escape(existingName)
-                                   + R"((\s+(?:Vertical|CompareOnly))?\s*$)",
-                                   QRegularExpression::CaseInsensitiveOption),
-                ": " + picked);
+        } else if (const Step* step = model().stepAt(lineOf(ownerLineBlock))) {
+            newOwnerLine = stepLineNaming(newOwnerLine, *step, picked);
         }
         ownerCur.insertText(newOwnerLine);
     }
@@ -1295,29 +1298,20 @@ void SpecTableEditor::createAttributeSetFromExamplesTable()
 {
     QTextBlock ownerBlk = textEdit()->textCursor().block();
 
-    static QRegularExpression reExamplesOwner(
-        R"(^\s*Examples:\s*(\w+)\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    auto m = reExamplesOwner.match(ownerBlk.text());
-    if (!m.hasMatch()) return;
+    const NamedBlock* block = nullptr;
+    if (!model().isExamplesLine(lineOf(ownerBlk), &block)) return;
 
-    const QString name = m.captured(1);
+    const QString name = block->examples.attrSetName;
     const QString nameLower = name.toLower();
-    if (nameLower == "validvalues" || nameLower == "enumerationvalues") return;
+    if (name.isEmpty() || nameLower == "validvalues" || nameLower == "enumerationvalues") return;
 
     if (!m_index) return;
     const SpecTableSymbols& syms = m_index->projectSymbols();
     if (syms.hasAttributeSet(name) || syms.dataTypes.contains(name)) return;
 
-    QTextBlock firstRow = ownerBlk.next();
-    if (!firstRow.isValid() || !firstRow.text().trimmed().startsWith('|')) return;
-
-    QString hdrLine = firstRow.text().trimmed();
-    if (hdrLine.startsWith('|')) hdrLine = hdrLine.mid(1);
-    if (hdrLine.endsWith('|'))   hdrLine.chop(1);
-    QStringList headers = hdrLine.split('|');
-    for (auto& h : headers) h = h.trimmed();
-    headers.removeAll({});
+    QStringList headers;
+    for (const QString& h : block->examples.header)
+        if (!h.trimmed().isEmpty()) headers << h.trimmed();
     if (headers.isEmpty()) return;
 
     offerCreateAttributeSetFromTable(ownerBlk, name, headers, /*ownerIsStepLine=*/false);
@@ -1333,18 +1327,11 @@ void SpecTableEditor::insertTableHeaderForCurrentStep()
     QTextCursor tc = textEdit()->textCursor();
     const QString stepLine = tc.block().text();
 
-    static QRegularExpression reStep(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    static QRegularExpression reApplying(
-        R"(\bapplying\s+(?:BusinessRule|Calculation)\b)",
-        QRegularExpression::CaseInsensitiveOption);
+    const Step* step = model().stepAt(lineOf(tc.block()));
+    if (!step || step->attrSetName.isEmpty() || isApplyingStep(*step)) return;
 
-    auto m = reStep.match(stepLine);
-    if (!m.hasMatch() || reApplying.match(stepLine).hasMatch()) return;
-
-    const QString name      = m.captured(1);
-    const bool    vertical = !m.captured(2).trimmed().isEmpty();
+    const QString name     = step->attrSetName;
+    const bool    vertical = step->vertical;
 
     QString indent;
     for (const QChar ch : stepLine) { if (!ch.isSpace()) break; indent += ch; }
@@ -1437,32 +1424,28 @@ void SpecTableEditor::toggleLineComment()
 void SpecTableEditor::editMultilineComment()
 {
     QTextDocument* doc = textEdit()->document();
+    const CursorModel& cm = model();
 
-    static QRegularExpression reField(
-        R"(^\s*(Description|Details|Constraint|Notes|Uses)\s*(.*))",
-        QRegularExpression::CaseInsensitiveOption);
-
-    // Walk back from cursor to find the field opener line
+    // Walk back from cursor to find the named comment this line belongs to
     int openerNum = textEdit()->textCursor().blockNumber();
+    const NamedComment* comment = nullptr;
     for (int i = openerNum; i >= 0; --i) {
         const QString t = doc->findBlockByNumber(i).text();
-        if (reField.match(t).hasMatch()) { openerNum = i; break; }
+        if ((comment = cm.namedCommentAt(i + 1))) { openerNum = i; break; }
         if (i < textEdit()->textCursor().blockNumber()
             && (t.isEmpty() || !t.at(0).isSpace())) return;
     }
+    if (!comment) return;
 
     QTextBlock opener = doc->findBlockByNumber(openerNum);
-    auto om = reField.match(opener.text());
-    if (!om.hasMatch()) return;
-
-    const QString keyword = om.captured(1);
+    const QString keyword = comment->keyword;
     // Detect the opener's leading indent
     QString openerIndent;
     for (const QChar ch : opener.text()) { if (!ch.isSpace()) break; openerIndent += ch; }
     const QString contIndent = openerIndent + "  ";
 
     // Collect the inline text (after the keyword) and continuation lines
-    QString inlineRaw = om.captured(2).trimmed();
+    QString inlineRaw = comment->text.trimmed();
     const bool isMultilineOpener = (inlineRaw == "\\" || inlineRaw.isEmpty());
     if (inlineRaw.endsWith(" \\")) inlineRaw.chop(2);
     else if (inlineRaw.endsWith("\\")) inlineRaw.chop(1);
@@ -1548,9 +1531,8 @@ void SpecTableEditor::editMultilineComment()
 
 static QStringList tableHeadersAtCursor(QPlainTextEdit* edit)
 {
-    static QRegularExpression reRow(R"(^\s*\|)");
     QTextBlock b = edit->textCursor().block();
-    while (b.previous().isValid() && reRow.match(b.previous().text()).hasMatch())
+    while (b.previous().isValid() && b.previous().text().trimmed().startsWith('|'))
         b = b.previous();
 
     QString trimmed = b.text().trimmed();
@@ -1564,9 +1546,8 @@ static QStringList tableHeadersAtCursor(QPlainTextEdit* edit)
 
 static QTextBlock firstTableBlock(QPlainTextEdit* edit)
 {
-    static QRegularExpression reRow(R"(^\s*\|)");
     QTextBlock b = edit->textCursor().block();
-    while (b.previous().isValid() && reRow.match(b.previous().text()).hasMatch())
+    while (b.previous().isValid() && b.previous().text().trimmed().startsWith('|'))
         b = b.previous();
     return b;
 }
@@ -1663,18 +1644,10 @@ QVector<QStringList> SpecTableEditor::parseCsvFile(const QString& filePath)
 void SpecTableEditor::importCsv()
 {
     QTextCursor tc = textEdit()->textCursor();
-    const QString lineText = tc.block().text();
 
-    static QRegularExpression reStepLine(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b)",
-        QRegularExpression::CaseInsensitiveOption);
-    if (!reStepLine.match(lineText).hasMatch()) return;
-
-    static QRegularExpression reStepAttr(
-        R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
-        QRegularExpression::CaseInsensitiveOption);
-    auto m = reStepAttr.match(lineText);
-    const QString attrSetName = m.hasMatch() ? m.captured(1) : QString();
+    const Step* step = model().stepAt(lineOf(tc.block()));
+    if (!step) return;
+    const QString attrSetName = step->attrSetName;
 
     const QString csvPath = QFileDialog::getOpenFileName(
         this, tr("Import CSV"), {}, tr("CSV Files (*.csv);;All Files (*)"));
@@ -1860,10 +1833,7 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     // Select File... for Import (shown whenever the cursor is on any Import line,
     // whether or not a filename/quotes have been typed yet)
     {
-        static QRegularExpression reImport(
-            R"(^\s*Import\b)", QRegularExpression::CaseInsensitiveOption);
-        const QString lineText = textEdit()->textCursor().block().text();
-        if (reImport.match(lineText).hasMatch()) {
+        if (model().isImportLine(lineOf(textEdit()->textCursor().block()))) {
             auto* browseAct = menu->addAction(tr("Select File..."));
             connect(browseAct, &QAction::triggered, this, &SpecTableEditor::browseImportFile);
             menu->addSeparator();
@@ -1873,22 +1843,15 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     // Select File... for Insert (shown whenever the cursor is on any Insert line,
     // whether or not a filename/quotes have been typed yet)
     {
-        static QRegularExpression reInsert(
-            R"(^\s*Insert\b)", QRegularExpression::CaseInsensitiveOption);
-        static QRegularExpression reInsertQuoteStyle(
-            R"re(^\s*Insert\s+(?:"([^"]*)"|'([^']*)'|<([^>]*)>))re",
-            QRegularExpression::CaseInsensitiveOption);
         const QString lineText = textEdit()->textCursor().block().text();
-        if (reInsert.match(lineText).hasMatch()) {
-            // Preserve whichever quote style the line already used, if any.
-            // A participating (even empty) capture has a valid start offset;
-            // a non-participating alternative's is -1. Default to double quotes.
+        if (model().isInsertLine(lineOf(textEdit()->textCursor().block()))) {
+            // Preserve whichever quote style the line already used, if any:
+            // the first quoting character after the keyword. Default to double
+            // quotes.
             QChar openQuote = '"', closeQuote = '"';
-            auto insM = reInsertQuoteStyle.match(lineText);
-            if (insM.hasMatch()) {
-                if (insM.capturedStart(2) != -1)      { openQuote = closeQuote = '\''; }
-                else if (insM.capturedStart(3) != -1) { openQuote = '<'; closeQuote = '>'; }
-            }
+            const QString afterKeyword = lineText.trimmed().mid(QStringLiteral("Insert").size()).trimmed();
+            if (afterKeyword.startsWith('\''))     { openQuote = closeQuote = '\''; }
+            else if (afterKeyword.startsWith('<')) { openQuote = '<'; closeQuote = '>'; }
 
             auto* browseInsAct = menu->addAction(tr("Select File..."));
             connect(browseInsAct, &QAction::triggered, this, [this, openQuote, closeQuote] {
@@ -1902,10 +1865,8 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     // DataType/BusinessRule/Calculation from the project and appends its name
     // to the comment text.
     {
-        static QRegularExpression reUses(
-            R"(^\s*Uses\b)", QRegularExpression::CaseInsensitiveOption);
-        const QString lineText = textEdit()->textCursor().block().text();
-        if (m_index && reUses.match(lineText).hasMatch()) {
+        const NamedComment* usesComment = model().namedCommentAt(lineOf(textEdit()->textCursor().block()));
+        if (m_index && usesComment && usesComment->keyword.compare("Uses", Qt::CaseInsensitive) == 0) {
             const SpecTableSymbols& syms = m_index->projectSymbols();
 
             QStringList dataTypeNames = k_builtinDataTypes;
@@ -1948,19 +1909,10 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
 
     // Run Examples (shown when cursor is inside a BusinessRule or Calculation block)
     if (m_index) {
-        static QRegularExpression reTopLevel(
-            R"(^\s*(Specification|Entity|DomainTerm|DataType|Attributes|BusinessRule|Calculation|Import|Insert|Scenario|ScenarioGroup|Background|Cleanup|Define)\b)",
-            QRegularExpression::CaseInsensitiveOption);
-        static QRegularExpression reBRCalc(
-            R"(^\s*(BusinessRule|Calculation)\b)",
-            QRegularExpression::CaseInsensitiveOption);
-
         const QTextBlock cur = textEdit()->textCursor().block();
-        bool inBRCalc = false;
-        for (QTextBlock b = cur; b.isValid(); b = b.previous()) {
-            if (reBRCalc.match(b.text()).hasMatch())    { inBRCalc = true; break; }
-            if (reTopLevel.match(b.text()).hasMatch())  break;
-        }
+        const NamedBlock* nb = model().namedBlockOwning(lineOf(cur));
+        const bool inBRCalc = nb && (nb->kind.compare("BusinessRule", Qt::CaseInsensitive) == 0
+                                     || nb->kind.compare("Calculation", Qt::CaseInsensitive) == 0);
 
         if (inBRCalc) {
             const QString fp   = filePath();
@@ -1978,18 +1930,15 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
     // Create AttributeSet from Examples table (shown when cursor is on
     // "Examples: Name" and Name isn't a known AttrSet/DataType)
     {
-        static QRegularExpression reExamplesOwner(
-            R"(^\s*Examples:\s*(\w+)\s*$)",
-            QRegularExpression::CaseInsensitiveOption);
         const QTextBlock curBlock = textEdit()->textCursor().block();
-        auto em = reExamplesOwner.match(curBlock.text());
-        if (em.hasMatch() && m_index) {
-            const QString exName = em.captured(1);
+        const NamedBlock* exBlock = nullptr;
+        if (model().isExamplesLine(lineOf(curBlock), &exBlock) && m_index
+                && !exBlock->examples.attrSetName.isEmpty()) {
+            const QString exName = exBlock->examples.attrSetName;
             const QString exNameLower = exName.toLower();
             const SpecTableSymbols& syms = m_index->projectSymbols();
             const bool isBuiltin = (exNameLower == "validvalues" || exNameLower == "enumerationvalues");
-            const bool hasTable = curBlock.next().isValid()
-                                  && curBlock.next().text().trimmed().startsWith('|');
+            const bool hasTable = !exBlock->examples.header.isEmpty();
             if (!isBuiltin && hasTable
                 && !syms.hasAttributeSet(exName) && !syms.dataTypes.contains(exName)) {
                 auto* createAct = menu->addAction(tr("Create AttributeSet '%1' from this table...").arg(exName));
@@ -2023,43 +1972,15 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
 
     if (!word.isEmpty() && !isKnown && !isAttrSet) {
         // Suggest creating an AttributeSet when the word is used as one in the current step
-        static QRegularExpression reStepAttr(
-            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
-            QRegularExpression::CaseInsensitiveOption);
-        const QString lineText = textEdit()->textCursor().block().text();
-        auto sm = reStepAttr.match(lineText);
-        if (sm.hasMatch() && sm.captured(1).compare(word, Qt::CaseInsensitive) == 0) {
+        const Step* menuStep = model().stepAt(lineOf(textEdit()->textCursor().block()));
+        if (menuStep && menuStep->attrSetName.compare(word, Qt::CaseInsensitive) == 0) {
             menu->addSeparator();
             auto* createAct = menu->addAction(tr("Create Attributes '%1'").arg(word));
             connect(createAct, &QAction::triggered, this, [this, word] {
-                // Collect column headers from the table immediately below the step line
+                // The attribute names the step's table gives, whichever way it runs
                 QStringList attrNames;
-                {
-                    static QRegularExpression reRow(R"(^\s*\|)");
-                    const QTextBlock stepBlock = textEdit()->textCursor().block();
-                    const bool vertical = stepBlock.text().contains(
-                        QRegularExpression(R"(\bVertical\b)", QRegularExpression::CaseInsensitiveOption));
-                    bool foundFirstRow = false;
-                    for (QTextBlock b = stepBlock.next(); b.isValid(); b = b.next()) {
-                        if (b.text().trimmed().isEmpty()) continue;
-                        if (!reRow.match(b.text()).hasMatch()) break;
-                        QStringList parts = b.text().split('|');
-                        QStringList cells;
-                        for (int i = 1; i < parts.size() - 1; ++i) {
-                            const QString c = parts[i].trimmed();
-                            if (!c.isEmpty()) cells << c;
-                        }
-                        if (vertical) {
-                            // Each row: | AttrName | Value | — take col 0
-                            if (!cells.isEmpty()) attrNames << cells[0];
-                        } else {
-                            // First row = column headers
-                            attrNames = cells;
-                            foundFirstRow = true;
-                        }
-                        if (!vertical && foundFirstRow) break;
-                    }
-                }
+                if (const Step* st = model().stepAt(lineOf(textEdit()->textCursor().block())))
+                    attrNames = attributeNamesOf(*st);
 
                 // Build block
                 QString block = QString("\n\nAttributes %1\n").arg(word);
@@ -2074,22 +1995,16 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
 
                 QTextCursor end = textEdit()->textCursor();
                 end.movePosition(QTextCursor::End);
-                const int insertPos = end.position() + 3; // after "\n\nAttributes "
                 end.insertText(block);
 
-                // Move cursor to the first attribute data cell
-                QTextCursor nav = textEdit()->textCursor();
-                nav.movePosition(QTextCursor::End);
-                // Walk back to the "Attributes <word>" line we just inserted
+                // The block just went in at the end: blank line, "Attributes
+                // <word>", the header row, then the rows. Move to the first
+                // cell of the first row.
                 QTextDocument* doc = textEdit()->document();
-                QTextCursor found = doc->find(
-                    QRegularExpression(R"(^\s*Attributes\s+)" + QRegularExpression::escape(word) + R"(\s*$)",
-                                       QRegularExpression::CaseInsensitiveOption),
-                    insertPos - 3,
-                    QTextDocument::FindBackward);
-                if (!found.isNull()) {
-                    // Move to the line after the header row (first data row)
-                    QTextBlock attrBlock = found.block().next().next(); // skip header row
+                const int rowCount = attrNames.isEmpty() ? 1 : attrNames.size();
+                const QTextBlock attrLine = doc->findBlockByNumber(doc->blockCount() - 1 - rowCount - 1);
+                if (attrLine.isValid()) {
+                    QTextBlock attrBlock = attrLine.next().next(); // skip header row
                     if (attrBlock.isValid()) {
                         QTextCursor tc(attrBlock);
                         tc.movePosition(QTextCursor::StartOfBlock);
@@ -2153,23 +2068,16 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
 
     // Import CSV / Find Step Usages / Insert Table Header (shown when cursor is on a step line)
     {
-        static QRegularExpression reStep(
-            R"(^\s*(Given|When|Then|And|WhenThen)\s+(.+?)(?:\s*:.*)?$)",
-            QRegularExpression::CaseInsensitiveOption);
-        static QRegularExpression reStepAttr(
-            R"(^\s*(?:Given|When|Then|And|WhenThen)\b.+:\s*(\w+)(\s+Vertical)?\s*$)",
-            QRegularExpression::CaseInsensitiveOption);
         const QTextBlock curBlock = textEdit()->textCursor().block();
         const QString lineText = curBlock.text();
-        auto sm = reStep.match(lineText);
-        if (sm.hasMatch()) {
-            QString kw   = sm.captured(1);
-            QString text = sm.captured(2).trimmed();
+        if (const Step* step = model().stepAt(lineOf(curBlock))) {
+            // The keyword as written -- And, not the Given it stands for.
+            const QString kw   = lineText.trimmed().section(' ', 0, 0);
+            const QString text = step->text.trimmed();
             menu->addSeparator();
             // Insert Table Header — shown when step has : AttrSet but no table below
-            const bool hasAttr = reStepAttr.match(lineText).hasMatch();
-            const bool hasTable = curBlock.next().isValid()
-                                  && curBlock.next().text().trimmed().startsWith('|');
+            const bool hasAttr  = !step->attrSetName.isEmpty();
+            const bool hasTable = step->hasTable;
             if (hasAttr && !hasTable) {
                 auto* insHdrAct = menu->addAction(tr("Insert Table Header"));
                 connect(insHdrAct, &QAction::triggered,
@@ -2190,14 +2098,12 @@ void SpecTableEditor::populateContextMenu(QMenu* menu)
 
     // Edit Comment (shown when cursor is on a Description/Details/Constraint line or continuation)
     {
-        static QRegularExpression reField(
-            R"(^\s*(Description|Details|Constraint|Notes|Uses)\b)",
-            QRegularExpression::CaseInsensitiveOption);
         const QTextBlock cur = textEdit()->textCursor().block();
-        const bool onField = reField.match(cur.text()).hasMatch();
+        const CursorModel& cm = model();
+        const bool onField = cm.namedCommentAt(lineOf(cur)) != nullptr;
         const bool onCont  = !cur.text().isEmpty() && cur.text().at(0).isSpace()
                              && cur.previous().isValid()
-                             && (reField.match(cur.previous().text()).hasMatch()
+                             && (cm.namedCommentAt(lineOf(cur.previous())) != nullptr
                                  || (!cur.previous().text().isEmpty()
                                      && cur.previous().text().at(0).isSpace()));
         if (onField || onCont) {

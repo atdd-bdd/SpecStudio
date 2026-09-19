@@ -46,6 +46,13 @@ void resolveDefineReferences(SpectableFile& file);
 QVector<ParseMessage> validateExamplesTables(const SpectableFile& file);
 QVector<ParseMessage> validateAttributeDefaults(const SpectableFile& file);
 
+// Whether one value satisfies the built-in type its column declares -- the
+// rule validateStepTables, validateExamplesTables and validateAttributeDefaults
+// apply, offered on its own for anything that judges a cell at a time. A user
+// DataType, Entity or Collection is always accepted: its own constructor
+// decides, in each language.
+bool isValidValueForType(const QString& value, const QString& type);
+
 // Works out which way a step table runs when the step did not say. The step
 // names its attribute set, so the field names are known before the table is
 // read: a table whose header row is all field names is horizontal; one whose
@@ -78,8 +85,14 @@ public:
     // Import statements are followed and their AttrSets/Defines are merged in.
     SpectableFile parse(const QString& filePath);
 
+    // Parse text that is not yet on disk -- what an editor holds -- as if it
+    // were the file at filePath, which is where Import and Insert paths are
+    // resolved from. The editor asks this about the text being typed.
+    SpectableFile parseText(const QString& text, const QString& filePath);
+
 private:
     SpectableFile parseImpl(const QString& filePath, QSet<QString>& visited);
+    SpectableFile parseLines(const QString& text, const QString& filePath, QSet<QString>& visited);
     // Helpers
     static QStringList splitPipeRow(const QString& line);
     static QString     normalizeKeyword(const QString& kw, const QString& last);

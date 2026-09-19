@@ -7,6 +7,8 @@ class QMenu;
 class QTextBlock;
 class SpecTableIndex;
 
+#include "CursorModel.h"
+
 class SpecTableEditor : public PlainTextEditor
 {
     Q_OBJECT
@@ -42,6 +44,19 @@ protected:
     // misspelled word under the cursor, then Add / Remove for the dictionary.
     void addSpellingActions(QMenu* menu);
 
+    // The parse tree of the text as it stands, re-read when the text changed.
+    // Every "what is the line under the cursor" question is asked of this.
+    const CursorModel& model() const;
+    // The line a block sits on, 1-based as the model counts.
+    static int lineOf(const QTextBlock& block) { return block.blockNumber() + 1; }
+    // The last non-empty line of the top-level block containing `from`.
+    QTextBlock endOfEnclosingBlock(const QTextBlock& from) const;
+    // The step line rewritten to name `newName`, keeping its modifiers.
+    static QString stepLineNaming(const QString& line, const Step& step, const QString& newName);
+    // The attribute names of a step's table: its header row, or the first
+    // column when it runs the other way.
+    static QStringList attributeNamesOf(const Step& step);
+
 private:
     bool handleTableTabKey();
     bool tryExpandSnippet();
@@ -73,6 +88,7 @@ private:
     QStringList documentLines() const;
 
     SpecTableIndex* m_index          = nullptr;
+    mutable CursorModel m_model;
     QString         m_projectRoot;
     QString         m_solutionRoot;
     QStringList     m_staticKeywords;

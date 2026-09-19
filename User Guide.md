@@ -860,9 +860,10 @@ changed this file, listed by date and by the reason given at push time.
 Two ways of looking, on a toggle at the top of the tab:
 
 - **Inline** — one document, the way Word compares: what went away is struck
-  through in red, what arrived is underlined in green, and a line that changed
-  shows both in place, word by word, so a table row keeps its shape and its
-  neighbours.
+  through in red, what arrived is underlined in green, and a line with one
+  change shows it in place, word by word, so a table row keeps its shape and
+  its neighbours. A line that changed in more than one place is shown whole:
+  the old line struck through, the new one underlined beneath it.
 - **Side by side** — the earlier version on the left, the current one on the
   right, scrolled together, a changed line beside its replacement.
 
