@@ -33,7 +33,10 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    const QString folder = args[1];
+    // Absolute, because the index keys every symbol by absolute path and the
+    // cross-file checks compare paths: given a relative folder, a duplicate
+    // declared in two files was silently not reported.
+    const QString folder = QFileInfo(args[1]).absoluteFilePath();
     const bool errorsOnly = args.contains("--errors-only");
 
     if (!QFileInfo(folder).isDir()) {
