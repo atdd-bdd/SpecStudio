@@ -257,13 +257,36 @@ void DiffView::renderInline()
             c.insertText("\n", plain);
             break;
         case Row::Changed: {
-            // Word by word: what the two lines share is plain, what only the
-            // old one had is struck through, what only the new one has is
-            // underlined -- in place, so the row keeps its shape.
+            // Word by word when one thing changed: what the two lines share is
+            // plain, what only the old one had is struck through, what only
+            // the new one has is underlined -- in place, so the row keeps its
+            // shape. When more than one stretch of the line differs, the
+            // marked-up line reads as a puzzle (Ken), so it is shown as the
+            // whole old line removed and the whole new line added.
             const QStringList a = tokens(row.left);
             const QStringList b = tokens(row.right);
+            const auto pairs = lcsPairs(a, b);
+
+            int spans = 0;
+            {
+                int ai = 0, bi = 0;
+                for (const auto& p : pairs) {
+                    if (ai < p.first || bi < p.second) ++spans;
+                    ai = p.first + 1;
+                    bi = p.second + 1;
+                }
+                if (ai < a.size() || bi < b.size()) ++spans;
+            }
+            if (spans > 1) {
+                c.insertText(row.left, removed);
+                c.insertText("\n", plain);
+                c.insertText(row.right, added);
+                c.insertText("\n", plain);
+                break;
+            }
+
             int ai = 0, bi = 0;
-            for (const auto& p : lcsPairs(a, b)) {
+            for (const auto& p : pairs) {
                 for (; ai < p.first; ++ai) c.insertText(a[ai], removed);
                 for (; bi < p.second; ++bi) c.insertText(b[bi], added);
                 c.insertText(a[p.first], plain);
