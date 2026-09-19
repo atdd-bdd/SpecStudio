@@ -646,7 +646,9 @@ production/        stubs for your production classes
 **Glue is yours.** AlignThree creates each glue method once, as a stub, and
 thereafter only *appends* methods that do not exist yet. It never rewrites or
 removes what you wrote. The cost of that safety: glue for a step you deleted
-stays behind until you remove it.
+stays behind until you remove it -- so every build lists, as warnings, the
+public glue methods no generated test calls any more. Your own private helpers
+are not reported.
 
 Each stub ends with a failure — `fail()`, `Assert.Fail`, `raise
 NotImplementedError`, `t.Fatal`, `panic!`, `XCTFail`, `throw new Error` or
@@ -814,7 +816,8 @@ show. Among the checks:
   `DomainTerm` colliding with a built-in or declared `DataType`
 - **Table shape** — a row whose column count does not match its header
 - **Missing pieces** — a `DataType` with no data table or `Examples:` section;
-  a step with a data table but no attribute set naming its columns
+  a step with a data table but no attribute set naming its columns; a step
+  naming an attribute set with no table under it
 - **Misuse** — an unrecognized keyword or step modifier, or a `Cleanup` block
   containing anything but `Then` and `And`
 - **Files** — an `Import` or `Insert` pointing at a file that is not there

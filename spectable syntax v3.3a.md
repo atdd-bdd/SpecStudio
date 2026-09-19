@@ -212,6 +212,11 @@ Uses <Comment>?
 ```
 
 #### Rules
+* A step that names an attribute set must be followed by its table or by a
+  `=Reference` to a table-form Define. A step with neither is an error, not a
+  step with an empty table.
+* A step with no `: <Type>` takes no table; it may carry a docstring, or
+  nothing at all.
 * `Uses` may describe:
   * business rules applied
   * referenced Define blocks
@@ -228,7 +233,11 @@ EntityTable        ::= Table(AttributeRow+)
 Collection         ::= "Collection" Identifier Uses? CollectionTable
 CollectionTable    ::= Table(CollectionRow)
 
-DefineBlock        ::= "Define" Identifier Uses? Table(Row+)
+DefineBlock        ::= DefineValue | DefineText | DefineTable | DefineList
+DefineValue        ::= "Define" Identifier "=" Value Comment?
+DefineText         ::= "Define" Identifier "=" DocString
+DefineTable        ::= "Define" Identifier Uses? Table(Row+)
+DefineList         ::= "Define" Table(DefineRow+)           # header has Name and Value
 
 Scenario           ::= (GivenStep WhenStep ThenStep)+
 
@@ -240,7 +249,8 @@ Modifier           ::= "Vertical" | "CompareOnly" | "EveryCell"
 
 TransposedRow      ::= "|" AttributeName ("|" Value)+ "|"
 
-Uses               ::= "Uses" CommentText
+Uses               ::= "Uses" CommentText Table?
+NamedComment       ::= ("Description" | "Details" | "Notes" | "Constraint" | "Uses") CommentText Table?
 
 Reference          ::= "=" Identifier
 ```
@@ -316,6 +326,9 @@ Reference          ::= "=" Identifier
 * Has no header row -- the first column names the attributes.
 * A missing or unknown attribute is reported as it would be in a horizontal
   table.
+* The word `Vertical` is optional (section 2.4): a table whose first column
+  is all attribute names, when its first row is not, is read as transposed
+  without it. One attribute with one value is the same instance either way.
 
 ### 4.5 Reference Semantics
 
@@ -449,3 +462,21 @@ Removed in v3.3. Collections replace all multiplicity semantics.
 * Editorial only otherwise: the document was published with the conversation
   that produced it still wrapped around it, and with its code samples and
   headings malformed. No rule of the language was changed.
+
+### Document revision 2026-09-19
+
+* `Vertical` is optional. The step names its attribute set, so the parser can
+  see which way a table runs; the word is kept for the reader (sections 2.4
+  and 4.4).
+* `Define` has four forms, each written out in section 2.6 and in the grammar:
+  one value to the end of the line (a `#` comment allowed after it), a
+  docstring, a table, and a bare `Define` over a `Name`/`Value` table that
+  declares several one-line Defines at once.
+* A `=Name` may stand in a cell of a step table, an `Examples` table or a
+  `Default` column, not only in place of a whole table (section 4.5).
+* Any named comment may be followed by a table, which is part of the comment
+  and is documentation only (section 4.1.1).
+* A step that names an attribute set with no table after it is an error
+  (section 2.7).
+* A DomainTerm may name a type it stands for; a built-in type name used as a
+  DomainTerm is reported, not obeyed.
