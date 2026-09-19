@@ -27,6 +27,7 @@ public:
     void setErrorMarks(const QList<QPair<int,int>>& marks) override;
     void setTagCompletionWords(const QStringList& tags)    override;
     bool replaceAllText(const QString& text)               override;
+    QString allText() const                                override;
 
     int  cursorPosition() const     override;
     void setCursorPosition(int pos) override;

@@ -926,20 +926,33 @@ void AppController::showVersionDiff(GitClient* git, const QString& relPath,
                                      const QString& title, const QString& commit,
                                      const QString& date, const QString& subject)
 {
-    const QString diffText = git->diffAgainst(commit, relPath);
-    const QString header   = tr("--- against %1  (%2) ---\n\n")
-                                 .arg(date, subject.isEmpty() ? tr("no message") : subject);
+    // Both versions whole: the earlier one from git, the current one from the
+    // editor -- saved or not, it is what the user is looking at -- falling back
+    // to the file on disk for an editor with no buffer of its own.
+    const QString oldText = git->fileAtVersion(commit, relPath);
+    QString newText;
+    if (auto* ed = m_mainWindow->currentEditor()) {
+        newText = ed->allText();
+        if (newText.isEmpty()) {
+            QFile f(ed->filePath());
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) newText = QTextStream(&f).readAll();
+        }
+    }
 
+    const QString oldTitle = tr("Version of %1  (%2)")
+                                 .arg(date, subject.isEmpty() ? tr("no message") : subject);
+    const QString newTitle = tr("Now");
     const QString revertLabel = tr("reverting to %1").arg(date);
 
-    if (diffText.trimmed().isEmpty()) {
+    auto normalised = [](QString s) { s.replace("\r\n", "\n"); return s.trimmed(); };
+    if (normalised(oldText) == normalised(newText)) {
         // Identical, so there is nothing to revert to -- no button.
         m_mainWindow->outputPanel()->showDiff(
-            header + tr("This file is identical to that version."), title);
+            tr("%1: this file is identical to that version.").arg(oldTitle), title);
         return;
     }
-    m_mainWindow->outputPanel()->showDiff(header + diffText, title,
-                                          commit, relPath, revertLabel);
+    m_mainWindow->outputPanel()->showComparison(oldText, newText, oldTitle, newTitle, title,
+                                                commit, relPath, revertLabel);
 }
 
 // Put an earlier version of a file in front of the user, unsaved.

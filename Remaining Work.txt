@@ -185,10 +185,11 @@ Altered so that it is separated into Issues and Future Features
   WARNING:line:text lines), ProjectIndex (.featurex), the highlighter's colour
   rules (per-line colouring is what a highlighter is).
 
-### Diff viewer: OutputPanel already has a real "Diff" tab (OutputPanel.cpp:232,
-  AppController.cpp:500) but it's a generic git working-tree diff, not a
-  comparison against "the .spectable version that generated the current
-  tests" — that provenance tracking doesn't exist yet.
+### Diff against "the version that generated the current tests". The Diff
+  tab compares whole versions now (see Done), but which version the tests
+  were last generated from is not recorded anywhere, so "what changed since I
+  last built" cannot be asked. Needs the build to note the commit of each
+  specification it generated from.
 
 ### Share Changes dialog is a real implementation now (see Done below) but is
   simpler than the full appendix mockup: no inline per-file diff preview in
@@ -358,6 +359,18 @@ Altered so that it is separated into Issues and Future Features
 
 
 ## --- Done ---
+
+[x] The Diff tab shows whole versions, two ways (2026-09-18). git's patch --
+    hunks with + and - in the margin -- is gone; DiffView lines the earlier
+    version up against the current one (a longest-common-subsequence of
+    lines, removed and added runs paired as changed lines) and shows it either
+    Inline, the way Word compares -- struck through in red, underlined in
+    green, changed lines marked word by word in place so a table row keeps
+    its shape -- or Side by side, scrolled together. Ken's question "isn't
+    split the way Word does it?" was answered honestly: Word's primary view
+    is the inline one, with the two versions in side panes; both are offered.
+    The current side is the editor's text, saved or not. tools/diff_cli
+    prints the line-up for two files, which is how the engine was checked.
 
 [x] Simulate Scenario reads the parse tree. Its 240-line regex reader is gone;
     the dialog takes SpecTableIndex::fileWithContext (or, with no index, its

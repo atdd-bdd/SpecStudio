@@ -1,4 +1,5 @@
 #include "OutputPanel.h"
+#include "DiffView.h"
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -127,9 +128,7 @@ OutputPanel::OutputPanel(QWidget* parent)
     diffBar->addWidget(m_revertLabel, 1);
     diffLayout->addLayout(diffBar);
 
-    m_diffView = new QTextEdit(m_diffPage);
-    m_diffView->setReadOnly(true);
-    m_diffView->setFontFamily("Courier New");
+    m_diffView = new DiffView(m_diffPage);
     diffLayout->addWidget(m_diffView, 1);
 
     connect(m_revertButton, &QPushButton::clicked, this, [this] {
@@ -224,7 +223,7 @@ void OutputPanel::clearBuildOutput()
 void OutputPanel::setOutputFont(const QFont& font)
 {
     m_buildOut->setFont(font);
-    m_diffView->setFont(font);
+    m_diffView->setDiffFont(font);
     m_analysisTree->setFont(font);
     m_findList->setFont(font);
     m_coverageTable->setFont(font);
@@ -261,40 +260,36 @@ void OutputPanel::showFindResultsTab()
     m_tabs->setCurrentWidget(m_findList);
 }
 
-void OutputPanel::showDiff(const QString& diffText, const QString& title,
-                            const QString& revertCommit, const QString& revertRelPath,
-                            const QString& revertLabel)
+void OutputPanel::showDiff(const QString& message, const QString& title)
 {
-    // Set on every call, so a plain diff clears a revert target left by an
-    // earlier one and the button can never act on a version no longer shown.
+    // A message has nothing to revert to; the button follows the display.
+    m_revertCommit.clear();
+    m_revertRelPath.clear();
+    m_revertButton->setEnabled(false);
+    m_revertLabel->clear();
+
+    m_diffView->setMessage(message);
+    m_tabs->setTabText(m_tabs->indexOf(m_diffPage),
+                       title.isEmpty() ? tr("Diff") : tr("Diff – %1").arg(title));
+    showDiffTab();
+}
+
+void OutputPanel::showComparison(const QString& oldText, const QString& newText,
+                                  const QString& oldTitle, const QString& newTitle,
+                                  const QString& title,
+                                  const QString& revertCommit, const QString& revertRelPath,
+                                  const QString& revertLabel)
+{
+    // Set on every call, so the button can never act on a version no longer
+    // shown.
     m_revertCommit  = revertCommit;
     m_revertRelPath = revertRelPath;
     m_revertButton->setEnabled(!revertCommit.isEmpty() && !revertRelPath.isEmpty());
     m_revertLabel->setText(revertLabel);
 
-    m_diffView->clear();
+    m_diffView->setTexts(oldText, newText, oldTitle, newTitle);
     m_tabs->setTabText(m_tabs->indexOf(m_diffPage),
                        title.isEmpty() ? tr("Diff") : tr("Diff – %1").arg(title));
-
-    QTextCursor c(m_diffView->document());
-    QTextCharFormat fmt;
-    fmt.setFontFamily("Courier New");
-
-    for (const QString& line : diffText.split('\n')) {
-        if (line.startsWith("+++") || line.startsWith("---"))
-            fmt.setForeground(QColor(100, 100, 100));
-        else if (line.startsWith('+'))
-            fmt.setForeground(QColor(0, 140, 0));
-        else if (line.startsWith('-'))
-            fmt.setForeground(QColor(200, 0, 0));
-        else if (line.startsWith("@@"))
-            fmt.setForeground(QColor(0, 80, 180));
-        else
-            fmt.setForeground(Qt::black);
-
-        c.insertText(line + '\n', fmt);
-    }
-
     showDiffTab();
 }
 
@@ -306,9 +301,7 @@ void OutputPanel::showDiff(const QString& diffText, const QString& title,
 // goes with it: there is no longer a displayed version for it to act on.
 void OutputPanel::clearDiff(const QString& reason)
 {
-    m_diffView->clear();
-    if (!reason.isEmpty())
-        m_diffView->setPlainText(reason);
+    m_diffView->setMessage(reason);
 
     m_revertCommit.clear();
     m_revertRelPath.clear();

@@ -4,6 +4,7 @@
 #include <QFont>
 #include "../analyzer/AnalysisResult.h"
 
+class DiffView;
 class QTabWidget;
 class QTextEdit;
 class QPushButton;
@@ -33,11 +34,15 @@ public:
     void appendBuildOutput(const QString& text);
     void setDiagnostics(const QList<Diagnostic>& diagnostics);
     void setFindResults(const QList<Diagnostic>& results, const QString& term);
-    // revertCommit/revertRelPath enable the Revert button; omit them for a
-    // diff with nothing specific to revert to.
-    void showDiff(const QString& diffText, const QString& title,
-                  const QString& revertCommit = {}, const QString& revertRelPath = {},
-                  const QString& revertLabel = {});
+    // A message in the Diff tab -- no history, identical, and the like.
+    void showDiff(const QString& message, const QString& title);
+    // Two whole versions of a file, compared. revertCommit/revertRelPath
+    // enable the Revert button.
+    void showComparison(const QString& oldText, const QString& newText,
+                        const QString& oldTitle, const QString& newTitle,
+                        const QString& title,
+                        const QString& revertCommit, const QString& revertRelPath,
+                        const QString& revertLabel);
     void setCoverageData(const QList<CoverageEntry>& entries);
     void clearBuildOutput();
 
@@ -62,7 +67,7 @@ private:
     QTreeWidget*  m_analysisTree  = nullptr;
     QListWidget*  m_findList      = nullptr;
     QWidget*      m_diffPage      = nullptr;
-    QTextEdit*    m_diffView      = nullptr;
+    DiffView*     m_diffView      = nullptr;
     QPushButton*  m_revertButton  = nullptr;
     QLabel*       m_revertLabel   = nullptr;
     QString       m_revertCommit;

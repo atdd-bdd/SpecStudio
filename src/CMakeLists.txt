@@ -15,6 +15,8 @@ set(SOURCES
     ui/EditorTabWidget.cpp
     ui/OutputPanel.h
     ui/OutputPanel.cpp
+    ui/DiffView.h
+    ui/DiffView.cpp
     ui/StatusBarManager.h
     ui/StatusBarManager.cpp
     ui/AttributeInspectorPanel.h

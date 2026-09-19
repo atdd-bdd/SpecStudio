@@ -848,8 +848,26 @@ The Git menu reflects the sharing mode chosen when the solution was created.
 | **Commit and Push...** | Asks for a reason for the change, then commits and pushes |
 | **Fetch** | Fetch without merging |
 | **Get Others' Changes** | Pull teammates' work; conflicts open a resolution dialog |
-| **Diff Current File** (`Ctrl+D`) | Diff against the last commit |
 | **Repository Settings...** | Remote URL, branch, credentials |
+
+### Comparing with an earlier version
+
+**Analyze → Diff Current File → Against Previous Version** (`Ctrl+D`), **Against Two
+Versions Back**, or **Choose Version...** shows the whole file as it is now
+against the whole file as it was, in the Diff tab. A version is a save that
+changed this file, listed by date and by the reason given at push time.
+
+Two ways of looking, on a toggle at the top of the tab:
+
+- **Inline** — one document, the way Word compares: what went away is struck
+  through in red, what arrived is underlined in green, and a line that changed
+  shows both in place, word by word, so a table row keeps its shape and its
+  neighbours.
+- **Side by side** — the earlier version on the left, the current one on the
+  right, scrolled together, a changed line beside its replacement.
+
+**Revert to This Version** loads the earlier version into the editor,
+unsaved: one Undo puts it back, and nothing is written until you save.
 
 **Every save also commits.** `File → Save` writes the file and then commits that
 project with the message `Auto-save`. Your specification history is complete

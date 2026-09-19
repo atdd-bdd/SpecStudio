@@ -36,6 +36,9 @@ public:
     // than writing it to disk: nothing is committed to until they save, and one
     // Ctrl+Z puts it back. Returns false for editors that hold no text.
     virtual bool replaceAllText(const QString&) { return false; }
+    // The whole text as the editor holds it now, saved or not. Empty for an
+    // editor that has no buffer of its own (an external program's).
+    virtual QString allText() const { return {}; }
 
     // Caret and viewport, so a command that works over every open editor can
     // put the user back where they were. -1 means "this editor has none".

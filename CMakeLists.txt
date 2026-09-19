@@ -15,3 +15,4 @@ add_subdirectory(src)
 # A console front end for Analyze, so its findings can be diffed from a terminal.
 add_subdirectory(tools/analyze_cli)
 add_subdirectory(tools/spell_cli)
+add_subdirectory(tools/diff_cli)
