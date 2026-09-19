@@ -94,11 +94,11 @@ Altered so that it is separated into Issues and Future Features
   variant. Not in Analyze: Analyze reads specifications, and the glue lives
   in the output tree of whichever configuration is active.
 
-  #### When a step name changes, rename/update the corresponding glue method name
-  on the next build/analyze instead of leaving an orphaned method. Not
-  implemented — AppController::onRenameStep (AppController.cpp:1386) exists
-  but only does a find/replace across the .spectable source; it never
-  touches already-generated glue method names.
+  #### When a step name changes, the glue method is renamed with it -- DONE.
+  AppController::onRenameStep renames the method in every language's glue
+  (methodRenames) as well as the step in the .spectable; Ken's "This Grid" ->
+  "That Grid" on 2026-09-18 left nothing dead in any of the nine. What the
+  rename does not do is rename an Entity's production class file (see below).
 
   #### Remove common/ files that are no longer referenced -- DONE.
   Build > Project and Build > Solution now delete every generated
@@ -305,27 +305,9 @@ Altered so that it is separated into Issues and Future Features
   Vertical and CompareOnly cannot be combined. An exact-set table is horizontal
   anyway, so this bites only a single-object check that wants both.
 
-  #### Multi-line values in a cell: the mechanism exists but is not connected.
-  A Define can hold a docstring (`Define X =` followed by """ ... """), and a
-  table cell can reference a Define with `=X`. Putting those together is the
-  natural way to compare a multi-line value, and it does not work today.
-
-  resolveValue in JavaGenerator.cpp (and identically in the Cpp and CSharp
-  generators, so presumably all nine) resolves an `=` reference only for a
-  *scalar* Define:
-
-      if (d.name.compare(name, ...) == 0 && !d.isTable && !d.hasDocString)
-
-  The `!d.hasDocString` guard excludes exactly the case wanted. A docstring
-  Define referenced from a cell falls through to resolveCell and the cell keeps
-  the literal text "=X", which then fails the comparison against real data.
-  Docstring Defines are reachable from a bare step but not from a table.
-
-  Relaxing that guard -- and emitting the multi-line text the way a step
-  docstring already is (a Java text block, an escaped literal elsewhere) -- would
-  make exact-set assertions work for values like jsonplaceholder's four-line
-  bodies. Check all nine generators; the guard was written the same way in each
-  one seen so far.
+  #### Multi-line values in a cell -- DONE. A docstring Define in a cell
+  (`| =PostOneBody |`) expands in every generator, and API.spectable compares
+  jsonplaceholder's four-line bodies that way.
 
   Where each tool wins is clean, and worth being honest about. Karate is far less
   work for API testing. SpecTable is doing a different job: not API-specific,

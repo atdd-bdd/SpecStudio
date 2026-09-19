@@ -237,12 +237,17 @@ signing on Windows, Linux and macOS.
 src/
   app/            MainWindow, AppController, AppSettings, ThemeManager
   model/          Solution, Project, ProjectFile, FileType, SpecConfig
-  ui/             SolutionExplorer, EditorTabWidget, OutputPanel, dialogs/
+  ui/             SolutionExplorer, EditorTabWidget, OutputPanel, DiffView, dialogs/
   editors/        SpecTableEditor, FeatureEditor, SpecConfigEditor, syntax/
+  spell/          SpellChecker -- Hunspell behind the editor's underlines
   git/            GitClient, GitStatusCache
-  analyzer/       SpecTableIndex, SpecTableAnalyzer, ProjectIndex
+  analyzer/       SpecTableIndex, SpecTableAnalyzer, SpecTableModelChecks, ProjectIndex
   build/          BuildController, BuildOutputParser
-converter/        SpectableParser and one generator per target language
+converter/        SpectableParser and one generator per target language;
+                  Analyze reads the same parse tree the generators do
+third_party/      hunspell 1.7.2, as source
+resources/        help text and the en_US dictionary, compiled in
+tools/            analyze_cli, spell_cli, diff_cli -- the IDE's checks from a terminal
 ```
 
 ## Documentation

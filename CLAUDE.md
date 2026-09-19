@@ -58,8 +58,13 @@ src/
                  ExternalEditor, EditorFactory
   editors/syntax/ GherkinHighlighter, FeatureXHighlighter (QSyntaxHighlighter)
   git/           GitClient (QProcess wrapper), GitStatusCache (30s polling timer)
-  analyzer/      ProjectIndex, FeatureXAnalyzer, AnalysisResult
+  analyzer/      ProjectIndex, FeatureXAnalyzer, AnalysisResult,
+                 SpecTableIndex + SpecTableAnalyzer + SpecTableModelChecks (all read
+                 converter/SpectableParser's parse tree; no regex reads a .spectable)
+  spell/         SpellChecker (Hunspell, vendored under third_party/hunspell)
   build/         BuildController (QProcess), BuildOutputParser
+tools/           analyze_cli, spell_cli, diff_cli -- run the IDE's checks headlessly;
+                 verify with these, never by driving the GUI
 ```
 
 ## Architecture
