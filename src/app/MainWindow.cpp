@@ -285,6 +285,11 @@ void MainWindow::setupMenuBar()
     // item, GitHub-mode solutions (or no solution open) get the full set.
     m_gitMenu = menuBar()->addMenu(tr("&Git"));
     connect(m_gitMenu, &QMenu::aboutToShow, this, &MainWindow::populateGitMenu);
+    // A menu with no actions at all is dropped from macOS's native menu bar,
+    // and an invisible menu never receives the hover that would fire
+    // aboutToShow -- so it has to start non-empty rather than waiting for
+    // its first lazy population.
+    populateGitMenu();
 
     // Carries the Ctrl+D shortcut app-wide regardless of which Git-menu
     // variant is currently showing.
