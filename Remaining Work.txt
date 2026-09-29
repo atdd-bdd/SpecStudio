@@ -11,36 +11,6 @@ Altered so that it is separated into Issues and Future Features
   it out as a migration exercise.
 
 
-### Prove the signed uninstaller with a real token-signed install. Uninstaller
-  signing is verified at the COMPILE only: alignthree.iss was compiled both
-  ways against a throwaway stage folder, and with signing on Inno ran the sign
-  tool twice -- once over uninst.e32.tmp, once over the setup .exe -- and its
-  own post-sign verification passed both. What has not been done is the thing
-  the user actually sees.
-
-  Do it as part of the next release, after the two-phase flow:
-    .\scripts\package_windows.ps1 -StageOnly
-    .\scripts\sign_windows.ps1
-    .\scripts\package_windows.ps1 -PackageOnly     # signs installer + stub
-  then install and check the file that lands on disk:
-    Get-AuthenticodeSignature "C:\Program Files\AlignThree\unins000.exe"
-  Expect Status=Valid with the Sectigo EV certificate (D357408F...). Then
-  uninstall and confirm it removes cleanly.
-
-  Needs the token, a PIN and an elevation prompt, so it cannot be scripted
-  unattended -- that is why it is still open. The claim being tested is that
-  Inno writes uninstall data to unins000.dat rather than appending it to the
-  .exe, leaving the on-disk file byte-for-byte what was signed. If that turns
-  out to be wrong the signature will be invalid and SignedUninstaller is not
-  the fix it appears to be.
-
-  See "What has and has not been verified" in Building Distributions.md, which
-  says the same thing and must be updated when this is done.
-
-
-
-
-
 ## Holding:
 
 ### Maybe add // as a comment indicator.    
@@ -393,6 +363,16 @@ Altered so that it is separated into Issues and Future Features
 
 [x] Glue methods no step calls, flagged at build time in all nine languages
     (see the Cleanup entry above).
+
+[x] The signed uninstaller is proven on disk (2026-09-29, AlignThree 0.9.1).
+    A real token-signed install -- /VERYSILENT to a temporary folder, exit 0 --
+    put unins000.exe on disk with Status=Valid, timestamped, signed by the
+    Sectigo EV certificate D357408F, the same one as the three executables and
+    the installer. So SignedUninstaller does what it claims: the uninstall data
+    goes to unins000.dat and the .exe is byte-for-byte what was signed. The
+    uninstall then exited 0 and removed the folder and the registry entry.
+    scriptserify_install.ps1 now does the whole check in one run.
+
 
 [x] Spelling, finished. A declared name is spelled the way it is declared:
     the index hands the checker every symbol and attribute name after each

@@ -37,9 +37,18 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Per-machine when elevated, per-user otherwise, so it installs without admin.
-PrivilegesRequiredOverridesAllowed=dialog
+; "commandline" as well as "dialog": a silent install cannot show the dialog, so
+; without it /VERYSILENT from a non-elevated prompt raises UAC instead -- which
+; is not a silent install, and is what an automated store check sees. /ALLUSERS
+; and /CURRENTUSER now choose explicitly.
+PrivilegesRequiredOverridesAllowed=dialog commandline
 UninstallDisplayIcon={app}\{#AppExe}
 DisableProgramGroupPage=yes
+; Without this, Inno's Add/Remove Programs entry is AppVerName -- "AlignThree
+; version 0.9.1". The version belongs in DisplayVersion, which Inno writes from
+; AppVersion; DisplayName has to be the product's name on its own, because that
+; is what an automated store check compares against the submission.
+UninstallDisplayName={#AppName}
 
 ; Signing, only when the caller supplied a sign tool.
 ;
@@ -84,30 +93,13 @@ Name: "{autodesktop}\{#AppName}";     Filename: "{app}\{#AppExe}"; Tasks: deskto
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
-[Code]
-// Qt applications built with MSVC need the Visual C++ runtime. Rather than
-// redistribute the DLLs loose, check for it and point the user at Microsoft's
-// installer -- a missing runtime otherwise shows up as an unexplained failure
-// to start.
-function VCRuntimePresent(): Boolean;
-var
-  Installed: Cardinal;
-begin
-  Result := RegQueryDWordValue(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
-                               'Installed', Installed) and (Installed = 1);
-  if not Result then
-    Result := RegQueryDWordValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
-                                 'Installed', Installed) and (Installed = 1);
-end;
-
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
-  if not VCRuntimePresent() then
-    if MsgBox('AlignThree needs the Microsoft Visual C++ 2015-2022 Redistributable (x64),'
-              + #13#10 + 'which does not appear to be installed.'
-              + #13#10#13#10 + 'Install AlignThree anyway?'
-              + #13#10 + 'You can get the runtime from https://aka.ms/vs/17/release/vc_redist.x64.exe',
-              mbConfirmation, MB_YESNO) = IDNO then
-      Result := False;
-end;
+; There is deliberately no [Code] section.
+;
+; InitializeSetup used to check for the Microsoft Visual C++ 2015-2022
+; Redistributable and, when it was missing, ask whether to install anyway. Two
+; things were wrong with that. The runtime is no longer something to look for:
+; the CRT DLLs are staged beside the executables (package_windows.ps1), so a
+; machine that has never seen the redistributable runs AlignThree anyway. And a
+; message box at the start of setup is a trap for any unattended install -- a
+; clean machine is exactly where this one would have fired, and a caller passing
+; /VERYSILENT without /SUPPRESSMSGBOXES waits on it forever.

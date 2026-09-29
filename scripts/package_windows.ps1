@@ -364,6 +364,32 @@ Invoke-Native $windeployqt @('--release', '--no-translations', '--no-plugins',
                              (Join-Path $stage 'SpecTableConverter.exe')) `
                            -What 'windeployqt (converter)'
 
+# ---- the MSVC runtime --------------------------------------------------------
+# Qt's DLLs and ours are linked against the Visual C++ runtime, and a machine
+# that has never had a Visual Studio or a redistributable on it does not have
+# it. Copying the redistributable's DLLs into the application's own folder is
+# Microsoft's documented "local deployment" and is what the redistributable
+# licence allows; the loader prefers them over anything in System32 because the
+# application directory comes first and none of these is a KnownDLL.
+#
+# The alternative -- telling the user to go and fetch vc_redist.x64.exe -- is
+# what shipped before, and it fails an unattended install on a clean machine:
+# there is nobody there to read the message.
+Write-Host 'Staging the MSVC runtime...'
+$crtDir = Get-ChildItem -Directory -ErrorAction SilentlyContinue -Path @(
+              'C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT'
+              'C:\Program Files (x86)\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT'
+          ) | Sort-Object { [version]($_.Parent.Parent.Name) } | Select-Object -Last 1
+if (-not $crtDir) {
+    throw ('The Visual C++ redistributable DLLs were not found under any Visual Studio ' +
+           'installation. Install the "C++ x64/x86 build tools" workload, or the ' +
+           'redistributable itself, so Microsoft.VC*.CRT\x64 exists.')
+}
+$crt = @(Get-ChildItem (Join-Path $crtDir.FullName '*.dll'))
+if ($crt.Count -eq 0) { throw "No DLLs in $($crtDir.FullName)." }
+foreach ($dll in $crt) { Copy-Item $dll.FullName -Destination $stage }
+Write-Host ("  {0} file(s) from {1}" -f $crt.Count, $crtDir.FullName)
+
 # Named explicitly and checked, not copied with -ErrorAction SilentlyContinue:
 # this used to reference 'AlignThree User Guide.md', and when that file was
 # renamed the copy failed in silence and the distribution shipped without a
@@ -378,9 +404,10 @@ foreach ($doc in @('README.md', 'Getting Started.md', 'User Guide.md',
     Copy-Item -LiteralPath $src -Destination $stage
 }
 
-# The MSVC runtime is the one thing not bundled: redistributing it as loose DLLs
-# is allowed but fragile, and the installer below pulls it in properly. Say so
-# rather than let a portable-zip user hit a missing-DLL dialog.
+# The readme in the portable zip. It used to tell the reader to go and install
+# the Visual C++ redistributable; the CRT DLLs are staged above now, so the
+# folder is genuinely self-contained and saying otherwise sends people off to
+# fix a problem they do not have.
 @"
 AlignThree $version
 
@@ -395,9 +422,8 @@ program. To avoid it next time, unblock the zip before extracting: right-click
 it, Properties, tick Unblock, OK. AlignThree is signed by Ken Pugh, Inc. -- the
 publisher shown behind "More info" is what to check.
 
-Requires the Microsoft Visual C++ 2015-2022 Redistributable (x64), which most
-machines already have. If AlignThree.exe will not start, install it from
-https://aka.ms/vs/17/release/vc_redist.x64.exe
+Nothing else has to be installed first: the Microsoft Visual C++ runtime DLLs
+this build needs are in the folder alongside the program.
 
 The language toolchains needed to build generated tests (JDK, .NET, Go, Rust,
 Python, Node, Swift, a C++ compiler) are not included -- install whichever you

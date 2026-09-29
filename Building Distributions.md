@@ -130,10 +130,23 @@ AlignThree-<version>-windows-x64.zip    portable, no install
 AlignThree-<version>-windows-x64\       the staged folder both came from
 ```
 
-**The one thing not bundled** is the Microsoft Visual C++ 2015–2022
-Redistributable (x64). Most machines have it; the installer checks and points at
-`https://aka.ms/vs/17/release/vc_redist.x64.exe` if missing, and the portable
-zip says so in its README.
+**Nothing is left to install first.** The Microsoft Visual C++ 2015–2022
+runtime DLLs are staged beside the executables, from the newest
+`VC\Redist\MSVC\<ver>d\Microsoft.VC*.CRT` under any Visual Studio
+installation — Microsoft's documented *local deployment*, which the
+redistributable's licence allows, and which the loader prefers over anything in
+`System32` because the application's own directory comes first and none of these
+DLLs is a KnownDLL. Staging throws if that folder cannot be found.
+
+Until 2026-09-29 the runtime was the one thing *not* bundled: `InitializeSetup`
+checked the registry for it and offered
+`https://aka.ms/vs/17/release/vc_redist.x64.exe`. Two problems, both found by a
+Microsoft Store submission. A clean machine — the store's test VM, and any new
+user's laptop — is exactly where that message box fired, and a message box is
+fatal to an unattended install: a caller passing `/VERYSILENT` without
+`/SUPPRESSMSGBOXES` waits on it forever, which reads as "we could not identify
+if your app installs silently". And an app that tells the user to go and fetch a
+runtime is not self-contained. There is now no `[Code]` section at all.
 
 **Verified:** the staged binaries run with Qt stripped off the `PATH`, the
 converter generates correct output at exit 0, and the GUI starts and draws.
@@ -314,6 +327,40 @@ from a zip. That is not a signing problem and cannot be fixed from this end;
 `Getting Started.md` and the zip's own `README-FIRST.txt` tell users to
 right-click the zip → Properties → **Unblock** before extracting.
 
+### Submitting to the Microsoft Store
+
+A Win32 installer submitted to the store is put through automated checks, and
+three of them reported *"we could not identify…"* for AlignThree 0.9.0: silent
+install, the Add or Remove Programs entry, and bundleware. They are one failure,
+not three — the bundleware text is the ARP text repeated (a Partner Center
+copy-paste), and the ARP check can only come up empty if the install never
+finished. Each one links to a page for verifying it by hand, so this is an
+inconclusive pass asking for attestation rather than a rejection.
+
+What was actually wrong, both fixed on 2026-09-29:
+
+- **A message box during setup.** `InitializeSetup` asked about the missing
+  Visual C++ runtime, on exactly the clean machine the store tests on. See
+  *Windows x64* above; the runtime now ships in the folder and there is no
+  `[Code]` section.
+- **`DisplayName` was `AlignThree version 0.9.1`.** Inno defaults it to
+  `AppVerName`, and a check comparing it with the submitted app name does not
+  match. `UninstallDisplayName={#AppName}` makes it `AlignThree`, with the
+  number in `DisplayVersion`, which Inno writes from `AppVersion`.
+
+Also worth knowing: `PrivilegesRequiredOverridesAllowed` now allows
+`commandline` as well as `dialog`. A silent install cannot show the
+per-machine/per-user dialog, so without that a `/VERYSILENT` run from a
+non-elevated prompt raises UAC instead — which is not a silent install either.
+`/ALLUSERS` and `/CURRENTUSER` now choose explicitly.
+
+What the submission form wants, and where to get it:
+`scriptserify_install.ps1` prints all of it — the silent command
+(`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`), the success exit code (0), the ARP
+name, publisher and version, the file count, and the signing certificate. The
+publisher must match the Partner Center account name exactly, as it must match
+the certificate CN (`Ken Pugh, Inc.`).
+
 ### Windows — Sectigo token
 
 Since June 2023 the CA/Browser Forum has required publicly trusted code-signing
@@ -482,19 +529,27 @@ random password, and deleted with the runner.
 
 **Windows** is verified end to end, as described above.
 
-**Uninstaller signing is verified at the compile only.** Both branches of
-`alignthree.iss` were compiled against a throwaway stage folder: unsigned (exit
-0, `CompanyName` = `Ken Pugh, Inc.`) and signed with a self-signed probe
-certificate, where Inno ran the sign tool twice — once over `uninst.e32.tmp`,
-once over the setup `.exe` — and its own post-sign verification passed both.
-Inno's `$f` placeholder was checked to be **self-quoting**: wrapping it in
-`$q…$q` yields a doubly quoted path signtool cannot open.
+**Uninstaller signing is verified on disk** (2026-09-29, AlignThree 0.9.1).
+A real install of the token-signed installer — `/VERYSILENT` into a temporary
+folder, exit 0 — put `unins000.exe` on disk with `Status=Valid`, timestamped,
+carrying the same Sectigo EV certificate (`D357408F…`) as the three
+executables and the installer itself. `SignedUninstaller` therefore does what it
+claims: the uninstall data goes to `unins000.dat`, so the `.exe` laid down is
+byte-for-byte what was signed. The uninstall then exited 0 and removed the
+folder and the Add or Remove Programs entry completely.
 
-What has *not* been done is a real release: signing with the Sectigo token, then
-installing and confirming `unins000.exe` on disk carries the signature. That
-needs the token, a PIN and an elevation prompt. Do it as part of the next
-release — install, then `Get-AuthenticodeSignature` the installed
-`unins000.exe`.
+Earlier, at the compile only: both branches of `alignthree.iss` were compiled
+against a throwaway stage folder, and with signing on Inno ran the sign tool
+twice — once over `uninst.e32.tmp`, once over the setup `.exe` — and its own
+post-sign verification passed both. Inno's `$f` placeholder was checked to be
+**self-quoting**: wrapping it in `$q…$q` yields a doubly quoted path signtool
+cannot open.
+
+`scriptserify_install.ps1` does this whole check in one run — installs
+silently into a temporary folder, reports the Add or Remove Programs values and
+every signature, runs the converter with Qt off `PATH`, then uninstalls and
+confirms nothing is left. It needs two elevation prompts from an ordinary shell,
+one from an elevated one.
 
 **Linux and macOS are unverified.** The scripts are syntax-checked (`bash -n`)
 and written carefully, but have never been run — there is no Linux or Mac
