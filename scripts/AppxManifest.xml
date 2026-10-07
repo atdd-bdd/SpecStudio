@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The MSIX manifest for AlignThree. package_msix.ps1 fills in {VERSION} and
+  {PUBLISHER} and writes the result into the package layout; this file is never
+  used as it stands.
+
+  Publisher is not a name of your choosing. It must equal the signing
+  certificate's subject exactly, as Windows renders it — quotes, spaces, OIDs
+  and order included — or signing fails with "publisher name does not match".
+  That is the whole of the trap the Gherkin Editor projects fell into, where the
+  manifest still asks for CN=KenV1, a test certificate Visual Studio generated.
+
+  Identity Name plus Publisher IS the package identity. Change either and
+  Windows considers it a different application: no in-place upgrade, and users
+  must uninstall first. So a certificate renewal must keep the same subject.
+
+  For a Store submission these three values come from Partner Center instead
+  (Product identity: Package/Identity/Name, Package/Identity/Publisher and
+  Publisher display name), and the package is uploaded unsigned — the Store
+  signs it with Microsoft's own certificate.
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap rescap">
+
+  <Identity
+      Name="KenPughInc.AlignThree"
+      Publisher="{PUBLISHER}"
+      Version="{VERSION}"
+      ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>AlignThree</DisplayName>
+    <PublisherDisplayName>Ken Pugh, Inc.</PublisherDisplayName>
+    <Description>An IDE for teams collaborating on specifications: write a specification as tables, generate the tests from it in nine languages.</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!-- 17763 is the oldest Windows 10 that still takes servicing updates and
+         supports a full-trust MSIX properly. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0"
+                        MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Capabilities>
+    <!-- A packaged desktop application. Without this the executable is
+         sandboxed as a store app and cannot open the user's files, run git, or
+         start the converter. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="AlignThree" Executable="AlignThree.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="AlignThree"
+          Description="An IDE for teams collaborating on specifications."
+          BackgroundColor="#4C46D6"
+          Square150x150Logo="Assets\Square150x150Logo.png"
+          Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile ShortName="AlignThree" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- Double-clicking a .spectable opens AlignThree. The IDE already
+             takes a file path on the command line and opens the solution that
+             owns it. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="spectable">
+            <uap:SupportedFileTypes>
+              <uap:FileType>.spectable</uap:FileType>
+            </uap:SupportedFileTypes>
+            <uap:DisplayName>SpecTable specification</uap:DisplayName>
+            <uap:Logo>Assets\StoreLogo.png</uap:Logo>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
