@@ -1,0 +1,8 @@
+The uninstall key.  
+
+  HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{7F3B2C14-  9E5A-4C2D-8B71-6A0E4D3F91C2}_is1
+      DisplayName     AlignThree
+      Publisher       Ken Pugh, Inc.
+      DisplayVersion  0.9.1
+      InstallLocation C:\Program Files\AlignThree\
+      UninstallString "C:\Program Files\AlignThree\unins000.exe"
