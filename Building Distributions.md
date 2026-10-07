@@ -354,12 +354,46 @@ per-machine/per-user dialog, so without that a `/VERYSILENT` run from a
 non-elevated prompt raises UAC instead — which is not a silent install either.
 `/ALLUSERS` and `/CURRENTUSER` now choose explicitly.
 
-What the submission form wants, and where to get it:
-`scriptserify_install.ps1` prints all of it — the silent command
-(`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`), the success exit code (0), the ARP
-name, publisher and version, the file count, and the signing certificate. The
-publisher must match the Partner Center account name exactly, as it must match
-the certificate CN (`Ken Pugh, Inc.`).
+**The elevation prompt is what the robot cannot get past** — found after a
+second submission failed the same three ways with all of the above fixed
+(2026-10-06). Store policy 10.2.9 says in terms that *"Initiating the install
+must not display an installation user interface (i.e., silent install is
+required), however a User Account Control (UAC) dialog is allowed"*, and that
+is true of the human review. The automated validation is a different matter: it
+runs the installer as a standard user with nobody to answer a UAC dialog, so a
+per-machine install never starts, and all three checks report what they could
+not identify — the second and third being unanswerable once the first has
+stopped.
+
+**So the silent install parameter has to include `/CURRENTUSER`:**
+
+```
+/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER
+```
+
+That installs per user, into `%LocalAppData%\Programs\AlignThree`, with the
+Add or Remove Programs entry under `HKCU` — no elevation anywhere, verified
+here at exit 0 with no prompt. It works because
+`PrivilegesRequiredOverridesAllowed` accepts `commandline`; without that the
+switch is refused and the installer elevates anyway. The default with no
+switches is unchanged: per machine, into `Program Files`, with a UAC prompt,
+which is what a person double-clicking it should get.
+
+One more name trap came with it. Inno marks a per-user entry by appending to the
+name — `AlignThree (Current user)` — which fails the same comparison that
+`AppVerName` failed. `[Messages] UninstallDisplayNameMark=%1` drops the mark, so
+the entry reads `AlignThree` whichever way it was installed.
+
+If this still does not satisfy the checks, the route Microsoft itself points at
+is **MSIX**: repackage with the MSIX Packaging Tool and the store signs it. That
+is a larger change and has not been attempted.
+
+What the submission form wants, and where to get it: `scriptserify_install.ps1
+-PerUser` prints all of it — the silent command, the success exit code (0), the
+ARP name, publisher and version, the file count, and the signing certificate.
+`-PerUser` is the mode to quote, since it is the install the checks perform. The
+publisher must match the Partner Center publisher ID exactly, as it must match
+the certificate CN: `Ken Pugh, Inc.`
 
 ### Windows — Sectigo token
 

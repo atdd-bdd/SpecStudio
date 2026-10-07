@@ -8,13 +8,22 @@
 # both by hand. Those two facts, plus the signatures, are what this prints.
 #
 #   .\scripts\verify_install.ps1
+#   .\scripts\verify_install.ps1 -PerUser            # what a store check does
 #   .\scripts\verify_install.ps1 -Setup dist\AlignThree-0.9.1-setup.exe
 #   .\scripts\verify_install.ps1 -KeepInstalled      # leave it on disk to poke at
 #
 # It installs into a temporary folder, never into Program Files, and uninstalls
-# at the end unless told otherwise. Both halves need elevation, so expect two UAC
-# prompts when this is run from an ordinary shell; run it from an elevated one to
-# get none.
+# at the end unless told otherwise. Per-machine is the default and needs
+# elevation, so expect two UAC prompts from an ordinary shell; run it from an
+# elevated one to get none.
+#
+# -PerUser adds /CURRENTUSER and never elevates, which is the install an
+# automated store check can actually perform: it runs the installer as a
+# standard user and has nobody to answer a UAC prompt. Microsoft's store policy
+# allows a UAC dialog (10.2.9), but its validation robot cannot click one, and
+# an install that never finishes is reported as three failures at once -- silent
+# install, the Add or Remove Programs entry, and bundleware, the last two being
+# unanswerable once the first has stopped.
 #
 # An install of AlignThree that is already registered stops the run. The Add or
 # Remove Programs entry is keyed by AppId, not by folder, so a test install would
@@ -28,6 +37,7 @@ param(
     [string] $ExpectedName      = 'AlignThree',
     [string] $ExpectedPublisher = 'Ken Pugh, Inc.',
     [switch] $KeepInstalled,
+    [switch] $PerUser,
     [switch] $Force
 )
 
@@ -61,7 +71,7 @@ function Elevated() {
 # shell works, but it loses the exit code on some builds.
 function Invoke-Installer([string] $exe, [string[]] $arguments) {
     try {
-        if (Elevated) {
+        if ($PerUser -or (Elevated)) {
             $p = Start-Process $exe -ArgumentList $arguments -PassThru -Wait
         } else {
             $p = Start-Process $exe -ArgumentList $arguments -Verb RunAs -PassThru -Wait
@@ -97,6 +107,7 @@ function Get-ArpEntries() {
             $props = Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue
             if ($props -and $props.DisplayName -like '*AlignThree*') {
                 $found += [pscustomobject]@{
+                    Id                   = "$root|$($key.PSChildName)"
                     Hive                 = $root
                     Key                  = $key.PSChildName
                     DisplayName          = $props.DisplayName
@@ -142,16 +153,33 @@ $log = "$InstallDir.log"
 
 Write-Host ''
 Write-Host "Verifying $([IO.Path]::GetFileName($Setup))" -ForegroundColor Cyan
+if ($PerUser) {
+    Write-Host '  mode:           per user (/CURRENTUSER), no elevation -- as a store check runs it'
+} else {
+    Write-Host '  mode:           per machine, elevated'
+}
 Write-Host "  install folder: $InstallDir"
 Write-Host "  setup log:      $log"
 Write-Host ''
 
-$existing = @(Get-ArpEntries)
-if ($existing.Count -gt 0 -and -not $Force) {
-    Write-Host 'AlignThree is already registered in Add or Remove Programs:' -ForegroundColor Yellow
-    $existing | ForEach-Object { "    {0}  ({1})" -f $_.DisplayName, $_.Key } | Write-Host
-    throw ('A test install shares its AppId, so it would take over that entry and the ' +
-           'uninstall at the end would remove it. Uninstall the real copy first, or pass -Force.')
+# What is registered before this run. A per-user install writes to HKCU and a
+# per-machine one to HKLM, so a copy installed the other way is not in the way --
+# but a copy installed the SAME way shares this installer's AppId, and the test
+# would take over its entry and then uninstall it. Only that case stops the run.
+$before = @(Get-ArpEntries)
+if ($PerUser) { $ourHive = 'HKCU:' } else { $ourHive = 'HKLM:' }
+$clashes = @($before | Where-Object { $_.Hive.StartsWith($ourHive) })
+if ($clashes.Count -gt 0 -and -not $Force) {
+    Write-Host 'AlignThree is already installed the way this run would install it:' -ForegroundColor Yellow
+    $clashes | ForEach-Object { "    {0}  {1}  ({2})" -f $_.DisplayName, $_.InstallLocation, $_.Hive } | Write-Host
+    throw ('It shares this installer''s AppId, so the test would take over that entry and the ' +
+           'uninstall at the end would remove it. Uninstall that copy first, pass -Force, or ' +
+           'test the other way round (-PerUser installs per user, the default per machine).')
+}
+if ($before.Count -gt 0) {
+    Write-Host ('Already installed elsewhere, and left alone: ' +
+                (($before | ForEach-Object { "$($_.DisplayName) in $($_.Hive)" }) -join '; ')) -ForegroundColor DarkGray
+    Write-Host ''
 }
 
 # ---- the installer itself ----------------------------------------------------
@@ -163,11 +191,17 @@ Check 'installer signature is timestamped' $sig.Timestamped ''
 
 # ---- silent install ----------------------------------------------------------
 
+$installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$InstallDir", "/LOG=$log")
+if ($PerUser) { $installArgs += '/CURRENTUSER' }
+
 Write-Host ''
-Write-Host 'Installing silently (accept the elevation prompt)...'
+if ($PerUser) {
+    Write-Host 'Installing silently, per user, without elevating...'
+} else {
+    Write-Host 'Installing silently (accept the elevation prompt)...'
+}
 $started = Get-Date
-$code = Invoke-Installer $Setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
-                                  "/DIR=$InstallDir", "/LOG=$log")
+$code = Invoke-Installer $Setup $installArgs
 if ($null -eq $code) { exit 2 }
 $seconds = [int]((Get-Date) - $started).TotalSeconds
 
@@ -188,8 +222,9 @@ Check 'no restart was requested' ($code -ne 1641 -and $code -ne 3010) "exit=$cod
 
 Write-Host ''
 Write-Host 'Add or Remove Programs:'
-$arp = @(Get-ArpEntries)
-Check 'an entry was created' ($arp.Count -ge 1) "$($arp.Count) entry/entries"
+$seen = @($before | ForEach-Object { $_.Id })
+$arp  = @(Get-ArpEntries | Where-Object { $seen -notcontains $_.Id })
+Check 'an entry was created' ($arp.Count -ge 1) "$($arp.Count) new entry/entries"
 if ($arp.Count -ge 1) {
     $e = $arp[0]
     Write-Host "      hive            $($e.Hive)"
@@ -254,7 +289,11 @@ if ($KeepInstalled) {
 } else {
     $uninstaller = Join-Path $InstallDir 'unins000.exe'
     Write-Host ''
-    Write-Host 'Uninstalling (accept the elevation prompt)...'
+    if ($PerUser) {
+        Write-Host 'Uninstalling (no elevation)...'
+    } else {
+        Write-Host 'Uninstalling (accept the elevation prompt)...'
+    }
     if (-not (Test-Path -LiteralPath $uninstaller)) {
         Check 'the uninstaller exists' $false $uninstaller
     } else {
@@ -272,7 +311,8 @@ if ($KeepInstalled) {
             Start-Sleep -Milliseconds 500
         }
         Check 'the install folder is gone' (-not (Test-Path -LiteralPath $InstallDir)) ''
-        Check 'the Add or Remove Programs entry is gone' (@(Get-ArpEntries).Count -eq 0) ''
+        $left = @(Get-ArpEntries | Where-Object { $seen -notcontains $_.Id })
+        Check 'the Add or Remove Programs entry is gone' ($left.Count -eq 0) ''
     }
 }
 
@@ -283,7 +323,9 @@ if ($script:failures.Count -eq 0) {
     Write-Host 'All checks passed.' -ForegroundColor Green
     Write-Host ''
     Write-Host 'For a store submission that asks you to verify these by hand:' -ForegroundColor Cyan
-    Write-Host "  silent install command   $([IO.Path]::GetFileName($Setup)) /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+    $shown = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+    if ($PerUser) { $shown = "$shown /CURRENTUSER" }
+    Write-Host "  silent install command   $([IO.Path]::GetFileName($Setup)) $shown"
     Write-Host '  success exit code        0'
     if ($arp.Count -ge 1) {
         Write-Host "  app name in ARP          $($arp[0].DisplayName)"

@@ -75,6 +75,14 @@ SignedUninstaller=yes
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Messages]
+; Inno marks a per-user installation in Add or Remove Programs by appending the
+; mark to the name: "AlignThree (Current user)". %1 alone drops it. The entry has
+; to read exactly "AlignThree" either way, because that is the name a store
+; submission is checked against, and an installation done with /CURRENTUSER is
+; the one such a check performs -- it cannot answer a UAC prompt.
+UninstallDisplayNameMark=%1
+
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
