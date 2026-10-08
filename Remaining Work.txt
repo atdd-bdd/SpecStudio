@@ -32,6 +32,81 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
+### A cell holding a list of values, to initialise a Collection.
+
+  One cell, several values, separated by a comma or a semicolon:
+
+    | Tags            | Sizes   |
+    | urgent, review  | 1; 2; 3 |
+
+  The values are strings (which therefore may not contain the separator),
+  numerics, enumeration members -- whatever the element type can read. The
+  generated test method fills the attribute with the collection it builds, so
+  nothing in the glue has to parse anything.
+
+  **Answered 2026-10-08, by probe: yes, and built-ins too.** A throwaway
+  specification with four collections -- of an EnumerationValues DataType, of a
+  ValidValues DataType, of String and of Integer -- was put through the Java and
+  Python generators. Both produced exactly the right thing:
+
+    public List<Size> sizes;          // enumeration DataType
+    public List<PartNumber> parts;    // valid-values DataType
+    public List<String> tags;         // built-in
+    public List<Integer> counts;      // built-in
+
+  and a production collection class per Collection (SizeList holds List<Size>,
+  with MINIMUM/MAXIMUM and add/delete/read). So the syntax document's "must be
+  an Entity" (2.3) is simply wrong and should be corrected: the element type is
+  whatever the language can name, and DataTypes are written into production
+  like Entities are.
+
+  **And the probe found where the hole actually is.** The String-to-Typed
+  conversion drops the cell's text on the floor, identically in both languages:
+
+    this.sizes = new ArrayList<>();   // Collection - populate from s.sizes
+    self.sizes = []                   # positional, same story
+
+  The generator knows the field is a collection, knows its element type, and
+  gives up at the one step that matters. So this item is not a new feature
+  bolted onto the side -- it is the missing half of a mechanism that is already
+  generated, typed and waiting. Whatever the separator rule turns out to be,
+  the work lands exactly there.
+
+  That also settles "should a list cell be allowed only for built-in types?":
+  no. The typed field already carries the element type either way, so
+  converting "Small, Large" into List<Size> is the same work as into
+  List<String> -- split, then convert each piece with the single-value
+  conversion the generator already has for that type (it is what fills a scalar
+  cell of it). Restricting to built-ins would leave DataType collections
+  silently empty, which is today's bug rather than a design.
+
+  Decided (2026-10-08):
+
+  - **An empty cell is an empty list**, not "not stated". So a Collection whose
+    Minimum is 0 accepts it and one whose Minimum is 1 reports it, which is the
+    cardinality rule doing the work rather than a separate convention.
+  - **EveryCell has nothing to do with this.** There, each cell is one
+    DataType or one Entity -- never a list. The two features read a cell
+    differently and do not combine; say so, so that nobody reaches for
+    EveryCell expecting a grid of lists.
+  - The existing nested quoting is the likely answer for a value containing a
+    separator -- `"has spaces"` and `'nested'`, from the entity text form --
+    rather than inventing a second convention. Confirm when implementing.
+  - **Both separators**, comma and semicolon. Which means a value needing
+    either one has to be quoted, and a decimal written with a thousands
+    separator cannot be left bare in a list cell -- worth an explicit error
+    rather than a silently split number.
+
+  Still open:
+  - Minimum and Maximum are declared on the Collection. Check the count at
+    parse time (a static error, found by Analyze) as well as at run time.
+  - `=Define` in the cell, which already expands before conversion, so a named
+    list becomes free if the expansion happens first.
+
+  Cost: a cell-to-collection conversion in each of the nine generators, which
+  is the same surface the collection field type touched.
+
+
 ### Removing a specification leaves stale entries behind in the output tree.
   Found moving Bowling and API to ExampleTests (2026-09-18). The IDE's
   project build clears the per-set *String/*Typed classes, but three things
