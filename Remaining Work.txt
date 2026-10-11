@@ -32,6 +32,90 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
+### A step naming a DataType should hand the glue that DataType, not raw text.
+
+  Today a step whose type is a DataType or a built-in gets a grid of strings:
+
+      Given rolls are : Pins
+      | 5 | 5 | 4 | ... |
+
+      public void Given_rolls_are(List<List<String>> values)
+
+  So the declared type never reaches the glue. Pins says 0..10 are valid and
+  11 and -2 are not; the glue receives text and every one of the nine
+  implementations wrote its own private pinCounts() doing Integer.parseInt --
+  arithmetic and validation in glue, which is the one thing glue must not
+  carry. A cell of 11 passes the Given and surfaces later as a wrong score.
+
+  An Attributes step does this properly: one XString per row, converted to
+  XTyped. A DataType has no fields to spread across a struct, so its typed
+  form is its own production class.
+
+  **Decided (2026-10-11):**
+
+  - A step naming a **DataType or a built-in** hands the glue values of that
+    type rather than text. Built-ins are in: `Then sum is : Integer` becomes
+    Integers, because it reads identically to `When roll is : Pins` and must
+    not generate a different shape.
+  - **The two flattenings are configuration options**, not fixed rules, so a
+    project chooses how much shape it wants in its glue. Proposed names, in
+    the style of the existing .specconfig fields:
+
+      flattenSingleRowToList   default true
+          A table of one row, or of one column, gives List<Pins> instead of
+          List<List<Pins>>. Safe to default on: row count is a property of
+          the table's shape, and every occurrence of a step agrees on it.
+
+      flattenSingleCellToScalar  default false
+          A table of one cell gives a bare Pins instead of List<Pins>.
+          **Must default off**, and here is the evidence: in Bowling
+          `Given rolls are : Pins` occurs with 16, 17, 17, 18, 1 and 1 cells,
+          and `Then rolls become` with 17 and 1. A one-cell table there is a
+          list of one, not a different kind of thing -- so with this option on
+          and the agreement rule below, both steps become errors on a
+          specification that is correct today. Cell count is cardinality and
+          varies per scenario; row count is shape and does not. Turning it on
+          suits a project whose singular steps really are singular; it is not
+          something to inflict on every project.
+
+    Both options take effect before the agreement check, so turning one on can
+    turn a clean specification into a reported conflict rather than into
+    silently different glue. That is the intended behaviour: the author is
+    told, and either changes the specification or leaves the option off.
+  - **All occurrences of a step must agree on dimensionality**, and a mismatch
+    is a diagnostic naming both scenarios. The glue method is one method, so
+    the shape has to be a property of the step rather than of the widest table
+    anyone happened to write. Failing at Analyze time beats failing at the
+    compiler, and it matches how the step-collision warning already treats one
+    step text as one contract.
+  - **EveryCell stays required for an Entity or an Attributes set** read as a
+    grid of whole objects. It is not needed, and should not be needed, for a
+    DataType or a built-in: naming the type is enough.
+  - **The sentinel keeps working.** `=TBR` resolves into the cell before any
+    conversion, so whatever builds a Pins sees -1. That is part of what Pins
+    means and must not be lost.
+
+  **This subsumes the EveryCell-on-a-DataType bug** reported in
+  alignthree-findings.md item 1, which is worse than it was reported: eight of
+  the nine generators emit `XTyped::from_string_struct(XString::from_text(..))`
+  for a DataType cell, and no such pair is ever generated in any
+  configuration -- verified by generating the same one-step specification for
+  all nine. Only Java is right, and only when production classes are on;
+  without --prod-dir its TableHelper calls `new TransactionRef(cell)` for a
+  class nobody wrote. So there is a second question to settle: where the
+  DataType's class lives when createProductionClasses is off (emit it into
+  common/, or refuse the step with a clear message).
+
+  **Cost, measured rather than guessed.** 20 distinct steps name a DataType or
+  a built-in across the two downstream repositories -- 5 user DataTypes (Pins
+  x4 in Bowling, IDForm, FormattedDollar) and 15 built-ins -- and every one of
+  the 180 glue methods across nine languages is hand-written, not an untouched
+  stub. All five DataType steps have single-row tables, so all become the flat
+  form, and the nine hand-rolled pinCounts helpers delete themselves. No
+  production code and no test code is affected; the tests are regenerated.
+  Verify by running both suites in all nine: 58 and 39.
+
+
 ### A cell holding a list of values, to initialise a Collection.
 
   One cell, several values, separated by a comma or a semicolon:
