@@ -600,7 +600,7 @@ raw JSON.
 | `outputDirectory` | Where generated tests go, relative to the config file |
 | `namespacePrefix` | Namespace or package for generated code |
 | `imports` | Extra import/using lines added to every generated file |
-| `copySpectable` | Copy the source `.spectable` beside the generated code |
+| `copySpectable` | Copy the source `.spectable` beside the generated code — **off by default**, because the copy is a second declaration of every symbol in it and Analyze then reports the project as duplicated |
 | `overwriteGlue` | Regenerate glue stubs even when they exist — **off by default, and normally leave it off**, since glue is where your code lives |
 | `tagFilter` | Boolean `$tag` expression; only matching blocks are generated |
 | `converterPath` | Empty means auto-detect next to AlignThree |

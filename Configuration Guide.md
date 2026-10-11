@@ -75,7 +75,7 @@ A real one, from `AlignThreeVariousTests/TestProject/A Java Config.specconfig`:
 | `namespace` | *(empty)* | Namespace or package prefix for generated code. Empty means none. |
 | `outputDirectory` | `"generated"` | Where tests, glue and `common` go. Relative to **this file**. |
 | `overwriteGlue` | `false` | Regenerate glue even when it already exists. See the warning below. |
-| `copySpectable` | `true` | Copy the `.spectable` source beside the generated tests. |
+| `copySpectable` | `false` | Copy the `.spectable` source beside the generated tests. Off by default — see below. |
 | `converterPath` | *(empty)* | Path to `SpecTableConverter`. Empty means auto-detect — leave it empty. |
 | `imports` | `[]` | Extra `import`/`using` lines injected into every generated file. |
 | `tagFilter` | *(empty)* | Boolean `$tag` expression; only matching blocks are generated. `smoke AND NOT wip`. |
@@ -84,6 +84,25 @@ A real one, from `AlignThreeVariousTests/TestProject/A Java Config.specconfig`:
 | `productionClassesPackage` | *(empty)* | Package/namespace for them. |
 | `failEveryTest` | `true` | End every generated glue stub with a failure, so an unimplemented step cannot report success. |
 | `externalSpectables` | `[]` | Specifications from elsewhere whose types are visible here — see below. |
+
+### Why `copySpectable` defaults to off
+
+A copy of the specification beside the generated code is useful when the output
+tree has to stand on its own — someone reading the tests can see what they came
+from. It costs something, though, and the cost is not obvious: the copy is a
+second declaration of every symbol in that file. If `outputDirectory` is a
+folder inside the project, as it is by default, Analyze then sees the project
+twice and reports every Entity, Attributes block, DataType and Collection in it
+as a duplicate. One real project turned 12 files into 24 and 0 diagnostics into
+496.
+
+So it is off unless you ask for it. Turn it on where the output is published
+somewhere separate from the specifications, and prefer an `outputDirectory`
+that is not inside the project if you do.
+
+This default changed on 2026-10-11. A `.specconfig` written before then that
+does not mention `copySpectable` will stop copying; add `"copySpectable": true`
+to keep the old behaviour. Every config saved from now on states it explicitly.
 
 **`overwriteGlue` deserves care.** Glue files are yours: `appendMissingStubs`
 adds a stub for each new step and never removes or rewrites what is there.
@@ -128,7 +147,7 @@ What lands in `outputDirectory`:
 | `<Spec>_Test.*` | Generated. Overwritten every time. |
 | `<Spec>_glue.*` | **Yours.** Created once; new steps appended. |
 | `common/` | Generated: the `*String` and `*Typed` classes, `Json`, table helpers. |
-| `<Spec>.spectable` | A copy of the source, unless `copySpectable` is `false`. |
+| `<Spec>.spectable` | A copy of the source, only when `copySpectable` is `true`. |
 
 `productionClassesDir` holds hand-written code. The generator writes a stub only
 when it cannot find a declaration of that type anywhere under the folder, so

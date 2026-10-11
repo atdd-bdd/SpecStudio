@@ -100,9 +100,12 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
 
     m_copySpectable = new QCheckBox(
         tr("Copy .spectable source file to output directory"), outOptGroup);
-    m_copySpectable->setChecked(true);
+    m_copySpectable->setChecked(false);
     auto* copyHint = new QLabel(
-        tr("When checked, the .spectable file is copied alongside the generated code."),
+        tr("When checked, the .spectable file is copied alongside the generated code. "
+           "Off by default: the copy is a second declaration of every symbol in it, "
+           "and Analyze reports the project as duplicated when the output folder sits "
+           "inside it."),
         outOptGroup);
     copyHint->setWordWrap(true);
     copyHint->setStyleSheet("color: gray; font-size: 11px;");

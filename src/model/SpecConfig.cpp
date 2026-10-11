@@ -64,8 +64,10 @@ bool SpecConfig::save(const QString& filePath) const
     if (!namespacePrefix.isEmpty())
         o["namespace"]   = namespacePrefix;
     o["overwriteGlue"]   = overwriteGlue;
-    if (!copySpectable)
-        o["copySpectable"] = false;
+    // Always written, not just when it differs from the default: the default
+    // changed once, and a file that omits the key silently changes meaning when
+    // that happens.
+    o["copySpectable"] = copySpectable;
     if (!converterPath.isEmpty())
         o["converterPath"] = converterPath;
     if (!imports.isEmpty()) {

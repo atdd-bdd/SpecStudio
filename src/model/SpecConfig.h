@@ -21,7 +21,12 @@ struct SpecConfig
     QString framework       = "MSTest";      // valid values depend on the language
     QString namespacePrefix;
     bool        overwriteGlue  = false;      // regenerate glue stubs even if they exist
-    bool        copySpectable  = true;       // copy the .spectable source file to the output directory
+    // False since 2026-10-11. The copy put a second declaration of every symbol
+    // inside the folder people analyse, and Analyze reported the whole project
+    // as duplicated -- 496 diagnostics over 24 files, from 12 real ones. Tick
+    // the box to get the copy back where the output tree is meant to stand on
+    // its own.
+    bool        copySpectable  = false;      // copy the .spectable source file to the output directory
     QString     converterPath;               // empty = auto-detect next to AlignThree.exe
     QStringList imports;                     // extra import/using statements for all generated files
     QString     tagFilter;                   // boolean $tag expression — only matching blocks generated
