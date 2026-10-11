@@ -30,6 +30,14 @@ struct SpecConfig
     QString     converterPath;               // empty = auto-detect next to AlignThree.exe
     QStringList imports;                     // extra import/using statements for all generated files
     QString     tagFilter;                   // boolean $tag expression — only matching blocks generated
+    // A table of a DataType or a built-in reaches the glue as values of that
+    // type; these say what shape. Row count is a property of the table and
+    // every occurrence of a step agrees on it, so flattening a single row is
+    // safe by default. Cell count is cardinality and varies between scenarios
+    // of one step -- Bowling's rolls steps occur with 16, 17, 18 and 1 cells --
+    // so flattening a single cell to a bare value is off unless asked for.
+    bool        flattenSingleRowToList    = true;
+    bool        flattenSingleCellToScalar = false;
 
     // Production class generation (all languages)
     bool    createProductionClasses  = false; // generate production stubs for DataTypes if not present

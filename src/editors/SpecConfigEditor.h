@@ -51,6 +51,8 @@ private:
     QCheckBox*    m_stepNameAttrSet = nullptr;
     bool          m_stepNameAttrSetLoaded = false;  // value as loaded, for the warning
     QCheckBox*    m_copySpectable  = nullptr;
+    QCheckBox*    m_flattenRow     = nullptr;
+    QCheckBox*    m_flattenCell    = nullptr;
     QLineEdit*    m_converterPath  = nullptr;
     QPushButton*  m_browseConverter = nullptr;
     QPlainTextEdit* m_imports      = nullptr;

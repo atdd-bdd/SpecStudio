@@ -24,6 +24,15 @@ public:
         // appendMissingStubs matches by name, so the old ones are left behind
         // holding their implementations.
         bool        stepNameIncludesAttrSet = false;
+        // How a table of a DataType or a built-in reaches the glue. The values
+        // are of the declared type either way; these say what shape they come
+        // in. Flattening a single row is safe by default -- row count is a
+        // property of the table's shape and every occurrence of a step agrees
+        // on it. Flattening a single cell to a bare value is not: cell count is
+        // cardinality and varies between scenarios of the same step, so it is
+        // off unless a project asks.
+        bool        flattenSingleRowToList   = true;
+        bool        flattenSingleCellToScalar = false;
     };
 
     QStringList generate(const SpectableFile& file, const Options& opts);

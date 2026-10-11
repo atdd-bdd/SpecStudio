@@ -345,6 +345,9 @@ void SpecTableAnalyzer::runModelChecks(const QString& filePath,
     // against its column's type.
     QVector<ParseMessage> shared;
     shared += validateStepTables(file);
+    // With the default flatten options -- Analyze reads specifications, not a
+    // .specconfig, and the converter re-runs this with the project's own.
+    shared += validateStepTableShapes(file);
     shared += validateExamplesTables(file);
     shared += validateAttributeDefaults(file);
     for (const ParseMessage& m : shared)

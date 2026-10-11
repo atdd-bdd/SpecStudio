@@ -146,6 +146,32 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     testLayout->addWidget(m_failEveryTest);
     testLayout->addWidget(testHint);
 
+    m_flattenRow = new QCheckBox(
+        tr("Flatten a single row or column to a list"), testGroup);
+    auto* flattenRowHint = new QLabel(
+        tr("A step naming a DataType or a built-in hands the glue values of that type. "
+           "When checked, a table of one row or one column arrives as a list rather than "
+           "a grid of one. Row count is a property of the table, so every occurrence of a "
+           "step agrees on it."),
+        testGroup);
+    flattenRowHint->setWordWrap(true);
+    flattenRowHint->setStyleSheet("color: gray; font-size: 11px;");
+    testLayout->addWidget(m_flattenRow);
+    testLayout->addWidget(flattenRowHint);
+
+    m_flattenCell = new QCheckBox(
+        tr("Flatten a single cell to one value"), testGroup);
+    auto* flattenCellHint = new QLabel(
+        tr("A table of one cell arrives as a single value rather than a list of one. "
+           "Off by default, and worth leaving off unless your singular steps really are "
+           "singular: cell count is cardinality and can differ between scenarios of the "
+           "same step, and the two then disagree about the one glue method they share."),
+        testGroup);
+    flattenCellHint->setWordWrap(true);
+    flattenCellHint->setStyleSheet("color: gray; font-size: 11px;");
+    testLayout->addWidget(m_flattenCell);
+    testLayout->addWidget(flattenCellHint);
+
     m_stepNameAttrSet = new QCheckBox(
         tr("Include the table type in each glue method name"), testGroup);
     auto* stepNameHint = new QLabel(
@@ -337,6 +363,8 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     connect(m_namespace, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_overwriteGlue,  &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
     connect(m_copySpectable,  &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
+    connect(m_flattenRow,     &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
+    connect(m_flattenCell,    &QCheckBox::toggled, this, &SpecConfigEditor::markDirty);
     connect(m_converterPath, &QLineEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_imports,    &QPlainTextEdit::textChanged, this, &SpecConfigEditor::markDirty);
     connect(m_tagFilter,  &QLineEdit::textChanged,      this, &SpecConfigEditor::markDirty);
@@ -435,6 +463,7 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_extSpecSyncing = true;
     block(m_language); block(m_framework); block(m_outputDir);
     block(m_namespace); block(m_overwriteGlue); block(m_copySpectable);
+    block(m_flattenRow); block(m_flattenCell);
     block(m_converterPath); block(m_imports); block(m_tagFilter);
     block(m_createProdClasses); block(m_prodClassesDir); block(m_prodClassesPackage);
 
@@ -454,6 +483,8 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_namespace->setEnabled(cfg.language == "CSharp" || cfg.language == "Java");
     m_overwriteGlue->setChecked(cfg.overwriteGlue);
     m_failEveryTest->setChecked(cfg.failEveryTest);
+    m_flattenRow->setChecked(cfg.flattenSingleRowToList);
+    m_flattenCell->setChecked(cfg.flattenSingleCellToScalar);
     // Record what was loaded and set without a signal, so opening the file
     // never raises the warning -- only a change by hand does.
     m_stepNameAttrSetLoaded = cfg.stepNameIncludesAttrSet;
@@ -498,6 +529,8 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.namespacePrefix = m_namespace->text().trimmed();
     cfg.overwriteGlue   = m_overwriteGlue->isChecked();
     cfg.failEveryTest   = m_failEveryTest->isChecked();
+    cfg.flattenSingleRowToList    = m_flattenRow->isChecked();
+    cfg.flattenSingleCellToScalar = m_flattenCell->isChecked();
     cfg.stepNameIncludesAttrSet = m_stepNameAttrSet->isChecked();
     cfg.copySpectable   = m_copySpectable->isChecked();
     cfg.converterPath   = m_converterPath->text().trimmed();

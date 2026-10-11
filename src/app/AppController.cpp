@@ -1549,6 +1549,8 @@ void AppController::onBuildCurrentFile()
     if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
     if (cfg.overwriteGlue)              args << "--overwrite-glue";
     if (!cfg.copySpectable)             args << "--no-copy-spectable";
+    if (!cfg.flattenSingleRowToList)    args << "--no-flatten-single-row";
+    if (cfg.flattenSingleCellToScalar)  args << "--flatten-single-cell";
     if (!projRoot.isEmpty())            args << "--source-root" << projRoot;
     for (const QString& imp : cfg.imports)
         args << "--import" << imp;
@@ -1671,6 +1673,8 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                 if (!cfg.namespacePrefix.isEmpty()) args << "--namespace" << cfg.namespacePrefix;
                 if (cfg.overwriteGlue)              args << "--overwrite-glue";
                 if (!cfg.copySpectable)             args << "--no-copy-spectable";
+                if (!cfg.flattenSingleRowToList)    args << "--no-flatten-single-row";
+                if (cfg.flattenSingleCellToScalar)  args << "--flatten-single-cell";
                 args << "--source-root" << proj->rootPath();
                 for (const QString& imp : cfg.imports)
                     args << "--import" << imp;

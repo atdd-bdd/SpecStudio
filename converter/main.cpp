@@ -73,6 +73,20 @@ int main(int argc, char* argv[])
         "expr", "");
     cli.addOption(tagFilterOpt);
 
+    // A table of a DataType or a built-in reaches the glue as values of that
+    // type. These two say what shape. Flattening a single row is on by
+    // default; flattening a single cell to a bare value is not, because cell
+    // count is cardinality and varies between scenarios of one step.
+    QCommandLineOption noFlattenRowOpt("no-flatten-single-row",
+        "Hand a DataType or built-in table to the glue as a grid even when it "
+        "has one row or one column.");
+    cli.addOption(noFlattenRowOpt);
+
+    QCommandLineOption flattenCellOpt("flatten-single-cell",
+        "Hand a one-cell DataType or built-in table to the glue as a single "
+        "value rather than a list of one.");
+    cli.addOption(flattenCellOpt);
+
     QCommandLineOption prodDirOpt("prod-dir",
         "Output folder for production classes. "
         "When set, generates Entity/Collection/DataType classes if not already present.",
@@ -144,6 +158,12 @@ int main(int argc, char* argv[])
     // warnings to this file even when multiple converters run concurrently.
     std::cout << "FILE:" << inputPath.toStdString() << "\n";
 
+    // Read once here as well as per language: the shape check below runs before
+    // the language is dispatched, and must see the same answer the generator
+    // will.
+    const bool flattenRow  = !cli.isSet(noFlattenRowOpt);
+    const bool flattenCell = cli.isSet(flattenCellOpt);
+
     bool hasError = false;
     for (const ParseMessage& m : file.messages) {
         const char* sev = m.warning ? "WARNING" : "ERROR";
@@ -165,6 +185,15 @@ int main(int argc, char* argv[])
     }
 
     for (const ParseMessage& m : validateStepTables(file)) {
+        const char* sev = m.warning ? "WARNING" : "ERROR";
+        std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
+        if (!m.warning) hasError = true;
+    }
+
+    // Every occurrence of one step has to agree on the shape of its table,
+    // because they share a glue method. Uses this run's flatten options: with
+    // flattening off every table is a grid, so nothing can disagree.
+    for (const ParseMessage& m : validateStepTableShapes(file, flattenRow, flattenCell)) {
         const char* sev = m.warning ? "WARNING" : "ERROR";
         std::cout << sev << ":" << m.line << ":" << m.text.toStdString() << "\n";
         if (!m.warning) hasError = true;
@@ -234,6 +263,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {
@@ -249,6 +280,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         RustGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Python", Qt::CaseInsensitive) == 0) {
@@ -265,6 +298,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         PythonGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Cpp", Qt::CaseInsensitive) == 0
@@ -280,6 +315,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         CppGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("JavaScript", Qt::CaseInsensitive) == 0
@@ -295,6 +332,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         JavaScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("TypeScript", Qt::CaseInsensitive) == 0
@@ -310,6 +349,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         TypeScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
@@ -325,6 +366,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         GoGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else if (language.compare("Swift", Qt::CaseInsensitive) == 0) {
@@ -339,6 +382,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         SwiftGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
@@ -357,6 +402,8 @@ int main(int argc, char* argv[])
         opts.createProductionClasses     = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest               = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet     = cli.isSet(stepNameAttrSetOpt);
+        opts.flattenSingleRowToList     = !cli.isSet(noFlattenRowOpt);
+        opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         CSharpGenerator gen;
         genMsgs = gen.generate(file, opts);
     }

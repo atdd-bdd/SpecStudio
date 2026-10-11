@@ -83,7 +83,38 @@ A real one, from `AlignThreeVariousTests/TestProject/A Java Config.specconfig`:
 | `productionClassesDir` | *(empty)* | Where those stubs go. Relative to this file. |
 | `productionClassesPackage` | *(empty)* | Package/namespace for them. |
 | `failEveryTest` | `true` | End every generated glue stub with a failure, so an unimplemented step cannot report success. |
+| `flattenSingleRowToList` | `true` | A DataType or built-in table of one row or one column reaches the glue as a list rather than a grid. |
+| `flattenSingleCellToScalar` | `false` | A DataType or built-in table of one cell reaches the glue as a single value rather than a list of one. |
 | `externalSpectables` | `[]` | Specifications from elsewhere whose types are visible here — see below. |
+
+### The shape a DataType table arrives in
+
+A step naming a DataType or a built-in hands the glue values of that type —
+`Pins`, not text. These two say what shape they arrive in.
+
+```
+Given rolls are : Pins
+| 5 | 5 | 4 | 10 |
+```
+
+| Options | The glue receives |
+|---|---|
+| both off | a grid — `List<List<Pins>>` |
+| `flattenSingleRowToList` (the default) | a list — `List<Pins>` |
+| both on, and one cell | one value — `Pins` |
+
+Row flattening is on by default because the row count is a property of the
+table's shape, and every occurrence of a step agrees on it. Cell flattening is
+off because cell count is **cardinality**, which legitimately differs between
+scenarios of the same step: the Bowling example has `Given rolls are` with 16,
+17, 18 and 1 cells, and a one-cell table there is a list of one, not a
+different kind of thing.
+
+One step is one glue method, so every occurrence of a step must agree on the
+shape of its table. A disagreement is an error, naming both lines, and turning
+cell flattening on can create one where none existed — which is the point: you
+are told, rather than given a method whose signature depends on which scenario
+was generated last.
 
 ### Why `copySpectable` defaults to off
 

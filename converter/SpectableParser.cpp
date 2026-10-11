@@ -1774,6 +1774,92 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
 }
 
 // ---------------------------------------------------------------------------
+// The shape a DataType or built-in table takes when it reaches the glue
+// ---------------------------------------------------------------------------
+
+bool isDataTypeOrBuiltin(const QString& name, const SpectableFile& file)
+{
+    if (name.trimmed().isEmpty()) return false;
+    if (isBuiltinDataType(name)) return true;
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+CellShape cellShapeOf(const Step& step, const SpectableFile& file,
+                      bool flattenSingleRowToList, bool flattenSingleCellToScalar)
+{
+    // Only a DataType or a built-in has a shape to choose. An Attributes set or
+    // an Entity is one object per row, which is a list whatever the table looks
+    // like -- and a grid of them only by saying EveryCell.
+    if (!isDataTypeOrBuiltin(step.attrSetName, file)) return CellShape::Grid;
+    if (!step.hasTable) return CellShape::Grid;
+
+    int rows = 0, cols = 0;
+    for (const QStringList& row : step.table.rows) {
+        int cells = 0;
+        for (const QString& c : row) if (!c.trimmed().isEmpty()) ++cells;
+        if (cells == 0) continue;
+        ++rows;
+        cols = qMax(cols, cells);
+    }
+    if (rows == 0) return CellShape::Grid;
+
+    if (flattenSingleCellToScalar && rows == 1 && cols == 1) return CellShape::Scalar;
+    if (flattenSingleRowToList && (rows == 1 || cols == 1))   return CellShape::List;
+    return CellShape::Grid;
+}
+
+QVector<ParseMessage> validateStepTableShapes(const SpectableFile& file,
+                                              bool flattenSingleRowToList,
+                                              bool flattenSingleCellToScalar)
+{
+    QVector<ParseMessage> msgs;
+
+    struct Seen { CellShape shape; int line; };
+    QMap<QString, Seen> first;
+
+    auto shapeWord = [](CellShape s) {
+        switch (s) {
+        case CellShape::Scalar: return QStringLiteral("a single value");
+        case CellShape::List:   return QStringLiteral("a list");
+        default:                return QStringLiteral("a grid");
+        }
+    };
+
+    auto check = [&](const Step& step) {
+        if (!isDataTypeOrBuiltin(step.attrSetName, file)) return;
+        if (!step.hasTable) return;
+        const CellShape shape =
+            cellShapeOf(step, file, flattenSingleRowToList, flattenSingleCellToScalar);
+
+        // One glue method per step text and type, so that is the key.
+        const QString key = step.text.trimmed().toLower() + "|" + step.attrSetName.toLower();
+        auto it = first.find(key);
+        if (it == first.end()) { first.insert(key, { shape, step.line }); return; }
+        if (it->shape == shape) return;
+
+        ParseMessage m;
+        m.line    = step.line;
+        m.warning = false;
+        m.text    = QString("Step '%1' takes %2 here and %3 at line %4. One step is one glue "
+                            "method, so every occurrence has to agree on the shape of its "
+                            "table -- write them alike, or turn off the flattening that "
+                            "separates them")
+                        .arg(step.text.trimmed(), shapeWord(shape),
+                             shapeWord(it->shape), QString::number(it->line));
+        msgs.push_back(m);
+    };
+
+    for (const Scenario& s : file.scenarios)
+        for (const Step& step : s.steps) check(step);
+    for (const Step& step : file.backgroundSteps) check(step);
+    for (const Step& step : file.cleanupSteps)    check(step);
+
+    return msgs;
+}
+
+// ---------------------------------------------------------------------------
 // An Examples: table against the attribute set it names
 // ---------------------------------------------------------------------------
 //

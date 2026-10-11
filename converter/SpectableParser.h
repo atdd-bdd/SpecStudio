@@ -46,6 +46,38 @@ void resolveDefineReferences(SpectableFile& file);
 QVector<ParseMessage> validateExamplesTables(const SpectableFile& file);
 QVector<ParseMessage> validateAttributeDefaults(const SpectableFile& file);
 
+// ---------------------------------------------------------------------------
+// The shape a DataType or built-in table takes when it reaches the glue
+// ---------------------------------------------------------------------------
+//
+// A step naming a DataType or a built-in hands the glue values of that type.
+// How many dimensions they arrive in is what these decide, and the nine
+// generators all ask here so that they cannot drift from one another or from
+// what Analyze reports.
+enum class CellShape {
+    Scalar,   // one cell, one value          -- flattenSingleCellToScalar
+    List,     // one row or one column        -- flattenSingleRowToList
+    Grid      // rows and columns both plural
+};
+
+// True for a built-in type and for a DataType declared in this file (or merged
+// into it from context).
+bool isDataTypeOrBuiltin(const QString& name, const SpectableFile& file);
+
+CellShape cellShapeOf(const Step& step, const SpectableFile& file,
+                      bool flattenSingleRowToList, bool flattenSingleCellToScalar);
+
+// One step text is one glue method, so every occurrence of it has to agree on
+// the shape of its table -- otherwise the method would need two signatures and
+// the last one generated would win. Reported at the occurrence that disagrees,
+// naming the line it disagrees with.
+//
+// Analyze runs this with the default options, since it reads specifications
+// rather than a .specconfig; the converter runs it with the project's own.
+QVector<ParseMessage> validateStepTableShapes(const SpectableFile& file,
+                                              bool flattenSingleRowToList = true,
+                                              bool flattenSingleCellToScalar = false);
+
 // Whether one value satisfies the built-in type its column declares -- the
 // rule validateStepTables, validateExamplesTables and validateAttributeDefaults
 // apply, offered on its own for anything that judges a cell at a time. A user

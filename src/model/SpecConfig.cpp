@@ -22,6 +22,10 @@ SpecConfig SpecConfig::load(const QString& filePath)
     if (o.contains("namespace"))       cfg.namespacePrefix  = o["namespace"].toString();
     if (o.contains("overwriteGlue"))   cfg.overwriteGlue    = o["overwriteGlue"].toBool();
     if (o.contains("copySpectable"))   cfg.copySpectable    = o["copySpectable"].toBool();
+    if (o.contains("flattenSingleRowToList"))
+        cfg.flattenSingleRowToList = o["flattenSingleRowToList"].toBool();
+    if (o.contains("flattenSingleCellToScalar"))
+        cfg.flattenSingleCellToScalar = o["flattenSingleCellToScalar"].toBool();
     if (o.contains("converterPath"))   cfg.converterPath    = o["converterPath"].toString();
     if (o.contains("imports")) {
         for (const QJsonValue& v : o["imports"].toArray())
@@ -68,6 +72,8 @@ bool SpecConfig::save(const QString& filePath) const
     // changed once, and a file that omits the key silently changes meaning when
     // that happens.
     o["copySpectable"] = copySpectable;
+    o["flattenSingleRowToList"]    = flattenSingleRowToList;
+    o["flattenSingleCellToScalar"] = flattenSingleCellToScalar;
     if (!converterPath.isEmpty())
         o["converterPath"] = converterPath;
     if (!imports.isEmpty()) {
