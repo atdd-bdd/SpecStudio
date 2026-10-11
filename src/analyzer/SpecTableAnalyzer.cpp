@@ -187,17 +187,18 @@ void SpecTableAnalyzer::checkDuplicateDeclarations(const QString& filePath,
                 if (loc.filePath != filePath) continue;
 
                 QStringList others;
+                const QDir here(QFileInfo(filePath).dir());
                 for (const SymbolLocation& other : it.value()) {
                     if (other.filePath == filePath && other.line == loc.line) continue;
-                    // A bare file name is no help when the other declaration is in
-                    // a file of the same name in another folder -- the message then
-                    // appears to point at the line you are already looking at. Show
-                    // the containing folder too when the names match.
-                    const QFileInfo of(other.filePath);
-                    const QString shown =
-                        (of.fileName() == QFileInfo(filePath).fileName())
-                            ? of.dir().dirName() + "/" + of.fileName()
-                            : of.fileName();
+                    // Relative to the file being reported on, always. A bare file
+                    // name reads as self-reference when the other declaration is a
+                    // copy of this same file somewhere else -- which is exactly
+                    // what a build produces, since the converter copies the
+                    // .spectable beside the generated code. Showing one folder
+                    // was not enough either: two copies in different folders both
+                    // printed the same, so the message listed what looked like the
+                    // same file twice. A path from here to there cannot do that.
+                    const QString shown = here.relativeFilePath(other.filePath);
                     others << shown + ":" + QString::number(other.line);
                 }
                 if (others.isEmpty()) continue;

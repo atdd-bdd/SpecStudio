@@ -7,7 +7,14 @@
 // should without also finding things it should not. This does both from a
 // terminal.
 //
-//     analyze_cli <folder> [--errors-only]
+//     analyze_cli <folder> [--errors-only] [--include-generated]
+//
+// Generated output is skipped. A project build writes its tests into
+// <project>/generated/ and the converter copies the .spectable source in
+// beside them, so analysing the project folder otherwise finds every
+// specification twice and reports every symbol in it as a duplicate -- 496
+// diagnostics over 24 files, from 12 real ones. --include-generated analyses
+// them anyway, for the rare case where that folder holds something real.
 //
 // Exit code is the number of diagnostics, capped at 250, so a script can tell
 // "found nothing" from "found something" without parsing the output.
@@ -38,6 +45,7 @@ int main(int argc, char* argv[])
     // declared in two files was silently not reported.
     const QString folder = QFileInfo(args[1]).absoluteFilePath();
     const bool errorsOnly = args.contains("--errors-only");
+    const bool includeGenerated = args.contains("--include-generated");
 
     if (!QFileInfo(folder).isDir()) {
         err << "not a folder: " << folder << "\n";
@@ -47,9 +55,21 @@ int main(int argc, char* argv[])
     // Every .spectable under the folder, at any depth -- the project's own
     // subfolders hold specifications too.
     QStringList files;
+    QStringList skipped;
     QDirIterator it(folder, { "*.spectable" }, QDir::Files, QDirIterator::Subdirectories);
-    while (it.hasNext()) files << it.next();
+    while (it.hasNext()) {
+        const QString path = it.next();
+        // "generated" is the default outputDirectory, and the copy of the source
+        // that lands there is a copy, not a second declaration.
+        const QString rel = QDir(folder).relativeFilePath(path);
+        if (!includeGenerated && rel.split('/').contains(QStringLiteral("generated"))) {
+            skipped << rel;
+            continue;
+        }
+        files << path;
+    }
     files.sort();
+    skipped.sort();
 
     if (files.isEmpty()) {
         err << "no .spectable files under " << folder << "\n";
@@ -67,13 +87,21 @@ int main(int argc, char* argv[])
         const QList<Diagnostic> diags = analyzer.analyzeFile(file);
         for (const Diagnostic& d : diags) {
             if (errorsOnly && d.severity != Diagnostic::Severity::Error) continue;
-            out << QFileInfo(d.filePath).fileName() << ":" << d.line
+            // Relative to the folder being analysed, so that both halves of
+            // "X is also declared in Y" are paths of the same kind. A bare name
+            // here against a path in the message made a copy of a file look
+            // like the file itself.
+            out << QDir(folder).relativeFilePath(d.filePath) << ":" << d.line
                 << ": " << d.severityString() << ": " << d.message << "\n";
             ++count;
         }
     }
 
-    out << "-- " << count << " diagnostic(s) over " << files.size() << " file(s)\n";
+    out << "-- " << count << " diagnostic(s) over " << files.size() << " file(s)";
+    if (!skipped.isEmpty())
+        out << ", " << skipped.size()
+            << " generated copy/copies skipped (--include-generated to analyse them)";
+    out << "\n";
     out.flush();
     return count > 250 ? 250 : count;
 }
