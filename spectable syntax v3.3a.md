@@ -63,6 +63,21 @@ Uses <Comment>?
   * rules governing collection behavior
 * `<Min>` and `<Max>` define cardinality.
 
+### 2.3.1 Spaces in a cell: `~`
+
+A cell is trimmed, so a value whose leading or trailing space matters cannot be
+written literally -- the space is gone before any type sees it. A tilde stands
+for a space and is converted back when the cell is read:
+
+```
+| ~Checking  |   gives " Checking"
+| !Type:Bank~ |  gives "!Type:Bank "
+```
+
+Every generator does this, so the rule holds in all nine languages. A tilde is
+therefore not an ordinary character in a cell; a value that needs one must say
+so some other way.
+
 ### 2.4 Vertical Tables
 
 A vertical table is a horizontal table transposed. The attribute names run down
@@ -462,6 +477,14 @@ Removed in v3.3. Collections replace all multiplicity semantics.
 * Editorial only otherwise: the document was published with the conversation
   that produced it still wrapped around it, and with its code samples and
   headings malformed. No rule of the language was changed.
+
+### Document revision 2026-10-11
+
+* `~` in a cell stands for a space (section 2.3.1). The convention has been in
+  all nine generators and in the parser since long before this; it was in no
+  document, so the only way to learn it was to read the generators. Found by
+  someone writing a real specification, who invented a quoting convention to
+  work around a problem that did not exist, and got the quotes in the value.
 
 ### Document revision 2026-09-19
 

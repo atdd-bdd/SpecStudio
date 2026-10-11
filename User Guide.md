@@ -102,6 +102,10 @@ Other view controls:
 A `.spectable` file is plain text. Blocks start at column one with a keyword;
 tables are pipe-delimited rows; `#` starts a comment.
 
+Cells are trimmed, so a value whose leading or trailing space matters needs
+`~`, which stands for a space: `| ~Checking |` is `" Checking"` and
+`| !Type:Bank~ |` is `"!Type:Bank "`. It works in every language.
+
 ### Specification
 
 The file header:
@@ -455,9 +459,19 @@ smoke AND NOT wip
 group as you would expect.
 
 Filtering happens at generation time, so a filtered-out scenario produces no
-test and no glue stub. That is the point — `$wip` on a half-written scenario
-keeps it in the specification, where the conversation about it continues,
-without breaking the build.
+test. That is the point — `$wip` on a half-written scenario keeps it in the
+specification, where the conversation about it continues, without breaking the
+build.
+
+Its **glue stub is still written**, which is deliberate: implementing a
+filtered block is then write the code, fill in the glue, take the tag off. Were
+stubs filtered too, the tag would have to come off before there was any glue to
+fill in, and the build would break in between.
+
+A tag is cleared by a blank line, so `$wip` must sit immediately above the
+block it marks. `$wip`, a blank line, then `Scenario` tags nothing, and nothing
+says so — the scenario is generated and tested as though the tag were absent.
+A `$tag` above the `Specification` line tags every block in the file.
 
 ---
 
