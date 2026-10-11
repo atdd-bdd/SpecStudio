@@ -328,6 +328,7 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
     QString     lastKw;
     QStringList pendingTags;          // @Tag lines accumulate here until consumed by next block
     QStringList pendingGeneratorTags; // $Tag lines — generator-only, never passed to annotations
+    int pendingGeneratorTagLine = 0;  // where they were written, to report one that marks nothing
 
     AttrSet*    curAttr       = nullptr;
     Collection* curCollection = nullptr;
@@ -345,8 +346,29 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
     QString*    curUses       = nullptr;
     QStringList attrHeaders;
 
+    // A $tag is cleared by a blank line, which is the rule that lets a tag
+    // belong to the block right below it. The cost is that a tag separated from
+    // its block marks nothing at all, and nothing said so: the block is
+    // generated as though it were untagged. That is silent in both directions
+    // -- a block believed skipped is tested, and after an edit that inserts a
+    // line, a block believed tested is skipped, which looks exactly like a
+    // passing test. So say it where the tag was written.
     auto emitMsg = [&](int ln, const QString& msg, bool warn = false) {
         result.messages.push_back({ ln, msg, warn });
+    };
+
+    auto dropGeneratorTags = [&]() {
+        if (!pendingGeneratorTags.isEmpty()) {
+            QStringList shown;
+            for (const QString& t : pendingGeneratorTags) shown << "$" + t;
+            emitMsg(pendingGeneratorTagLine,
+                    QString("%1 marks nothing -- a blank line ends a tag, so what follows is "
+                            "generated as though it were untagged. Put the tag immediately "
+                            "above the block it belongs to.").arg(shown.join(" ")),
+                    true);
+        }
+        pendingGeneratorTags.clear();
+        pendingGeneratorTagLine = 0;
     };
 
     bool inCleanupBlock = false; // true while collecting cleanup steps
@@ -592,7 +614,7 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
             }
             // InNamedBlock stays alive through blank lines (Description may precede Examples)
             pendingTags.clear();          // tags must immediately precede their block
-            pendingGeneratorTags.clear();
+            dropGeneratorTags();
             continue;
         }
 
@@ -612,6 +634,7 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
         if (trimmed.startsWith('$')) {
             static QRegularExpression reGenTag(R"(\$(\w+))");
             auto it = reGenTag.globalMatch(trimmed);
+            if (pendingGeneratorTags.isEmpty()) pendingGeneratorTagLine = lineNum;
             while (it.hasNext()) pendingGeneratorTags << it.next().captured(1);
             continue;
         }
@@ -1342,9 +1365,12 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
         }
 
         pendingTags.clear();
-        pendingGeneratorTags.clear();
+        dropGeneratorTags();
         emitMsg(lineNum, QString("Unrecognized keyword '%1'").arg(firstWord), true);
     }
+
+    // A $tag at the end of the file, with no block after it.
+    dropGeneratorTags();
 
     // A step still waiting for its table when the file ends.
     if (state == State::AwaitStepTable) endStepTable();
@@ -1478,6 +1504,20 @@ QVector<ParseMessage> validateFieldTypes(const SpectableFile& file)
 
 // ---------------------------------------------------------------------------
 // One value against the built-in type its column declares
+// One misspelled heading produces two complaints about one mistake: a column
+// nobody recognises, and an attribute nobody filled. When the two are the same
+// word written differently -- a space, a capital, a hyphen -- they are one
+// finding, and saying it once while naming both spellings is the whole fix the
+// reader needs. Anything that is not plainly the same word keeps its own
+// message, because then they really are two problems.
+static QString spellingKey(const QString& s)
+{
+    QString out;
+    for (const QChar& c : s)
+        if (c.isLetterOrNumber()) out += c.toLower();
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 //
 // Moved here from Analyze on 2026-09-16, so that the converter checks a cell
@@ -1640,6 +1680,7 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
 
         // CompareOnly names only the attributes it cares about, so a missing one
         // is the point rather than a mistake. An unknown one still is not.
+        QStringList unfilled;
         if (!step.compareOnly) {
             for (const Field& f : as->fields) {
                 if (f.name.isEmpty()) continue;
@@ -1648,22 +1689,47 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
                     if (n.compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
                 if (found) continue;
                 if (!f.defaultValue.trimmed().isEmpty()) continue;
-
-                ParseMessage m;
-                m.line    = step.line;
-                m.warning = false;
-                m.text    = QString("Table is missing column '%1' and '%1' has no default value")
-                                .arg(f.name);
-                msgs.push_back(m);
+                unfilled << f.name;
             }
         }
 
+        QStringList unknownCols;
         for (const QString& n : named) {
             bool known = false;
             for (const Field& f : as->fields)
                 if (n.compare(f.name, Qt::CaseInsensitive) == 0) { known = true; break; }
-            if (known) continue;
+            if (!known) unknownCols << n;
+        }
 
+        // The same word written two ways is one mistake, said once.
+        for (int i = unfilled.size() - 1; i >= 0; --i) {
+            const QString key = spellingKey(unfilled[i]);
+            int col = -1;
+            for (int j = 0; j < unknownCols.size(); ++j)
+                if (spellingKey(unknownCols[j]) == key) { col = j; break; }
+            if (col < 0) continue;
+            ParseMessage m;
+            m.line    = step.line;
+            m.warning = false;
+            m.text    = QString("Table for '%1' has column '%2' where attribute '%3' is expected "
+                                "-- a heading must match the attribute name exactly, so the column "
+                                "is ignored and '%3' is left with no value")
+                            .arg(as->name, unknownCols[col], unfilled[i]);
+            msgs.push_back(m);
+            unknownCols.removeAt(col);
+            unfilled.removeAt(i);
+        }
+
+        for (const QString& f : unfilled) {
+            ParseMessage m;
+            m.line    = step.line;
+            m.warning = false;
+            m.text    = QString("Table is missing column '%1' and '%1' has no default value")
+                            .arg(f);
+            msgs.push_back(m);
+        }
+
+        for (const QString& n : unknownCols) {
             ParseMessage m;
             m.line    = step.line;
             m.warning = true;
@@ -1728,32 +1794,62 @@ QVector<ParseMessage> validateExamplesTables(const SpectableFile& file)
         const ExamplesBlock& ex = nb.examples;
         if (ex.header.isEmpty()) continue;
 
+        const int exLine = ex.headerLine ? ex.headerLine : ex.line;
+
         // A column naming no field is data the generator drops on the floor.
+        QStringList unknownCols;
         for (const QString& col : ex.header) {
             const QString c = col.trimmed();
             if (c.isEmpty() || fieldOf(*as, c)) continue;
-            ParseMessage m;
-            m.line    = ex.headerLine ? ex.headerLine : ex.line;
-            m.warning = true;
-            m.text    = QString("Examples table has column '%1', which is not an attribute of "
-                                "'%2' -- its values are ignored").arg(c, ex.attrSetName);
-            msgs.push_back(m);
+            unknownCols << c;
         }
 
         // A field with no column and no default is one the generator cannot
         // fill, and it refuses the file for it. A field with a default is filled
         // from the default, which is what declaring one is for.
+        QStringList unfilled;
         for (const Field& f : as->fields) {
             if (f.name.isEmpty()) continue;
             bool found = false;
             for (const QString& col : ex.header)
                 if (col.trimmed().compare(f.name, Qt::CaseInsensitive) == 0) { found = true; break; }
             if (found || !f.defaultValue.trimmed().isEmpty()) continue;
+            unfilled << f.name;
+        }
+
+        // The same word written two ways is one mistake, said once.
+        for (int i = unfilled.size() - 1; i >= 0; --i) {
+            const QString key = spellingKey(unfilled[i]);
+            int col = -1;
+            for (int j = 0; j < unknownCols.size(); ++j)
+                if (spellingKey(unknownCols[j]) == key) { col = j; break; }
+            if (col < 0) continue;
             ParseMessage m;
-            m.line    = ex.headerLine ? ex.headerLine : ex.line;
+            m.line    = exLine;
+            m.warning = false;
+            m.text    = QString("Examples table for '%1' has column '%2' where attribute '%3' is "
+                                "expected -- a heading must match the attribute name exactly, so "
+                                "the column is ignored and '%3' is left with no value")
+                            .arg(ex.attrSetName, unknownCols[col], unfilled[i]);
+            msgs.push_back(m);
+            unknownCols.removeAt(col);
+            unfilled.removeAt(i);
+        }
+
+        for (const QString& c : unknownCols) {
+            ParseMessage m;
+            m.line    = exLine;
+            m.warning = true;
+            m.text    = QString("Examples table has column '%1', which is not an attribute of "
+                                "'%2' -- its values are ignored").arg(c, ex.attrSetName);
+            msgs.push_back(m);
+        }
+        for (const QString& f : unfilled) {
+            ParseMessage m;
+            m.line    = exLine;
             m.warning = false;
             m.text    = QString("Examples table for '%1' has no column '%2', and '%2' has no "
-                                "default value").arg(ex.attrSetName, f.name);
+                                "default value").arg(ex.attrSetName, f);
             msgs.push_back(m);
         }
 
