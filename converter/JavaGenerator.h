@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 #include <QMap>
@@ -46,7 +47,11 @@ public:
     // gridElemType is the Java type one cell becomes -- Integer, Pins,
     // OrderTyped. Carried on the signature because genStubMethod has no view
     // of the file and cannot work it out from gridDataType alone.
-    struct GlueSig { QString method; QString paramType; QString gridDataType; bool isAttrSet = false; QString dataTypeName; QString gridElemType; };
+    struct GlueSig { QString method; QString paramType; QString gridDataType; bool isAttrSet = false;
+                     QString dataTypeName; QString gridElemType;
+                     // Only meaningful with gridDataType: how many dimensions the
+                     // values arrive in. Decided by cellShapeOf in the parser.
+                     CellShape gridShape = CellShape::Grid; };
 
 private:
     QString     m_framework;

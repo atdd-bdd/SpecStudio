@@ -309,6 +309,10 @@ QString JavaGenerator::toClassName(const QString& name)
 // member because toMethodName and collectGlueSigs are both static, and threading
 // one flag through every call site in nine generators buys nothing.
 static bool s_stepNameIncludesAttrSet = false;
+// What shape a DataType or built-in table reaches the glue in. Set from the
+// options in generate(); read by the emitters, which are free functions.
+static bool s_flattenSingleRowToList    = true;
+static bool s_flattenSingleCellToScalar = false;
 
 QString JavaGenerator::toMethodName(const QString& keyword, const QString& stepText,
                                     const QString& attrSetName)
@@ -1245,17 +1249,50 @@ QString JavaGenerator::genTestFile(const SpectableFile& file, const QString& tes
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 const QString meth = toMethodName(step);
 
-                s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";
-                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                    s << "        " << listVar << ".add(List.of(";
-                    const QStringList& r = tbl.rows[ri];
-                    for (int ci = 0; ci < r.size(); ++ci) {
-                        if (ci) s << ", ";
-                        s << javaQuoted(resolveValue(r[ci], file));
+                // A DataType or built-in table is converted here, in the test,
+                // so the glue receives the declared type. The shape it arrives
+                // in is the project's choice; TableHelper has a conversion for
+                // each. Anything else keeps the grid of text it always had.
+                const CellShape shape =
+                    isDataType(step.attrSetName, file)
+                        ? cellShapeOf(step, file, s_flattenSingleRowToList,
+                                      s_flattenSingleCellToScalar)
+                        : CellShape::Grid;
+                const QString boxed = isTypedGrid ? gridElementType(step.attrSetName, file)
+                                                  : QString();
+
+                if (shape == CellShape::Scalar) {
+                    QString cell;
+                    for (int ri = startRow; ri < tbl.rows.size() && cell.isEmpty(); ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty()) { cell = c; break; }
+                    s << "        " << glueVar << "." << meth << "(TableHelper.to" << boxed
+                      << "(" << javaQuoted(resolveValue(cell, file)) << "));\n\n";
+                } else if (shape == CellShape::List) {
+                    QStringList flat;
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty())
+                                flat << javaQuoted(resolveValue(c, file));
+                    s << "        " << glueVar << "." << meth << "(TableHelper.toList" << boxed
+                      << "(List.of(" << flat.join(", ") << ")));\n\n";
+                } else {
+                    s << "        List<List<String>> " << listVar << " = new ArrayList<>();\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "        " << listVar << ".add(List.of(";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            s << javaQuoted(resolveValue(r[ci], file));
+                        }
+                        s << "));\n";
                     }
-                    s << "));\n";
+                    if (isTypedGrid)
+                        s << "        " << glueVar << "." << meth << "(TableHelper.toListList"
+                          << boxed << "(" << listVar << "));\n\n";
+                    else
+                        s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
                 }
-                s << "        " << glueVar << "." << meth << "(" << listVar << ");\n\n";
             }
         }
     };
@@ -1398,6 +1435,7 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
         const bool sameSig = prior.paramType == sig.paramType
                            && prior.isAttrSet == sig.isAttrSet
                            && prior.gridDataType == sig.gridDataType
+                           && prior.gridShape == sig.gridShape
                            && prior.dataTypeName == sig.dataTypeName;
         if (!sameSig && conflicts) {
             *conflicts << QString(
@@ -1420,7 +1458,9 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
                 recordSig(meth, { meth, "" }, step.line);                  // void / no parameter
             } else if (step.everyCell && !step.attrSetName.isEmpty()) {
                 recordSig(meth, { meth, "List<List<String>>", step.attrSetName, false, "",
-                                  gridElementType(step.attrSetName, file) }, step.line);
+                                  gridElementType(step.attrSetName, file),
+                                  cellShapeOf(step, file, s_flattenSingleRowToList,
+                                              s_flattenSingleCellToScalar) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
@@ -1428,7 +1468,9 @@ QVector<JavaGenerator::GlueSig> JavaGenerator::collectGlueSigs(const SpectableFi
                 recordSig(meth, { meth, effectiveName + "String", "", true }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
                 recordSig(meth, { meth, "List<List<String>>", step.attrSetName, false, "",
-                                  gridElementType(step.attrSetName, file) }, step.line);
+                                  gridElementType(step.attrSetName, file),
+                                  cellShapeOf(step, file, s_flattenSingleRowToList,
+                                              s_flattenSingleCellToScalar) }, step.line);
             } else {
                 recordSig(meth, { meth, "List<List<String>>" }, step.line);
             }
@@ -1504,22 +1546,55 @@ static QString gridElementType(const QString& specType, const SpectableFile& fil
     return javaBoxedType(specType);
 }
 
-static QString genGridConverter(const QString& dataType, const SpectableFile& file)
+// A table of this type, in each of the three shapes a step can ask for. The
+// test builds the values and hands the glue the declared type instead of text
+// -- a Pins, which knows 0..10 are valid, rather than a string that any parse
+// would accept.
+//
+// Each method is returned under its own name because the helper file is merged
+// by method name: three methods behind one key would be written once and then
+// read back as three, and the next generation would keep both copies.
+static QMap<QString, QString> gridConvertersForType(const QString& dataType,
+                                                    const SpectableFile& file)
 {
     const QString boxed  = gridElementType(dataType, file);
     const QString cellEx = cellConvertExpr(dataType, file);
-    QString out;
-    QTextStream s(&out);
-    s << "    public static List<List<" << boxed << ">> toListList" << boxed
-      << "(List<List<String>> values) {\n";
-    s << "        List<List<" << boxed << ">> result = new ArrayList<>();\n";
-    s << "        for (List<String> row : values) {\n";
-    s << "            List<" << boxed << "> typedRow = new ArrayList<>();\n";
-    s << "            for (String cell : row) { typedRow.add(" << cellEx << "); }\n";
-    s << "            result.add(typedRow);\n";
-    s << "        }\n";
-    s << "        return result;\n";
-    s << "    }\n";
+    QMap<QString, QString> out;
+
+    {
+        QString m;
+        QTextStream s(&m);
+        s << "    public static " << boxed << " to" << boxed << "(String cell) {\n";
+        s << "        return " << cellEx << ";\n";
+        s << "    }\n";
+        out.insert("to" + boxed, m);
+    }
+    {
+        QString m;
+        QTextStream s(&m);
+        s << "    public static List<" << boxed << "> toList" << boxed
+          << "(List<String> values) {\n";
+        s << "        List<" << boxed << "> result = new ArrayList<>();\n";
+        s << "        for (String cell : values) { result.add(" << cellEx << "); }\n";
+        s << "        return result;\n";
+        s << "    }\n";
+        out.insert("toList" + boxed, m);
+    }
+    {
+        QString m;
+        QTextStream s(&m);
+        s << "    public static List<List<" << boxed << ">> toListList" << boxed
+          << "(List<List<String>> values) {\n";
+        s << "        List<List<" << boxed << ">> result = new ArrayList<>();\n";
+        s << "        for (List<String> row : values) {\n";
+        s << "            List<" << boxed << "> typedRow = new ArrayList<>();\n";
+        s << "            for (String cell : row) { typedRow.add(" << cellEx << "); }\n";
+        s << "            result.add(typedRow);\n";
+        s << "        }\n";
+        s << "        return result;\n";
+        s << "    }\n";
+        out.insert("toListList" + boxed, m);
+    }
     return out;
 }
 
@@ -1594,8 +1669,9 @@ static QMap<QString, QString> genGridConverters(const QVector<JavaGenerator::Glu
     QMap<QString, QString> methods;
     for (const JavaGenerator::GlueSig& sig : sigs) {
         if (sig.gridDataType.isEmpty()) continue;
-        const QString boxed = gridElementType(sig.gridDataType, file);
-        methods.insert("toListList" + boxed, genGridConverter(sig.gridDataType, file));
+        const QMap<QString, QString> three = gridConvertersForType(sig.gridDataType, file);
+        for (auto it = three.cbegin(); it != three.cend(); ++it)
+            methods.insert(it.key(), it.value());
     }
     return methods;
 }
@@ -1673,11 +1749,23 @@ QString JavaGenerator::genStubMethod(const GlueSig& sig, const QString& framewor
     if (!sig.gridDataType.isEmpty()) {
         const QString boxed = sig.gridElemType.isEmpty() ? javaBoxedType(sig.gridDataType)
                                                          : sig.gridElemType;
-        s << "    public void " << sig.method << "(List<List<String>> values) {\n";
-        s << "        List<List<" << boxed << ">> typedValues = TableHelper.toListList" << boxed << "(values);\n";
-        s << "        for (List<" << boxed << "> value : typedValues) {\n";
-        s << "            System.out.println(value);\n";
-        s << "        }\n";
+        // The values arrive already converted: the test builds them, so the
+        // glue is handed the type the specification declared rather than text
+        // it would have to parse for itself.
+        if (sig.gridShape == CellShape::Scalar) {
+            s << "    public void " << sig.method << "(" << boxed << " value) {\n";
+            s << "        System.out.println(value);\n";
+        } else if (sig.gridShape == CellShape::List) {
+            s << "    public void " << sig.method << "(List<" << boxed << "> values) {\n";
+            s << "        for (" << boxed << " value : values) {\n";
+            s << "            System.out.println(value);\n";
+            s << "        }\n";
+        } else {
+            s << "    public void " << sig.method << "(List<List<" << boxed << ">> values) {\n";
+            s << "        for (List<" << boxed << "> row : values) {\n";
+            s << "            System.out.println(row);\n";
+            s << "        }\n";
+        }
         if (failEveryTest)
             s << "        fail(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
@@ -2768,6 +2856,8 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
     m_tagFilter     = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
+    s_flattenSingleRowToList    = opts.flattenSingleRowToList;
+    s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
 
     // Import the production package into Typed/glue files only when it will
     // hold something -- see productionPackageHasContents above.
