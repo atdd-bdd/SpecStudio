@@ -85,10 +85,47 @@ QString CSharpGenerator::csharpType(const QString& specType)
     return specType.trimmed();
 }
 
+// What shape a DataType or built-in table reaches the glue in. Set from the
+// options in generate(); read by the emitters, which are free functions.
+static bool s_flattenSingleRowToList    = true;
+static bool s_flattenSingleCellToScalar = false;
+
 // Defined below, needed here.
 static bool    isCollectionType(const QString& name, const SpectableFile& file);
 static bool    isAttrSetType(const QString& name, const SpectableFile& file);
 static QString collectionElementType(const QString& name, const SpectableFile& file);
+
+// One table cell as an expression of the declared type. The test writes these,
+// so a cell that the type refuses fails there -- where the specification put
+// the rule -- rather than being handed to the glue as text for it to parse.
+static QString csCellExpr(const QString& specType, const QString& literal,
+                          const SpectableFile& file)
+{
+    const QString t = specType.trimmed().toLower();
+    const QString quoted = "\"" + literal + "\"";
+    if (t == "integer" || t == "int")        return "int.Parse(" + quoted + ")";
+    if (t == "float" || t == "scientific")   return "double.Parse(" + quoted + ")";
+    if (t == "decimal")                      return "decimal.Parse(" + quoted + ")";
+    if (t == "boolean" || t == "bool")       return "bool.Parse(" + quoted + ")";
+    if (t == "yesno")                        return "new YesNo(" + quoted + ")";
+    if (t == "date" || t == "time" || t == "datetime")
+                                             return "DateTime.Parse(" + quoted + ")";
+    if (t == "duration")                     return "TimeSpan.Parse(" + quoted + ")";
+    if (t == "string" || t == "text" || t == "character" || t == "char")
+                                             return quoted;
+    if (isAttrSetType(specType.trimmed(), file))
+        return specType.trimmed() + "String.FromText(" + quoted + ").To"
+             + specType.trimmed() + "Typed()";
+    return "new " + specType.trimmed() + "(" + quoted + ")";   // a user DataType
+}
+
+// The element type a converted cell has.
+static QString csElemType(const QString& specType, const SpectableFile& file)
+{
+    if (isAttrSetType(specType.trimmed(), file)) return specType.trimmed() + "Typed";
+    return CSharpGenerator::csharpType(specType);
+}
+
 
 // A cell for a nested-object field is written "=SomeDefine"; expand that define
 // against the nested Attributes block and build its String constructor call.
@@ -1213,21 +1250,61 @@ QString CSharpGenerator::genTestFile(const SpectableFile& file, const QString& n
                                       && (step.everyCell
                                           || isDataType(step.attrSetName, file));
                 int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
-
-                s << "         List<List<string>> " << listVar
-                  << " = new List<List<string>>{\n";
-                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                    s << "            new List<string>{ ";
-                    const QStringList& r = tbl.rows[ri];
-                    for (int ci = 0; ci < r.size(); ++ci) {
-                        if (ci) s << ", ";
-                        s << "\"" << csEscape(resolveValue(r[ci], file)) << "\"";
-                    }
-                    s << " },\n";
-                }
-                s << "         };\n";
                 const QString meth = toMethodName(step);
-                s << "         " << glueVar << "." << meth << "(" << listVar << ");\n\n";
+
+                if (isTypedGrid) {
+                    // Converted here, so the glue is handed the declared type.
+                    const QString elem = csElemType(step.attrSetName, file);
+                    const CellShape shape =
+                        cellShapeOf(step, file, s_flattenSingleRowToList,
+                                    s_flattenSingleCellToScalar);
+                    auto cell = [&](const QString& raw) {
+                        return csCellExpr(step.attrSetName,
+                                          csEscape(resolveValue(raw, file)), file);
+                    };
+                    if (shape == CellShape::Scalar) {
+                        QString only;
+                        for (int ri = startRow; ri < tbl.rows.size() && only.isEmpty(); ++ri)
+                            for (const QString& c : tbl.rows[ri])
+                                if (!c.trimmed().isEmpty()) { only = c; break; }
+                        s << "         " << glueVar << "." << meth << "(" << cell(only) << ");\n\n";
+                    } else if (shape == CellShape::List) {
+                        QStringList items;
+                        for (int ri = startRow; ri < tbl.rows.size(); ++ri)
+                            for (const QString& c : tbl.rows[ri])
+                                if (!c.trimmed().isEmpty()) items << cell(c);
+                        s << "         " << glueVar << "." << meth << "(new List<" << elem
+                          << ">{ " << items.join(", ") << " });\n\n";
+                    } else {
+                        s << "         List<List<" << elem << ">> " << listVar
+                          << " = new List<List<" << elem << ">>{\n";
+                        for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                            s << "            new List<" << elem << ">{ ";
+                            const QStringList& r = tbl.rows[ri];
+                            for (int ci = 0; ci < r.size(); ++ci) {
+                                if (ci) s << ", ";
+                                s << cell(r[ci]);
+                            }
+                            s << " },\n";
+                        }
+                        s << "         };\n";
+                        s << "         " << glueVar << "." << meth << "(" << listVar << ");\n\n";
+                    }
+                } else {
+                    s << "         List<List<string>> " << listVar
+                      << " = new List<List<string>>{\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "            new List<string>{ ";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            s << "\"" << csEscape(resolveValue(r[ci], file)) << "\"";
+                        }
+                        s << " },\n";
+                    }
+                    s << "         };\n";
+                    s << "         " << glueVar << "." << meth << "(" << listVar << ");\n\n";
+                }
             }
         }
     };
@@ -1395,14 +1472,21 @@ QVector<CSharpGenerator::GlueSig> CSharpGenerator::collectGlueSigs(const Spectab
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "", false }, step.line);           // void / no parameter
             } else if (step.everyCell && !step.attrSetName.isEmpty()) {
-                record(meth, { meth, "List<List<string>>", false, step.attrSetName }, step.line);
+                record(meth, { meth, "List<List<string>>", false, step.attrSetName,
+                               step.attrSetName,
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar),
+                               csElemType(step.attrSetName, file) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
                 record(meth, { meth, effectiveName + "String", true }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                record(meth, { meth, "List<List<string>>", false }, step.line);  // grid
+                record(meth, { meth, "List<List<string>>", false, "", step.attrSetName,
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar),
+                               csElemType(step.attrSetName, file) }, step.line);
             } else {
                 record(meth, { meth, "List<string>", true }, step.line);
             }
@@ -1453,29 +1537,43 @@ QString CSharpGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         s << "        }\n";
         return out;
     }
-    const QString paramType = sig.isList
+    QString paramType = sig.isList
         ? QString("List<%1>").arg(sig.paramType)
         : sig.paramType;
-    s << "        public void " << sig.method << "(" << paramType << " values)\n";
+
+    // A step naming a DataType, a built-in, or an EveryCell table of entities
+    // receives values of that type: the test converts them, so the declared
+    // type reaches the glue rather than text it would have to parse itself.
+    const bool typedCells = !sig.gridDataType.isEmpty();
+    QString elem;
+    if (typedCells) {
+        elem = sig.gridElemType;
+        if      (sig.gridShape == CellShape::Scalar) paramType = elem;
+        else if (sig.gridShape == CellShape::List)   paramType = "List<" + elem + ">";
+        else                                          paramType = "List<List<" + elem + ">>";
+    }
+
+    const QString paramName = (typedCells && sig.gridShape == CellShape::Scalar)
+                            ? QStringLiteral("value") : QStringLiteral("values");
+    s << "        public void " << sig.method << "(" << paramType << " " << paramName << ")\n";
     s << "        {\n";
-    if (sig.paramType == "List<List<string>>" && !sig.everyCellType.isEmpty()) {
-        // EveryCell: each cell holds the text form of this type, so the stub
-        // converts before it does anything else. Written out rather than left to
-        // the reader, because converting is the point of the modifier.
-        // C# keeps the String-to-Typed conversion on the String class, where the
-        // other languages put a Typed constructor -- so this is
-        // XString.FromText(cell).ToXTyped(), not new XTyped(...).
-        const QString typed = sig.everyCellType + "Typed";
-        const QString str   = sig.everyCellType + "String";
-        s << "            foreach (var row in values)\n";
-        s << "            {\n";
-        s << "                foreach (var cell in row)\n";
-        s << "                {\n";
-        s << "                    " << typed << " item = " << str
-          << ".FromText(cell).To" << typed << "();\n";
-        s << "                    Console.WriteLine(item);\n";
-        s << "                }\n";
-        s << "            }\n";
+    if (typedCells) {
+        if (sig.gridShape == CellShape::Scalar) {
+            s << "            Console.WriteLine(value);\n";
+        } else if (sig.gridShape == CellShape::List) {
+            s << "            foreach (var value in values)\n";
+            s << "            {\n";
+            s << "                Console.WriteLine(value);\n";
+            s << "            }\n";
+        } else {
+            s << "            foreach (var row in values)\n";
+            s << "            {\n";
+            s << "                foreach (var item in row)\n";
+            s << "                {\n";
+            s << "                    Console.WriteLine(item);\n";
+            s << "                }\n";
+            s << "            }\n";
+        }
     } else if (sig.paramType == "List<List<string>>") {
         s << "            foreach (var row in values)\n";
         s << "            {\n";
@@ -1823,6 +1921,8 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
     m_extraImports = opts.extraImports;
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
+    s_flattenSingleRowToList    = opts.flattenSingleRowToList;
+    s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
     m_commonNs     = joinNs(opts.nsPrefix, "common");
 

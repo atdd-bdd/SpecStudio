@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 
@@ -83,7 +84,13 @@ private:
 
     // everyCellType is the Entity or DataType each cell of an EveryCell grid
     // becomes. Empty for every other kind of step.
-    struct GlueSig { QString method; QString paramType; bool isList; QString everyCellType; };
+    struct GlueSig { QString method; QString paramType; bool isList; QString everyCellType;
+                     // A step naming a DataType or a built-in: the type its
+                     // cells hold, and how many dimensions they arrive in.
+                     QString gridDataType; CellShape gridShape = CellShape::Grid;
+                     // The element type those cells convert to, worked out
+                     // where the file is in scope.
+                     QString gridElemType; };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);
     static QString genStubMethod(const GlueSig& sig,
