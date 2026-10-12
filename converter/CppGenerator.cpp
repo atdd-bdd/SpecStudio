@@ -70,6 +70,44 @@ QString CppGenerator::cppType(const QString& specType)
     return specType.trimmed();
 }
 
+// One table cell as an expression of the declared type. The test writes these,
+// so a cell the type refuses fails there rather than reaching the glue as text.
+// isAttrSetType is private to the class, and these are free functions.
+static bool namesAnAttrSet(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+static QString cppCellExpr(const QString& specType, const QString& literal,
+                           const SpectableFile& file)
+{
+    const QString t = specType.trimmed().toLower();
+    const QString quoted = "\"" + literal + "\"";
+    if (t == "integer" || t == "int")                 return "std::stoi(" + quoted + ")";
+    if (t == "float" || t == "decimal" || t == "scientific")
+                                                      return "std::stod(" + quoted + ")";
+    if (t == "boolean" || t == "yesno" || t == "bool")
+        return "(std::string(" + quoted + ") == \"true\" || std::string(" + quoted + ") == \"yes\")";
+    if (t == "string" || t == "text" || t == "character" || t == "char"
+     || t == "date" || t == "time" || t == "datetime" || t == "duration")
+                                                      return "std::string(" + quoted + ")";
+    if (namesAnAttrSet(specType.trimmed(), file)) {
+        const QString base = CppGenerator::toTypeName(specType.trimmed());
+        return base + "Typed::from_string_struct(" + base + "String::from_text(" + quoted + "))";
+    }
+    return CppGenerator::toTypeName(specType.trimmed()) + "(" + quoted + ")";  // a user DataType
+}
+
+// The C++ type a converted cell has.
+static QString cppElemType(const QString& specType, const SpectableFile& file)
+{
+    if (namesAnAttrSet(specType.trimmed(), file))
+        return CppGenerator::toTypeName(specType.trimmed()) + "Typed";
+    return CppGenerator::cppType(specType);
+}
+
 bool CppGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
@@ -248,6 +286,9 @@ QString CppGenerator::toTypeName(const QString& name)
 // a member because the name function is static, and threading one flag through
 // every call site in nine generators buys nothing.
 static bool s_stepNameIncludesAttrSet = false;
+// What shape a DataType or built-in table reaches the glue in.
+static bool s_flattenSingleRowToList    = true;
+static bool s_flattenSingleCellToScalar = false;
 
 // The name a step's glue method gets, honouring the configured naming. A step
 // with no table is unaffected either way -- there is no type to append.
@@ -1451,6 +1492,49 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
         s << "    };\n";
     };
 
+    // A DataType, a built-in, or an EveryCell table of entities: converted
+    // here so the glue receives the declared type. The shape is the
+    // project's choice.
+    auto emitTypedVec = [&](const Step& step, const QVector<QStringList>& rows,
+                            int startRow, const QString& elem, CellShape shape) {
+        auto cell = [&](const QString& raw) {
+            return cppCellExpr(step.attrSetName, cppEscape(resolveValue(raw, file)), file);
+        };
+        ++objectCounter;
+        if (shape == CellShape::Scalar) {
+            QString only;
+            for (int ri = startRow; ri < rows.size() && only.isEmpty(); ++ri)
+                for (const QString& c : rows[ri])
+                    if (!c.trimmed().isEmpty()) { only = c; break; }
+            s << "    " << elem << " typedValue" << objectCounter << " = "
+              << cell(only) << ";\n";
+        } else if (shape == CellShape::List) {
+            s << "    std::vector<" << elem << "> typedList" << objectCounter << " = {";
+            bool first = true;
+            for (int ri = startRow; ri < rows.size(); ++ri)
+                for (const QString& c : rows[ri]) {
+                    if (c.trimmed().isEmpty()) continue;
+                    if (!first) s << ", ";
+                    s << cell(c);
+                    first = false;
+                }
+            s << "};\n";
+        } else {
+            s << "    std::vector<std::vector<" << elem << ">> typedGrid" << objectCounter
+              << " = {\n";
+            for (int ri = startRow; ri < rows.size(); ++ri) {
+                s << "        {";
+                const QStringList& r = rows[ri];
+                for (int ci = 0; ci < r.size(); ++ci) {
+                    if (ci) s << ", ";
+                    s << cell(r[ci]);
+                }
+                s << "},\n";
+            }
+            s << "    };\n";
+        }
+    };
+
     auto emitSteps = [&](const QVector<Step>& steps, const QString& glueVar) {
         for (const Step& step : steps) {
             if (step.hasDocString) {
@@ -1503,8 +1587,22 @@ QString CppGenerator::genTestFile(const SpectableFile& file, const QString& spec
                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
                 const int idx = objectCounter + 1;
-                emitGridVec(tbl.rows, startRow);
-                s << "    " << glueVar << "." << meth << "(stringListList" << idx << ");\n\n";
+                if (isTypedGrid) {
+                    const QString elem = cppElemType(step.attrSetName, file);
+                    const CellShape shape =
+                        cellShapeOf(step, file, s_flattenSingleRowToList,
+                                    s_flattenSingleCellToScalar);
+                    emitTypedVec(step, tbl.rows, startRow, elem, shape);
+                    const char* var = shape == CellShape::Scalar ? "typedValue"
+                                    : shape == CellShape::List   ? "typedList"
+                                                                 : "typedGrid";
+                    s << "    " << glueVar << "." << meth << "(" << var << idx
+                      << ");\n\n";
+                } else {
+                    emitGridVec(tbl.rows, startRow);
+                    s << "    " << glueVar << "." << meth << "(stringListList" << idx
+                      << ");\n\n";
+                }
             }
         }
     };
@@ -1621,12 +1719,20 @@ QVector<CppGenerator::GlueSig> CppGenerator::collectGlueSigs(const SpectableFile
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
             } else if (step.everyCell && !step.attrSetName.isEmpty()) {
-                record(meth, { meth, "grid", step.attrSetName }, step.line);
+                record(meth, { meth, "grid", step.attrSetName, step.attrSetName,
+                               cppElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
                 record(meth, { meth, effectiveName + "String" }, step.line);
+            } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
+                record(meth, { meth, "grid", "", step.attrSetName,
+                               cppElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else {
                 record(meth, { meth, "grid" }, step.line);
             }
@@ -1667,18 +1773,24 @@ QString CppGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         if (failEveryTest)
             s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
         s << "    }\n";
-    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
-        // EveryCell: each cell holds the text form of this type, so the stub
-        // converts before doing anything else.
-        const QString base = toTypeName(sig.everyCellType);
-        s << "    void " << sig.method << "(const std::vector<std::vector<std::string>>& values) {\n";
-        s << "        for (const auto& row : values) {\n";
-        s << "            for (const auto& cell : row) {\n";
-        s << "                " << base << "Typed item = " << base
-          << "Typed::from_string_struct(" << base << "String::from_text(cell));\n";
-        s << "                std::cout << item.to_string_struct().to_string() << \"\\n\";\n";
-        s << "            }\n";
-        s << "        }\n";
+    } else if (sig.paramType == "grid" && !sig.gridDataType.isEmpty()) {
+        // The values arrive already converted: the test builds them, so the
+        // glue is handed the type the specification declared rather than text
+        // it would have to parse for itself.
+        const QString elem = sig.gridElemType;
+        if (sig.gridShape == CellShape::Scalar) {
+            s << "    void " << sig.method << "(const " << elem << "& value) {\n";
+            s << "        (void)value;\n";
+        } else if (sig.gridShape == CellShape::List) {
+            s << "    void " << sig.method << "(const std::vector<" << elem << ">& values) {\n";
+            s << "        for (const auto& value : values) { (void)value; }\n";
+        } else {
+            s << "    void " << sig.method << "(const std::vector<std::vector<" << elem
+              << ">>& values) {\n";
+            s << "        for (const auto& row : values) { for (const auto& item : row) { (void)item; } }\n";
+        }
+        if (failEveryTest)
+            s << "        ADD_FAILURE() << \"Not implemented: " << sig.method << "\";\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    void " << sig.method << "(const std::vector<std::vector<std::string>>& values) {\n";
@@ -2010,6 +2122,8 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
     m_tagFilter     = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
+    s_flattenSingleRowToList    = opts.flattenSingleRowToList;
+    s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";

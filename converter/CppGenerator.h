@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 
@@ -88,6 +89,11 @@ private:
         // The Entity or DataType each cell of an EveryCell grid becomes.
         // Empty for every other kind of step.
         QString everyCellType;
+        // A step naming a DataType or a built-in: the type its cells hold, the
+        // C++ type they convert to, and how many dimensions they arrive in.
+        QString gridDataType;
+        QString gridElemType;
+        CellShape gridShape = CellShape::Grid;
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);
