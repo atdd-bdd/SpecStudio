@@ -54,6 +54,61 @@ static QString pyEscape(const QString& s)
     return r;
 }
 
+// ---------------------------------------------------------------------------
+// One cell of a DataType table, as Python
+//
+// A step that names a DataType or a built-in is handed values of that type: the
+// test converts, so the glue never parses text the specification already
+// declared the type of. These are free functions because the test emitter, the
+// signature collector and the stub writer all need them.
+// ---------------------------------------------------------------------------
+
+static bool pyNamesAnAttrSet(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// `literal` is already escaped for a single-quoted Python string.
+static QString pyCellExpr(const QString& specType, const QString& literal,
+                          const SpectableFile& file)
+{
+    const QString t = specType.trimmed().toLower();
+    const QString quoted = "'" + literal + "'";
+    if (t == "integer" || t == "int")                 return "int(" + quoted + ")";
+    if (t == "float" || t == "scientific")             return "float(" + quoted + ")";
+    if (t == "decimal") return "decimal.Decimal(" + quoted + ")";
+    if (t == "boolean" || t == "yesno" || t == "bool")
+        return quoted + ".lower() in ('true', 't', 'yes', 'y', '1')";
+    if (t == "string" || t == "text" || t == "character" || t == "char"
+     || t == "date" || t == "time" || t == "datetime" || t == "duration")
+                                                      return quoted;
+    if (pyNamesAnAttrSet(specType.trimmed(), file)) {
+        const QString base = PythonGenerator::toTypeName(specType.trimmed());
+        return base + "Typed.from_string_obj(" + base + "String.from_text(" + quoted + "))";
+    }
+    // A user DataType, enumeration included: enum.Enum called with a value
+    // returns the member holding it, which is the same spelling as a class
+    // built from its text.
+    return PythonGenerator::toTypeName(specType.trimmed()) + "(" + quoted + ")";
+}
+
+// What one cell becomes, for the annotation on the glue parameter.
+static QString pyElemType(const QString& specType, const SpectableFile& file)
+{
+    if (pyNamesAnAttrSet(specType.trimmed(), file))
+        return PythonGenerator::toTypeName(specType.trimmed()) + "Typed";
+    static const QStringList builtins = {
+        "Character", "String", "Text", "Integer", "Float", "Scientific", "Boolean",
+        "Date", "Time", "DateTime", "Duration", "YesNo", "Bool", "Int", "Decimal"
+    };
+    for (const QString& b : builtins)
+        if (b.compare(specType.trimmed(), Qt::CaseInsensitive) == 0)
+            return PythonGenerator::pythonType(specType);
+    return PythonGenerator::toTypeName(specType.trimmed());
+}
+
 // True when a field's declared type names another Attributes/Entity block, so
 // the field holds a nested object rather than a scalar.
 bool PythonGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
@@ -224,6 +279,8 @@ QString PythonGenerator::toTypeName(const QString& name)
 // a member because the name function is static, and threading one flag through
 // every call site in nine generators buys nothing.
 static bool s_stepNameIncludesAttrSet = false;
+static bool s_flattenSingleRowToList    = true;
+static bool s_flattenSingleCellToScalar = false;
 
 // The name a step's glue method gets, honouring the configured naming. A step
 // with no table is unaffected either way -- there is no type to append.
@@ -992,8 +1049,35 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
     QString out;
     QTextStream s(&out);
 
+    // A DataType step is converted here rather than in the glue, so the test
+    // names that production class and has to import it. Entity cells need no
+    // import -- their String/Typed pair is in common, which is imported whole.
+    // The names are gathered before anything is written because the imports go
+    // at the top of the file.
+    QStringList prodImports;
+    bool needsDecimal = false;
+    auto noteCellTypes = [&](const QVector<Step>& steps) {
+        for (const Step& step : steps) {
+            if (step.attrSetName.isEmpty() || !step.hasTable) continue;
+            if (!isDataType(step.attrSetName, file)) continue;
+            const QString t = step.attrSetName.trimmed();
+            if (t.compare("Decimal", Qt::CaseInsensitive) == 0) { needsDecimal = true; continue; }
+            const QString elem = pyElemType(t, file);
+            // A built-in maps to a Python type; only a declared DataType is a
+            // class of its own, in production/.
+            if (elem != toTypeName(t)) continue;
+            if (!prodImports.contains(elem)) prodImports << elem;
+        }
+    };
+    noteCellTypes(file.backgroundSteps);
+    noteCellTypes(file.cleanupSteps);
+    for (const Scenario& sc : file.scenarios) noteCellTypes(sc.steps);
+
     s << "import pytest\n";
+    if (needsDecimal) s << "import decimal\n";
     s << "from common import *\n";
+    for (const QString& t : prodImports)
+        s << "from production." << t << " import " << t << "\n";
     s << "from " << specSnake << "_glue import " << glueClass << "\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
@@ -1075,25 +1159,61 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
 
             } else if (step.hasTable && (as == nullptr || step.everyCell)) {
                 ++objectCounter;
-                const QString listVar = QString("string_list_list_%1").arg(objectCounter);
+                QString listVar = QString("string_list_list_%1").arg(objectCounter);
                 const StepTable& tbl  = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                        && (step.everyCell
                                            || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
-                s << "    " << listVar << " = [\n";
-                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                    s << "        [";
-                    const QStringList& r = tbl.rows[ri];
-                    for (int ci = 0; ci < r.size(); ++ci) {
-                        if (ci) s << ", ";
-                        s << "'" << pyEscape(resolveValue(r[ci], file)) << "'";
+                // A DataType or built-in table is converted here, in the test,
+                // so the glue is handed the type the specification declared.
+                // The shape it arrives in is the project's choice. Anything
+                // else keeps the grid of text it always had.
+                const CellShape shape =
+                    isDataType(step.attrSetName, file)
+                        ? cellShapeOf(step, file, s_flattenSingleRowToList,
+                                      s_flattenSingleCellToScalar)
+                        : CellShape::Grid;
+
+                if (shape == CellShape::Scalar) {
+                    QString cell;
+                    bool found = false;
+                    for (int ri = startRow; ri < tbl.rows.size() && !found; ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty()) { cell = c; found = true; break; }
+                    s << "    " << glueVar << "." << meth << "("
+                      << pyCellExpr(step.attrSetName,
+                                    pyEscape(resolveValue(cell, file)), file) << ")\n\n";
+                } else if (shape == CellShape::List) {
+                    const QString typedVar = QString("typed_list_%1").arg(objectCounter);
+                    QStringList flat;
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty())
+                                flat << pyCellExpr(step.attrSetName,
+                                                   pyEscape(resolveValue(c, file)), file);
+                    s << "    " << typedVar << " = [" << flat.join(", ") << "]\n";
+                    s << "    " << glueVar << "." << meth << "(" << typedVar << ")\n\n";
+                } else {
+                    if (isTypedGrid) listVar = QString("typed_grid_%1").arg(objectCounter);
+                    s << "    " << listVar << " = [\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "        [";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            if (isTypedGrid)
+                                s << pyCellExpr(step.attrSetName,
+                                                pyEscape(resolveValue(r[ci], file)), file);
+                            else
+                                s << "'" << pyEscape(resolveValue(r[ci], file)) << "'";
+                        }
+                        s << "],\n";
                     }
-                    s << "],\n";
+                    s << "    ]\n";
+                    s << "    " << glueVar << "." << meth << "(" << listVar << ")\n\n";
                 }
-                s << "    ]\n";
-                s << "    " << glueVar << "." << meth << "(" << listVar << ")\n\n";
             }
         }
     };
@@ -1212,6 +1332,8 @@ QVector<PythonGenerator::GlueSig> PythonGenerator::collectGlueSigs(const Spectab
         if (s.paramType == "docstring") return QStringLiteral("a docstring");
         if (s.paramType.endsWith("String"))
             return QStringLiteral("a %1 table").arg(s.paramType.left(s.paramType.size() - 6));
+        if (!s.gridDataType.isEmpty())
+            return QStringLiteral("a %1 grid").arg(s.gridDataType);
         return QStringLiteral("a %1").arg(s.paramType);
     };
     auto record = [&](const QString& meth, const GlueSig& sig, int line) {
@@ -1221,7 +1343,11 @@ QVector<PythonGenerator::GlueSig> PythonGenerator::collectGlueSigs(const Spectab
             sigs.push_back(sig);
             return;
         }
-        if (conflicts && (it.value().paramType != sig.paramType))
+        const GlueSig& prior = it.value();
+        const bool sameSig = prior.paramType   == sig.paramType
+                          && prior.gridDataType == sig.gridDataType
+                          && prior.gridShape  == sig.gridShape;
+        if (conflicts && !sameSig)
             *conflicts << QString(
                 "WARNING:%1:Step '%2' expects %3 here, but the same glue method elsewhere "
                 "in this project expects %4 \u2014 rename one of the steps, or switch this "
@@ -1242,12 +1368,20 @@ QVector<PythonGenerator::GlueSig> PythonGenerator::collectGlueSigs(const Spectab
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
             } else if (step.everyCell && !step.attrSetName.isEmpty()) {
-                record(meth, { meth, "grid", step.attrSetName }, step.line);
+                record(meth, { meth, "grid", step.attrSetName,
+                               pyElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
                 record(meth, { meth, effectiveName + "String" }, step.line);
+            } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
+                record(meth, { meth, "grid", step.attrSetName,
+                               pyElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else {
                 record(meth, { meth, "grid" }, step.line);
             }
@@ -1290,17 +1424,28 @@ QString PythonGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         s << "        print(value)\n";
         if (failEveryTest)
             s << "        raise NotImplementedError('" << sig.method << "')\n";
-    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
-        // EveryCell: each cell holds the text form of this type, so the stub
-        // converts before doing anything else.
-        const QString typed = toTypeName(sig.everyCellType) + "Typed";
-        const QString str   = toTypeName(sig.everyCellType) + "String";
-        s << "    def " << sig.method << "(self, values: list):\n";
-        s << "        for row in values:\n";
-        s << "            for cell in row:\n";
-        s << "                item = " << typed << ".from_string_obj(" << str
-          << ".from_text(cell))\n";
-        s << "                print(item)\n";
+    } else if (sig.paramType == "grid" && !sig.gridDataType.isEmpty()) {
+        // The values arrive already converted: the test builds them, so the
+        // glue is handed the type the specification declared rather than text
+        // it would have to parse for itself. EveryCell reaches here too -- each
+        // of its cells is one object built from that cell's text form.
+        const QString elem = sig.gridElemType.isEmpty() ? QStringLiteral("object")
+                                                        : sig.gridElemType;
+        if (sig.gridShape == CellShape::Scalar) {
+            s << "    def " << sig.method << "(self, value: " << elem << "):\n";
+            s << "        print(value)\n";
+        } else if (sig.gridShape == CellShape::List) {
+            s << "    def " << sig.method << "(self, values: list[" << elem << "]):\n";
+            s << "        for value in values:\n";
+            s << "            print(value)\n";
+        } else {
+            s << "    def " << sig.method << "(self, values: list[list["
+              << elem << "]]):\n";
+            s << "        for row in values:\n";
+            s << "            print(row)\n";
+        }
+        if (failEveryTest)
+            s << "        raise NotImplementedError('" << sig.method << "')\n";
     } else if (sig.paramType == "grid") {
         s << "    def " << sig.method << "(self, values: list):\n";
         s << "        for row in values:\n";
@@ -1615,6 +1760,8 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
+    s_flattenSingleRowToList    = opts.flattenSingleRowToList;
+    s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";

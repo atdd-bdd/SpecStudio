@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 
@@ -39,16 +40,19 @@ public:
 
     QStringList generate(const SpectableFile& file, const Options& opts);
 
+    // Type / identifier helpers (public so free cell-expression functions can
+    // call them)
+    static QString pythonType(const QString& specType);
+    static QString toTypeName(const QString& name);     // PascalCase
+
 private:
     QStringList m_extraImports;
     QString     m_tagFilter;
     bool        m_failEveryTest = true;
 
     // Type / identifier helpers
-    static QString pythonType(const QString& specType);
     static QString parseExpr(const QString& field, const QString& specType);
     static QString toIdentifier(const QString& name);   // snake_case
-    static QString toTypeName(const QString& name);     // PascalCase
     static QString toMethodName(const QString& keyword, const QString& stepText,
                                 const QString& attrSetName = QString());
     static QString toMethodName(const Step& step);
@@ -89,9 +93,12 @@ private:
     struct GlueSig {
         QString method;
         QString paramType;  // "" = void; "docstring"; struct name; "grid"
-        // The Entity or DataType each cell of an EveryCell grid becomes. Empty
-        // for every other kind of step.
-        QString everyCellType;
+        // The DataType, built-in or (for EveryCell) Entity a grid step
+        // declared, and the shape its table arrives in. Empty name = not that
+        // kind of step, and the glue keeps the grid of text it always had.
+        QString gridDataType;
+        QString gridElemType;          // what one cell becomes, spelled in Python
+        CellShape gridShape = CellShape::Grid;
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);
