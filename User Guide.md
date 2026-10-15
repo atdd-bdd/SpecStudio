@@ -302,6 +302,24 @@ Each `Examples:` row becomes a test case. `Calculation` behaves the same way
 and reads better for pure arithmetic. A step can invoke one with
 `applying <RuleName>`.
 
+A long comment need not repeat its keyword. A line whose first character is a
+backslash continues the named comment on the line above it:
+
+```
+DataType Amount
+Description An amount of money,
+\ written the way a person writes it,
+\ and refused when it is not.
+```
+
+The pieces are joined with a single space, so the `Description` above is one
+sentence: *An amount of money, written the way a person writes it, and refused
+when it is not.* A continuation may follow another continuation, so a comment
+can run to any length, but each one must be the **very next line** -- a blank
+line in between breaks the chain. A backslash line that follows anything other
+than a named comment has nothing to continue: it is still treated as a comment,
+but Analyze reports a warning, because you meant it to attach to something.
+
 A rule is often clearer as a grid than as a sentence. Any named comment --
 `Description`, `Details`, `Notes`, `Constraint`, `Uses` -- may be followed
 directly by a table, and the table is part of the comment:
@@ -331,8 +349,9 @@ for its own table -- an `Attributes` header, a step naming a set, an
 | `Import` | Make another `.spectable`'s `Attributes` and `Define` blocks visible |
 | `Insert` | Splice another file's contents in — see below |
 
-`Description`, `Details`, `Constraint` and `Uses` are named comments — prose
-that travels with the block and is carried into the generated code.
+`Description`, `Details`, `Notes`, `Constraint` and `Uses` are named comments —
+prose that travels with the block and is carried into the generated code. A
+line beginning with `\` continues the one above it.
 
 ### Insert — pull a file's contents in
 
