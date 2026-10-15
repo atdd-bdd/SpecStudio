@@ -268,6 +268,53 @@ QString TypeScriptGenerator::toPascalCase(const QString& name)
 // a member because the name function is static, and threading one flag through
 // every call site in nine generators buys nothing.
 static bool s_stepNameIncludesAttrSet = false;
+static bool s_flattenSingleRowToList    = true;
+static bool s_flattenSingleCellToScalar = false;
+
+// ---------------------------------------------------------------------------
+// One cell of a DataType table, as TypeScript
+//
+// A step that names a DataType or a built-in is handed values of that type: the
+// test converts, so the glue never parses text the specification already
+// declared the type of. Free functions because the test emitter, the signature
+// collector and the stub writer all need them.
+// ---------------------------------------------------------------------------
+
+static bool tsNamesAnAttrSet(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// `literal` is already escaped for a double-quoted TypeScript string.
+static QString tsCellExpr(const QString& specType, const QString& literal,
+                          const SpectableFile& file)
+{
+    const QString t = specType.trimmed().toLower();
+    const QString quoted = "\"" + literal + "\"";
+    if (t == "integer" || t == "int")  return "parseInt(" + quoted + ", 10)";
+    if (t == "float" || t == "decimal" || t == "scientific")
+                                       return "parseFloat(" + quoted + ")";
+    if (t == "boolean" || t == "yesno" || t == "bool")
+        return "[\"true\", \"yes\", \"y\", \"1\"].includes(" + quoted
+             + ".trim().toLowerCase())";
+    if (t == "string" || t == "text" || t == "character" || t == "char"
+     || t == "date" || t == "time" || t == "datetime" || t == "duration")
+                                       return quoted;
+    const QString base = specType.trimmed();
+    if (tsNamesAnAttrSet(base, file))
+        return base + "Typed.fromStringObj(" + base + "String.fromText(" + quoted + "))";
+    return "new " + base + "(" + quoted + ")";   // a user DataType
+}
+
+// What one cell becomes, for the stub's parameter type.
+static QString tsElemType(const QString& specType, const SpectableFile& file)
+{
+    if (tsNamesAnAttrSet(specType.trimmed(), file))
+        return specType.trimmed() + "Typed";
+    return TypeScriptGenerator::tsType(specType);
+}
 
 // The name a step's glue method gets, honouring the configured naming. A step
 // with no table is unaffected either way -- there is no type to append.
@@ -1041,6 +1088,7 @@ export function asArray(value: unknown, ctx: string): unknown[] | null {
 
 QString TypeScriptGenerator::genTestFile(const SpectableFile& file, const QString& specName,
                                           const QString& glueClass, const QString& commonRelPath,
+                                          const QString& prodRelPath,
                                           QStringList& errors) const
 {
     const QString glueFile = toFileName(specName) + "_glue.js";
@@ -1078,10 +1126,41 @@ QString TypeScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
     for (const NamedBlock& nb : file.namedBlocks)
         addWithNested(nb.examples.attrSetName);
 
+    // A DataType step is converted here rather than in the glue, so the test
+    // names that production class and has to import it. An Entity cell needs no
+    // production import — its String/Typed pair is in common, collected above.
+    QStringList prodTypes;
+    auto notePlainDataTypes = [&](const QVector<Step>& steps) {
+        for (const Step& step : steps) {
+            if (step.attrSetName.isEmpty() || !step.hasTable) continue;
+            // An Entity grid (EveryCell) builds each cell through the Typed
+            // form, which addWithNested above does not reach — it collects only
+            // the String classes a row literal names.
+            if (step.everyCell && isAttrSetType(step.attrSetName, file)) {
+                const QString typed = step.attrSetName.trimmed() + "Typed";
+                if (!usedTypes.contains(typed)) usedTypes.insert(typed);
+                continue;
+            }
+            if (!isDataType(step.attrSetName, file)) continue;
+            const QString elem = tsElemType(step.attrSetName, file);
+            // tsType leaves a project-supplied class's name alone; a built-in
+            // comes back as number/string/boolean and needs no import.
+            if (elem != step.attrSetName.trimmed()) continue;
+            if (!prodTypes.contains(elem)) prodTypes << elem;
+        }
+    };
+    notePlainDataTypes(file.backgroundSteps);
+    notePlainDataTypes(file.cleanupSteps);
+    for (const Scenario& sc : file.scenarios) notePlainDataTypes(sc.steps);
+
     QStringList typeList = usedTypes.values();
     std::sort(typeList.begin(), typeList.end());
     s << typeList.join(", ");
     s << " } from \"" << commonRelPath << "/index.js\";\n";
+    prodTypes.sort();
+    if (!prodTypes.isEmpty())
+        s << "import { " << prodTypes.join(", ") << " } from \""
+          << prodRelPath << "/index.js\";\n";
     s << "import { " << glueClass << " } from \"./" << glueFile << "\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
@@ -1157,27 +1236,71 @@ QString TypeScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
                 s << "    ];\n";
                 s << "    glue." << meth << "(" << listVar << ");\n";
 
-            } else if (step.hasTable && as == nullptr) {
+            } else if (step.hasTable && (as == nullptr || step.everyCell)) {
+                // EveryCell over an Entity used to fall between the two
+                // branches here — the attribute-set branch skipped it and this
+                // one required no Entity at all — so the step generated no call
+                // whatsoever. The suite stayed green because nothing ran.
                 ++objectCounter;
-                const QString listVar = QString("stringListList%1").arg(objectCounter);
+                QString listVar = QString("stringListList%1").arg(objectCounter);
                 const StepTable& tbl  = step.table;
                 const bool isTypedGrid = !step.attrSetName.isEmpty()
                                       && (step.everyCell
                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
-                s << "    const " << listVar << ": string[][] = [\n";
-                for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
-                    s << "      [";
-                    const QStringList& r = tbl.rows[ri];
-                    for (int ci = 0; ci < r.size(); ++ci) {
-                        if (ci) s << ", ";
-                        s << "\"" << jsStringEscape(resolveValue(r[ci], file)) << "\"";
+                // A DataType or built-in table is converted here, in the test,
+                // so the glue is handed the type the specification declared.
+                // The shape it arrives in is the project's choice. Anything
+                // else keeps the grid of text it always had.
+                const CellShape shape =
+                    isDataType(step.attrSetName, file)
+                        ? cellShapeOf(step, file, s_flattenSingleRowToList,
+                                      s_flattenSingleCellToScalar)
+                        : CellShape::Grid;
+                const QString elem = isTypedGrid ? tsElemType(step.attrSetName, file)
+                                                 : QString();
+
+                if (shape == CellShape::Scalar) {
+                    QString cell;
+                    bool found = false;
+                    for (int ri = startRow; ri < tbl.rows.size() && !found; ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty()) { cell = c; found = true; break; }
+                    s << "    glue." << meth << "("
+                      << tsCellExpr(step.attrSetName,
+                                    jsStringEscape(resolveValue(cell, file)), file) << ");\n";
+                } else if (shape == CellShape::List) {
+                    const QString typedVar = QString("typedList%1").arg(objectCounter);
+                    QStringList flat;
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty())
+                                flat << tsCellExpr(step.attrSetName,
+                                                   jsStringEscape(resolveValue(c, file)), file);
+                    s << "    const " << typedVar << ": " << elem << "[] = ["
+                      << flat.join(", ") << "];\n";
+                    s << "    glue." << meth << "(" << typedVar << ");\n";
+                } else {
+                    if (isTypedGrid) listVar = QString("typedGrid%1").arg(objectCounter);
+                    s << "    const " << listVar << ": "
+                      << (isTypedGrid ? elem : QStringLiteral("string")) << "[][] = [\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "      [";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            if (isTypedGrid)
+                                s << tsCellExpr(step.attrSetName,
+                                                jsStringEscape(resolveValue(r[ci], file)), file);
+                            else
+                                s << "\"" << jsStringEscape(resolveValue(r[ci], file)) << "\"";
+                        }
+                        s << "],\n";
                     }
-                    s << "],\n";
+                    s << "    ];\n";
+                    s << "    glue." << meth << "(" << listVar << ");\n";
                 }
-                s << "    ];\n";
-                s << "    glue." << meth << "(" << listVar << ");\n";
             }
         }
     };
@@ -1294,6 +1417,8 @@ QVector<TypeScriptGenerator::GlueSig> TypeScriptGenerator::collectGlueSigs(const
         if (s.paramType == "docstring") return QStringLiteral("a docstring");
         if (s.paramType.endsWith("String"))
             return QStringLiteral("a %1 table").arg(s.paramType.left(s.paramType.size() - 6));
+        if (!s.gridDataType.isEmpty())
+            return QStringLiteral("a %1 grid").arg(s.gridDataType);
         return QStringLiteral("a %1").arg(s.paramType);
     };
     auto record = [&](const QString& meth, const GlueSig& sig, int line) {
@@ -1303,7 +1428,11 @@ QVector<TypeScriptGenerator::GlueSig> TypeScriptGenerator::collectGlueSigs(const
             sigs.push_back(sig);
             return;
         }
-        if (conflicts && (it.value().paramType != sig.paramType))
+        const GlueSig& prior = it.value();
+        const bool sameSig = prior.paramType    == sig.paramType
+                          && prior.gridDataType == sig.gridDataType
+                          && prior.gridShape    == sig.gridShape;
+        if (conflicts && !sameSig)
             *conflicts << QString(
                 "WARNING:%1:Step '%2' expects %3 here, but the same glue method elsewhere "
                 "in this project expects %4 \u2014 rename one of the steps, or switch this "
@@ -1324,14 +1453,20 @@ QVector<TypeScriptGenerator::GlueSig> TypeScriptGenerator::collectGlueSigs(const
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
             } else if (step.everyCell && !step.attrSetName.isEmpty()) {
-                record(meth, { meth, "grid", step.attrSetName }, step.line);
+                record(meth, { meth, "grid", step.attrSetName,
+                               tsElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 const QString effectiveName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file)
                     : step.attrSetName;
                 record(meth, { meth, effectiveName + "String" }, step.line);
             } else if (!step.attrSetName.isEmpty() && isDataType(step.attrSetName, file)) {
-                record(meth, { meth, "grid" }, step.line);
+                record(meth, { meth, "grid", step.attrSetName,
+                               tsElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else {
                 record(meth, { meth, "list" }, step.line);
             }
@@ -1370,16 +1505,26 @@ QString TypeScriptGenerator::genStubMethod(const GlueSig& sig, bool failEveryTes
         if (failEveryTest)
             s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
-    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
-        // EveryCell: each cell holds the text form of this type, so the stub
-        // converts before doing anything else.
-        const QString base = sig.everyCellType;
-        s << "\n  " << sig.method << "(values: readonly (readonly string[])[]): void {\n";
-        s << "    values.forEach((row) => row.forEach((cell) => {\n";
-        s << "      const item = " << base << "Typed.fromStringObj(" << base
-          << "String.fromText(cell));\n";
-        s << "      console.log(item.toString());\n";
-        s << "    }));\n";
+    } else if (sig.paramType == "grid" && !sig.gridDataType.isEmpty()) {
+        // The values arrive already converted: the test builds them, so the
+        // glue is handed the type the specification declared rather than text
+        // it would have to parse for itself. EveryCell reaches here too — each
+        // of its cells is one object built from that cell's text form.
+        const QString elem = sig.gridElemType.isEmpty() ? QStringLiteral("unknown")
+                                                        : sig.gridElemType;
+        if (sig.gridShape == CellShape::Scalar) {
+            s << "\n  " << sig.method << "(value: " << elem << "): void {\n";
+            s << "    console.log(String(value));\n";
+        } else if (sig.gridShape == CellShape::List) {
+            s << "\n  " << sig.method << "(values: readonly " << elem << "[]): void {\n";
+            s << "    values.forEach((value) => console.log(String(value)));\n";
+        } else {
+            s << "\n  " << sig.method << "(values: readonly (readonly " << elem
+              << "[])[]): void {\n";
+            s << "    values.forEach((row) => row.forEach((value) => console.log(String(value))));\n";
+        }
+        if (failEveryTest)
+            s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else if (sig.paramType == "grid" || sig.paramType == "list") {
         s << "\n  " << sig.method << "(values: readonly (readonly string[])[]): void {\n";
@@ -1487,7 +1632,8 @@ bool TypeScriptGenerator::appendMissingStubs(const QString& gluePath,
 
 QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
                                           const QString& specName,
-                                          const QString& commonRelPath) const
+                                          const QString& commonRelPath,
+                                          const QString& prodRelPath) const
 {
     const QVector<GlueSig> sigs = collectGlueSigs(file);
     const QString glueClass = toPascalCase(specName) + "Glue";
@@ -1496,13 +1642,21 @@ QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
 
     // Import the String types the typed stub signatures below refer to.
     QStringList glueTypes;
+    QStringList prodTypes;   // user DataTypes a stub now names, which live in production/
     for (const GlueSig& sig : sigs) {
-        // An EveryCell grid names no String parameter type, but its stub does
-        // reference the pair, so both have to be imported.
-        if (!sig.everyCellType.isEmpty()) {
-            for (const QString& n : { sig.everyCellType + "String",
-                                      sig.everyCellType + "Typed" })
-                if (!glueTypes.contains(n)) glueTypes << n;
+        // A grid of an Entity names no String parameter type, but its cells are
+        // that Entity's Typed form, so the pair has to be imported.
+        if (!sig.gridDataType.isEmpty()) {
+            if (isAttrSetType(sig.gridDataType, file)) {
+                for (const QString& n : { sig.gridDataType + "String",
+                                          sig.gridDataType + "Typed" })
+                    if (!glueTypes.contains(n)) glueTypes << n;
+            } else if (sig.gridElemType == sig.gridDataType.trimmed()
+                       && !prodTypes.contains(sig.gridElemType)) {
+                // tsType left the name alone, so it is a class the project
+                // supplies rather than a built-in that maps to number/string.
+                prodTypes << sig.gridElemType;
+            }
             continue;
         }
         if (sig.paramType.isEmpty() || sig.paramType == "docstring"
@@ -1515,6 +1669,10 @@ QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
     else
         s << "import { " << glueTypes.join(", ") << " } from \""
           << commonRelPath << "/index.js\";\n";
+    prodTypes.sort();
+    if (!prodTypes.isEmpty())
+        s << "import { " << prodTypes.join(", ") << " } from \""
+          << prodRelPath << "/index.js\";\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
     s << "export class " << glueClass << " {\n";
@@ -1736,6 +1894,8 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
+    s_flattenSingleRowToList    = opts.flattenSingleRowToList;
+    s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -1774,6 +1934,14 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
 
     // Relative import path from the (possibly mirrored) output dir back to common/
     QString commonRelPath = dir.relativeFilePath(commonDir.path());
+    // Where the production classes live, relative to this spec's output dir. A
+    // DataType cell is built in the test now, so both the test and the glue
+    // import from here. The default sits beside common/ for a project that
+    // never configured one.
+    QString prodRelPath = dir.relativeFilePath(
+        opts.productionClassesDir.isEmpty() ? (opts.outputDir + "/production")
+                                            : opts.productionClassesDir);
+    if (!prodRelPath.startsWith('.')) prodRelPath.prepend("./");
     if (!commonRelPath.startsWith('.')) commonRelPath.prepend("./");
 
     // Copy source .spectable
@@ -1847,7 +2015,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
     // 2. Test file (always overwritten)
     {
         QStringList testErrs;
-        const QString testContent = genTestFile(augmented, specName, glueClass, commonRelPath, testErrs);
+        const QString testContent = genTestFile(augmented, specName, glueClass, commonRelPath, prodRelPath, testErrs);
         msgs << testErrs;
         const bool hasErr = std::any_of(testErrs.begin(), testErrs.end(),
             [](const QString& m){ return m.startsWith("ERROR"); });
@@ -1862,7 +2030,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
         const QVector<GlueSig> sigs = collectGlueSigs(augmented, &sigConflicts);
         msgs << sigConflicts;
         if (opts.overwriteGlue || !QFile::exists(gluePath)) {
-            writeFile(gluePath, genGlueFile(augmented, specName, commonRelPath), msgs);
+            writeFile(gluePath, genGlueFile(augmented, specName, commonRelPath, prodRelPath), msgs);
         } else {
             if (appendMissingStubs(gluePath, sigs, msgs, m_failEveryTest))
                 msgs << QString("INFO:0:Added missing glue stubs to %1").arg(gluePath);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 
@@ -37,6 +38,9 @@ public:
 
     QStringList generate(const SpectableFile& file, const Options& opts);
 
+    // Public so the free cell-expression functions can call it.
+    static QString tsType(const QString& specType);          // spec type → TypeScript type
+
 private:
     QStringList m_extraImports;
     QString     m_tagFilter;
@@ -44,7 +48,6 @@ private:
 
     // Type helpers
     static QString tsDefaultValue(const QString& specType);
-    static QString tsType(const QString& specType);          // spec type → TypeScript type
     static bool    isAttrSetType(const QString& name, const SpectableFile& file);
     static QString tsCommonType(const Field& f, const SpectableFile& file);
     static QString nestedLiteral(const QString& cellValue, const QString& fieldType,
@@ -90,9 +93,11 @@ private:
                            const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specName,
                         const QString& glueClass, const QString& commonRelPath,
+                        const QString& prodRelPath,
                         QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& specName,
-                        const QString& commonRelPath) const;
+                        const QString& commonRelPath,
+                        const QString& prodRelPath) const;
 
     // Production
     static QString genProductionDataTypeEnum(const NamedBlock& nb);
@@ -106,9 +111,12 @@ private:
     struct GlueSig {
         QString method;
         QString paramType;  // "" = void, "docstring", "grid", or "{AttrSetName}String"
-        // The Entity or DataType each cell of an EveryCell grid becomes.
-        // Empty for every other kind of step.
-        QString everyCellType;
+        // The DataType, built-in or (for EveryCell) Entity a grid step
+        // declared, and the shape its table arrives in. Empty name = not that
+        // kind of step, and the glue keeps the grid of text it always had.
+        QString gridDataType;
+        QString gridElemType;          // what one cell becomes, in TypeScript
+        CellShape gridShape = CellShape::Grid;
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);
