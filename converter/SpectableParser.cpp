@@ -125,9 +125,13 @@ bool SpectableParser::isStepLine(const QString& trimmed,
     return true;
 }
 
+// A continuation is marked at the START of the following line, not with a
+// trailing backslash on this one. This used to test for a trailing one and was
+// called from nowhere, so a trailing backslash did nothing at all; the real
+// rule lives in parseText, beside the named comments it continues.
 bool SpectableParser::isContinuation(const QString& line)
 {
-    return line.endsWith('\\') || line.endsWith("\\ ");
+    return line.trimmed().startsWith('\\');
 }
 
 // A named comment: documentation attached to the element above it, carrying no
@@ -379,6 +383,15 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
     // continuations and its rows, cleared by anything else. Points into the
     // vector of whatever the comment belongs to.
     QVector<NamedComment>* openComment = nullptr;
+
+    // The named comment a leading-backslash line continues. A continuation has
+    // to be on the very next line, so the line number is what identifies it:
+    // a blank line or anything else in between breaks the chain without any
+    // need to clear these.
+    QVector<NamedComment>* contOwner = nullptr;
+    int  contIndex = -1;
+    int  contLine  = -1;
+    bool contIsBlockDescription = false;
 
     // Where a named comment written now belongs.
     auto commentOwner = [&]() -> QVector<NamedComment>* {
@@ -914,6 +927,43 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
         // a named comment must not close it.
         const QString firstWord = trimmed.split(QRegularExpression(R"(\s+)")).first();
 
+        // ── A continuation of the named comment above ───────────────────────
+        // A line beginning with a backslash continues the named comment on the
+        // line before it, so a long Description can be written over several
+        // lines. Handled here, above the step-table reset, because a named
+        // comment does not close a table and neither may its continuation.
+        //
+        // Nothing is done with the text yet beyond keeping it: a named comment
+        // carries no behaviour. It is joined with a single space so that every
+        // reader of a comment's text still sees one line.
+        //
+        // A backslash line that follows anything else continues nothing. It is
+        // still treated as a comment -- discarding the line would be worse --
+        // but it is reported, because the writer meant it to attach.
+        if (isContinuation(trimmed)) {
+            const QString contText = trimmed.mid(1).trimmed();
+            const bool attaches = contOwner && contIndex >= 0
+                               && contIndex < contOwner->size()
+                               && contLine == lineNum - 1;
+            if (!attaches) {
+                emitMsg(lineNum, "Continuation line does not follow a named comment, "
+                                 "so there is nothing for it to continue", true);
+                continue;
+            }
+            NamedComment& nc = (*contOwner)[contIndex];
+            if (!contText.isEmpty())
+                nc.text = nc.text.isEmpty() ? contText : nc.text + ' ' + contText;
+            // A named block's Description is read by Analyze, so it has to grow
+            // with the comment rather than keep only the first line.
+            if (contIsBlockDescription && curNamedBlock && !contText.isEmpty()
+                    && (state == State::InNamedBlock || state == State::InExamplesTable)) {
+                curNamedBlock->description = curNamedBlock->description.isEmpty()
+                    ? contText : curNamedBlock->description + ' ' + contText;
+            }
+            contLine = lineNum;          // so a second backslash line continues too
+            continue;
+        }
+
         // ── Uses — a named comment, kept with the element it documents ──────
         // Documentation only: it never reaches a test as behaviour. It is kept
         // so that Analyze can show it and the generators can copy it into a
@@ -937,6 +987,10 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
                 QVector<NamedComment>* owner = commentOwner();
                 owner->push_back({ "Uses", text, {}, lineNum });
                 openComment = owner;
+                contOwner = owner;
+                contIndex = owner->size() - 1;
+                contLine  = lineNum;
+                contIsBlockDescription = false;
             }
             if (!curUses) {
                 emitMsg(lineNum, "Uses comment does not follow anything it can "
@@ -957,14 +1011,20 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
         // none of them ends a table either.
         if (isNamedComment(firstWord)) {
             const QString text = trimmed.mid(firstWord.length()).trimmed();
-            if (firstWord.compare("Description", Qt::CaseInsensitive) == 0 && curNamedBlock
-                    && (state == State::InNamedBlock || state == State::InExamplesTable)) {
-                if (!text.isEmpty()) curNamedBlock->description = text;
-            }
+            const bool isBlockDescription =
+                firstWord.compare("Description", Qt::CaseInsensitive) == 0 && curNamedBlock
+                && (state == State::InNamedBlock || state == State::InExamplesTable);
+            if (isBlockDescription && !text.isEmpty())
+                curNamedBlock->description = text;
             // Kept whole, whatever it belongs to, and open for a table.
             QVector<NamedComment>* owner = commentOwner();
             owner->push_back({ firstWord, text, {}, lineNum });
             openComment = owner;
+            // A backslash on the next line continues this one.
+            contOwner = owner;
+            contIndex = owner->size() - 1;
+            contLine  = lineNum;
+            contIsBlockDescription = isBlockDescription;
             continue;
         }
 

@@ -1,6 +1,6 @@
 # SpecTable v3.3.a — Specification Document
 
-*Adds the named comment **Uses**.*
+*Adds the named comment **Uses**, and `\` to continue a named comment on the next line.*
 
 ## 1. Overview
 
@@ -9,7 +9,8 @@ SpecTable v3.3.a is a structured, table‑driven specification language for defi
 Version **3.3.a** introduces:
 
 1. **Named Comments: Uses** A formal comment block describing dependencies, underlying primitives, or referenced business rules.
-2. All features from v3.3:
+2. **Comment continuation** A line beginning with `\` continues the named comment above it, so a long `Description` need not repeat the keyword.
+3. All features from v3.3:
    * Collections
    * Vertical tables
    * Reference assignment (`=`)
@@ -265,7 +266,9 @@ Modifier           ::= "Vertical" | "CompareOnly" | "EveryCell"
 TransposedRow      ::= "|" AttributeName ("|" Value)+ "|"
 
 Uses               ::= "Uses" CommentText Table?
-NamedComment       ::= ("Description" | "Details" | "Notes" | "Constraint" | "Uses") CommentText Table?
+NamedComment       ::= ("Description" | "Details" | "Notes" | "Constraint" | "Uses")
+                       CommentText Continuation* Table?
+Continuation       ::= "\" CommentText                 # first character of the next line
 
 Reference          ::= "=" Identifier
 ```
@@ -288,7 +291,36 @@ Reference          ::= "=" Identifier
   table attached to that step.
 * It must contain human‑readable text.
 
-### 4.1.1 A table under a named comment
+### 4.1.1 Continuing a named comment with `\`
+
+* A line whose first character is a backslash **continues the named comment on
+  the line above it**, so a long `Description` can be written over several lines
+  without repeating the keyword.
+
+  ```
+  DataType Amount
+  Description An amount of money,
+  \ written the way a person writes it,
+  \ and refused when it is not.
+  ```
+
+  The text is joined with a single space, so every reader of the comment sees
+  one line: the `Description` above is `An amount of money, written the way a
+  person writes it, and refused when it is not.`
+
+* It must be the **very next line**. A blank line or anything else in between
+  breaks the chain.
+* A continuation may follow another continuation, so a comment can run to any
+  length.
+* Like the comment it continues, it does **not** end a table: a continuation
+  between a step and its table leaves the table attached to that step.
+* A backslash line that follows anything other than a named comment continues
+  nothing. It is still treated as a comment and discarded, but it is **reported
+  as a warning**, because the writer meant it to attach to something.
+* It is documentation only. Nothing is generated from it today, though the
+  whole of a `Description` may later be used.
+
+### 4.1.2 A table under a named comment
 
 * Any named comment -- `Description`, `Details`, `Notes`, `Constraint` or
   `Uses` -- may be followed directly by a table. The table is part of the
