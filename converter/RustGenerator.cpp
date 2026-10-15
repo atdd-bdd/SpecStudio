@@ -237,6 +237,88 @@ QString RustGenerator::toTypeName(const QString& name)
 // a member because the name function is static, and threading one flag through
 // every call site in nine generators buys nothing.
 static bool s_stepNameIncludesAttrSet = false;
+static bool s_flattenSingleRowToList    = true;
+static bool s_flattenSingleCellToScalar = false;
+
+// ---------------------------------------------------------------------------
+// One cell of a built-in table, as Rust
+//
+// A step that names a built-in is handed values of that type: the test
+// converts, so the glue never parses text the specification already declared
+// the type of.
+//
+// A step that names a *user* DataType is left alone. Rust's constructor for one
+// returns Result<Self, String> when the type can refuse a value and plain Self
+// when it cannot — Pins::new against FormattedDollar::new, and IDForm does not
+// even spell it `new` — so there is no single expression the generator could
+// emit. Those steps keep their grid of text and the glue converts as before.
+//
+// The cell's text is turned into a literal here rather than parsed at run time,
+// so the three languages under this rule read alike; a cell that will not parse
+// is reported as a specification error.
+// ---------------------------------------------------------------------------
+
+static bool rustNamesAnAttrSet(const QString& name, const SpectableFile& file)
+{
+    for (const AttrSet& as : file.attrSets)
+        if (as.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+static bool rustIsBuiltinType(const QString& name)
+{
+    static const QStringList builtins = {
+        "Character", "String", "Text", "Integer", "Int", "Float", "Scientific",
+        "Decimal", "Boolean", "Bool", "YesNo", "Date", "Time", "DateTime", "Duration"
+    };
+    for (const QString& b : builtins)
+        if (b.compare(name.trimmed(), Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// What one cell becomes. Empty when this is not a kind of step whose cells are
+// converted here.
+static QString rustElemType(const QString& specType, const SpectableFile& file)
+{
+    const QString base = specType.trimmed();
+    if (rustNamesAnAttrSet(base, file)) return RustGenerator::toTypeName(base) + "Typed";
+    if (rustIsBuiltinType(base))        return RustGenerator::rustType(base);
+    return {};
+}
+
+static QString rustCellExpr(const QString& specType, const QString& cellText,
+                            const SpectableFile& file, bool* ok)
+{
+    *ok = true;
+    const QString t    = specType.trimmed().toLower();
+    const QString text = cellText.trimmed();
+
+    if (t == "integer" || t == "int") {
+        bool parsed = false;
+        const long long n = text.toLongLong(&parsed);
+        if (!parsed) { *ok = false; return "0"; }
+        return QString::number(n);
+    }
+    if (t == "float" || t == "decimal" || t == "scientific") {
+        bool parsed = false;
+        const double d = text.toDouble(&parsed);
+        if (!parsed) { *ok = false; return "0.0"; }
+        QString out = QString::number(d, 'g', 17);
+        if (!out.contains('.') && !out.contains('e') && !out.contains('E'))
+            out += ".0";                       // 5 is an integer literal in Rust
+        return out;
+    }
+    if (t == "boolean" || t == "bool" || t == "yesno") {
+        const QString l = text.toLower();
+        return (l == "true" || l == "yes" || l == "y" || l == "1") ? "true" : "false";
+    }
+    if (rustNamesAnAttrSet(specType.trimmed(), file)) {
+        const QString base = RustGenerator::toTypeName(specType.trimmed());
+        return base + "Typed::from_str_struct(&" + base + "String::from_text(\""
+             + rustEscape(cellText) + "\"))";
+    }
+    return "\"" + rustEscape(cellText) + "\".to_string()";
+}
 
 // The name a step's glue method gets, honouring the configured naming. A step
 // with no table is unaffected either way -- there is no type to append.
@@ -1479,9 +1561,58 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                                       && (step.everyCell
                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
-                s << "    glue." << meth << "(";
-                emitGridSlice(tbl.rows, startRow);
-                s << ");\n";
+
+                // Only a built-in, or an EveryCell grid of an Entity, is
+                // converted here — see rustCellExpr for why a user DataType is
+                // not. Anything else keeps its grid of text.
+                const QString elem = rustElemType(step.attrSetName, file);
+                const bool convert = !elem.isEmpty();
+                const CellShape shape =
+                    (convert && rustIsBuiltinType(step.attrSetName))
+                        ? cellShapeOf(step, file, s_flattenSingleRowToList,
+                                      s_flattenSingleCellToScalar)
+                        : CellShape::Grid;
+
+                auto cellOf = [&](const QString& raw) {
+                    bool ok = true;
+                    const QString expr = rustCellExpr(step.attrSetName,
+                                                      resolveValue(raw, file), file, &ok);
+                    if (!ok)
+                        errors << QString("ERROR:%1:Cell '%2' is not a %3")
+                                      .arg(step.line).arg(raw.trimmed(), step.attrSetName);
+                    return expr;
+                };
+
+                if (!convert) {
+                    s << "    glue." << meth << "(";
+                    emitGridSlice(tbl.rows, startRow);
+                    s << ");\n";
+                } else if (shape == CellShape::Scalar) {
+                    QString cell;
+                    bool found = false;
+                    for (int ri = startRow; ri < tbl.rows.size() && !found; ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty()) { cell = c; found = true; break; }
+                    s << "    glue." << meth << "(" << cellOf(cell) << ");\n";
+                } else if (shape == CellShape::List) {
+                    QStringList flat;
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri)
+                        for (const QString& c : tbl.rows[ri])
+                            if (!c.trimmed().isEmpty()) flat << cellOf(c);
+                    s << "    glue." << meth << "(&[" << flat.join(", ") << "]);\n";
+                } else {
+                    s << "    glue." << meth << "(&[\n";
+                    for (int ri = startRow; ri < tbl.rows.size(); ++ri) {
+                        s << "        vec![";
+                        const QStringList& r = tbl.rows[ri];
+                        for (int ci = 0; ci < r.size(); ++ci) {
+                            if (ci) s << ", ";
+                            s << cellOf(r[ci]);
+                        }
+                        s << "],\n";
+                    }
+                    s << "    ]);\n";
+                }
             }
         }
     };
@@ -1581,6 +1712,8 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
         if (s.paramType == "docstring") return QStringLiteral("a docstring");
         if (s.paramType.endsWith("String"))
             return QStringLiteral("a %1 table").arg(s.paramType.left(s.paramType.size() - 6));
+        if (!s.gridDataType.isEmpty())
+            return QStringLiteral("a %1 grid").arg(s.gridDataType);
         return QStringLiteral("a %1").arg(s.paramType);
     };
     auto record = [&](const QString& meth, const GlueSig& sig, int line) {
@@ -1590,7 +1723,11 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
             sigs.push_back(sig);
             return;
         }
-        if (conflicts && (it.value().paramType != sig.paramType))
+        const GlueSig& prior = it.value();
+        const bool sameSig = prior.paramType    == sig.paramType
+                          && prior.gridDataType == sig.gridDataType
+                          && prior.gridShape    == sig.gridShape;
+        if (conflicts && !sameSig)
             *conflicts << QString(
                 "WARNING:%1:Step '%2' expects %3 here, but the same glue method elsewhere "
                 "in this project expects %4 \u2014 rename one of the steps, or switch this "
@@ -1611,10 +1748,19 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
             } else if (step.attrSetName.isEmpty() && !step.hasTable) {
                 record(meth, { meth, "" }, step.line);
             } else if (step.everyCell && !step.attrSetName.isEmpty()) {
-                record(meth, { meth, "grid", step.attrSetName }, step.line);
+                record(meth, { meth, "grid", step.attrSetName,
+                               rustElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 // A Collection step takes a slice of its element type.
                 record(meth, { meth, effectiveAttrSetName(step.attrSetName, file) + "String" }, step.line);
+            } else if (rustIsBuiltinType(step.attrSetName)) {
+                // A built-in is converted in the test; a user DataType is not.
+                record(meth, { meth, "grid", step.attrSetName,
+                               rustElemType(step.attrSetName, file),
+                               cellShapeOf(step, file, s_flattenSingleRowToList,
+                                           s_flattenSingleCellToScalar) }, step.line);
             } else {
                 record(meth, { meth, "grid" }, step.line);
             }
@@ -1655,18 +1801,25 @@ QString RustGenerator::genStubFn(const GlueSig& sig, bool failEveryTest)
         if (failEveryTest)
             s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
-    } else if (sig.paramType == "grid" && !sig.everyCellType.isEmpty()) {
-        // EveryCell: each cell holds the text form of this type, so the stub
-        // converts before doing anything else.
-        const QString base = toTypeName(sig.everyCellType);
-        s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<String>]) {\n";
-        s << "        for row in values {\n";
-        s << "            for cell in row {\n";
-        s << "                let item = " << base << "Typed::from_str_struct(&"
-          << base << "String::from_text(cell));\n";
-        s << "                println!(\"{:?}\", item);\n";
-        s << "            }\n";
-        s << "        }\n";
+    } else if (sig.paramType == "grid" && !sig.gridDataType.isEmpty()) {
+        // The values arrive already converted: the test builds them, so the glue
+        // is handed the type the specification declared. EveryCell reaches here
+        // too — each of its cells is one object built from that cell's text form.
+        const QString elem = sig.gridElemType.isEmpty() ? QStringLiteral("String")
+                                                        : sig.gridElemType;
+        if (sig.gridShape == CellShape::Scalar) {
+            s << "    pub fn " << sig.method << "(&mut self, value: " << elem << ") {\n";
+            s << "        println!(\"{:?}\", value);\n";
+        } else if (sig.gridShape == CellShape::List) {
+            s << "    pub fn " << sig.method << "(&mut self, values: &[" << elem << "]) {\n";
+            s << "        for value in values { println!(\"{:?}\", value); }\n";
+        } else {
+            s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<" << elem
+              << ">]) {\n";
+            s << "        for row in values { println!(\"{:?}\", row); }\n";
+        }
+        if (failEveryTest)
+            s << "        panic!(\"Not implemented: " << sig.method << "\");\n";
         s << "    }\n";
     } else if (sig.paramType == "grid") {
         s << "    pub fn " << sig.method << "(&mut self, values: &[Vec<String>]) {\n";
@@ -1942,6 +2095,8 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
     m_tagFilter = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
+    s_flattenSingleRowToList    = opts.flattenSingleRowToList;
+    s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
