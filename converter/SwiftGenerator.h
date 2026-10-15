@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 
@@ -80,9 +81,15 @@ private:
     struct GlueSig {
         QString method;
         QString paramType;  // "" = void; struct name = [Struct]; "grid" = [[String]]
-        // The Entity or DataType each cell of an EveryCell grid becomes.
-        // Empty for every other kind of step.
-        QString everyCellType;
+        // The built-in, or (for EveryCell) the Entity, a grid step declared,
+        // and the shape its table arrives in. Empty name = not that kind of
+        // step, and the glue keeps the grid of text it always had -- which is
+        // what a *user* DataType does here, because a Swift initialiser for
+        // one throws only when the type can refuse a value, and the generator
+        // cannot know which.
+        QString gridDataType;
+        QString gridElemType;      // what one cell becomes, spelled in Swift
+        CellShape gridShape = CellShape::Grid;
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);
