@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectableModel.h"
+#include "SpectableParser.h"   // CellShape
 #include <QString>
 #include <QStringList>
 
@@ -88,6 +89,7 @@ private:
                            const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specName,
                         const QString& glueClass, const QString& commonRelPath,
+                        const QString& prodRelPath,
                         QStringList& errors) const;
     QString genGlueFile(const SpectableFile& file, const QString& specName,
                         const QString& commonRelPath) const;
@@ -102,9 +104,12 @@ private:
     struct GlueSig {
         QString method;
         QString paramType;  // "" = void, "docstring", "grid", or "{AttrSetName}String"
-        // The Entity or DataType each cell of an EveryCell grid becomes.
-        // Empty for every other kind of step.
-        QString everyCellType;
+        // The DataType, built-in or (for EveryCell) Entity a grid step
+        // declared, and the shape its table arrives in. Empty name = not
+        // that kind of step, and the glue keeps the grid of text it had.
+        QString gridDataType;
+        QString gridElemType;      // the class one cell becomes; empty for a built-in
+        CellShape gridShape = CellShape::Grid;
     };
     static QVector<GlueSig> collectGlueSigs(const SpectableFile& file,
                                         QStringList* conflicts = nullptr);
