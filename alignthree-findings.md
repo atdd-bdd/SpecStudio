@@ -22,153 +22,47 @@ cases below, so that "0 diagnostics" means "will compile".
 
 ## 1. `EveryCell` on a bare DataType generates uncompilable glue
 
-**Confirmed bug, and the costliest one.**
-
-The syntax document (v3.3.a, §2.4.1) says of `EveryCell`:
-
-> The type may be an Entity, an Attributes block, or a DataType.
-
-The C++ generator emits the `…Typed` / `…String` structs for an `Attributes` or
-`Entity` block only. So a step written against a DataType generates glue that
-references a struct nobody wrote:
-
-```
-When transaction deleted : TransactionRef EveryCell
-| T1 |
-```
-
-generates
-
-```cpp
-void when_transaction_deleted(const std::vector<TransactionRefString>& values) {
-    const TransactionRefTyped t = TransactionRefTyped::from_string_struct(values[0]);
-```
-
-and `TransactionRefTyped` / `TransactionRefString` do not exist.
-
-```
-error C2065: 'TransactionRefTyped': undeclared identifier
-error C2653: 'TransactionRefString': is not a class or namespace name
-error C3861: 'from_string_struct': identifier not found
-```
-
-It hit 21 steps across 5 files, on 7 distinct DataTypes (`AccountPath`,
-`TransactionRef`, `SearchText`, `SortColumn`, `ProfileName`, `PayeeName` and one
-local one). `analyze_cli`: 0 diagnostics throughout.
-
-**Repro:** declare `DataType Thing` with an `Examples: ValidValues` table, write a
-step `When thing chosen : Thing EveryCell` with a one-cell table, generate for
-C++, compile.
-
-**Possible fixes, in preference order:**
-
-1. Generate a one-field `…Typed`/`…String` pair for a DataType used with
-   `EveryCell`, so the documented language works.
-2. Failing that, have the analyzer reject `EveryCell` on a DataType for targets
-   whose generator cannot support it, and say so in the message.
-3. Failing that, correct §2.4.1 to say Entity or Attributes only.
-
-**Workaround used:** a one-attribute `Attributes` block per DataType
-(`AccountSelect` wrapping `AccountPath`, and so on) and an ordinary table. It
-works but adds eleven blocks that exist only to satisfy the generator, and it
-makes the specification slightly less direct to read.
+**DONE 2026-10-15, in all nine languages**, and refined on 2026-10-16. A step
+whose table names a DataType or a built-in no longer hands the glue a grid of
+raw strings. A built-in arrives converted, by the generated test. A DataType
+arrives as `<Name>String` -- the cell's text, with the type in its name -- and
+the glue reads the DataType from it, because a test body must not throw and a
+specification may state a value the type refuses on purpose. The
+`<Name>String` / `<Name>Typed` pair is always generated, so `EveryCell` on a
+bare DataType compiles. `EveryCell` itself is required only for an Entity or
+Attributes block. Two options control the shape: `flattenSingleRowToList`
+(default true) and `flattenSingleCellToScalar` (default false).
 
 ---
 
 ## 2. The IDE build warns about step-name collisions; the CLI converter does not
 
-**Confirmed inconsistency.** The IDE is right and the CLI is the one to fix.
+**The CLI half is DONE.** `collectGlueSigs` returns the conflicts and
+`converter/main.cpp` prints them, so all nine generators -- and `analyze_cli`
+-- now emit the same warning the IDE emitted.
 
-Two steps whose text reads alike but take different tables collapse into one glue
-method with one signature:
-
-```
-When account added : Account Vertical
-When account added : AccountWithOpeningBalance Vertical
-```
-
-```
-error C2664: cannot convert argument 1 from
-  'std::vector<AccountWithOpeningBalanceString>' to
-  'const std::vector<AccountString> &'
-```
-
-Building the project in the IDE produced exactly the right message, and it is a
-good one:
-
-> WARNING:369:Step 'When_account_added' expects a AccountWithOpeningBalance table
-> here, but the same glue method elsewhere in this project expects a Account
-> table — rename one of the steps, or switch this project to naming glue methods
-> after the table they take
-
-`SpecTableConverter.exe` generating the same files emitted nothing, and
-`analyze_cli` reported nothing. Three collisions in this project, found only by
-compiling, then explained by the IDE afterwards.
-
-**Repro:** two steps with identical text and different attribute sets. Generate
-with the CLI — silent. Build in the IDE — warned.
-
-**Fix:** emit that warning from the converter and/or the analyzer. The message
-needs no improvement, only to reach the person using the command line.
-
-A note on the two fixes it offers: `--step-name-attrset` appends the attribute set
-to *every* method name (`when_account_added_account`), not only the colliding
-ones, which makes all the other names worse. Renaming the step was the better
-choice here. Appending only where there is an actual collision would make the
-flag much more usable.
+**Still open:** `--step-name-attrset` appends the attribute set to *every*
+method name (`when_account_added_account`), not only the colliding ones, which
+makes all the other names worse. Renaming the step was the better choice here.
+Appending only where there is an actual collision would make the flag much more
+usable.
 
 ---
 
 ## 3. `analyze_cli` reports a file as a duplicate of itself
 
-**Confirmed bug.**
-
-The IDE writes generated output into `<project>/generated/`, and the converter
-copies the `.spectable` source there too by default. Pointing `analyze_cli` at the
-project folder then finds both copies and reports every symbol in the project as
-duplicated — including, read literally, each file duplicating itself:
-
-```
-Transactions.spectable:35: warning: Collection 'Postings' is also declared in
-  spec/Transactions.spectable:35 -- only the first declaration is generated
--- 496 diagnostic(s) over 24 file(s)
-```
-
-24 files from 12. The same line number and the same file name on both sides of
-"is also declared in" is the giveaway.
-
-**Repro:** build a project in the IDE, then run `analyze_cli <project folder>`.
-
-**Two things worth fixing separately:**
-
-- A symbol should never be reported as a duplicate of itself. Comparing
-  canonicalised absolute paths would catch it; the comment in
-  `tools/analyze_cli/main.cpp` says the index already means to do this.
-- Generated output living inside the folder that is analysed is the underlying
-  problem. Either skip a `generated/` subfolder when walking, or default the
-  IDE's output folder to a sibling of the project rather than a child.
-
-**Workaround used:** `--no-copy-spectable`, plus keeping generated output out of
-the spec folder.
+**DONE.** The folder is canonicalised to an absolute path before indexing, so a
+symbol is never reported as a duplicate of itself, and generated output is
+skipped unless `--include-generated` is given.
 
 ---
 
 ## 4. The tilde-for-space convention is not in the syntax document
 
-**Documentation gap, not a defect.**
-
-A table cell is trimmed, so a value whose leading or trailing blank matters cannot
-be written literally. Every generator handles this -- each one does
-`s.replace('~', ' ')` on a cell -- so `~Checking` and `!Type:Bank~` work exactly
-as wanted.
-
-Nothing in `spectable syntax v3.3a.md` says so. Searching it for "tilde" or "~"
-finds nothing, so the only way to learn the convention is to read the generators
-or be told. Two real rules here were written with a quoting convention invented
-to work around a problem that did not exist, and the quotes then arrived as part
-of the value.
-
-**Suggested fix:** one paragraph in the syntax document, in the section on tables.
+**DONE.** `spectable syntax v3.3a.md` section 2.3.1 documents it, with
+`~Checking` and `!Type:Bank~` as the examples, and states that every generator
+does the replacement so the rule holds in all nine languages. The User Guide
+says so too.
 
 ---
 
