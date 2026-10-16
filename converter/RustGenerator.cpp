@@ -69,6 +69,11 @@ QString RustGenerator::rustType(const QString& specType)
     return specType.trimmed();
 }
 
+// Defined below, beside the other DataType helpers; a struct literal needs
+// them before that.
+static bool    rustIsUserDataType(const QString& name, const SpectableFile& file);
+static QString rustUserDataTypeName(const QString& name, const SpectableFile& file);
+
 // A cell for a nested-object field is written "=SomeDefine"; expand that define
 // against the nested Attributes block and build its String struct literal.
 QString RustGenerator::rustNestedLiteral(const QString& cellValue, const QString& fieldType,
@@ -140,6 +145,11 @@ QString RustGenerator::rustStringLiteral(const AttrSet& as, const QStringList& r
         expr += toIdentifier(as.fields[i].name) + ": ";
         if (isAttrSetType(as.fields[i].type, file))
             expr += rustNestedLiteral(cell, as.fields[i].type, file);
+        else if (rustIsUserDataType(as.fields[i].type, file))
+            // The field holds that DataType's own String newtype, which takes
+            // the cell's text.
+            expr += toTypeName(rustUserDataTypeName(as.fields[i].type, file))
+                  + "String::from(\"" + rustEscape(cell) + "\")";
         else
             expr += "\"" + rustEscape(cell) + "\".to_string()";
     }
@@ -153,10 +163,30 @@ bool RustGenerator::isAttrSetType(const QString& name, const SpectableFile& file
     return false;
 }
 
-// The type a field takes inside the common module. A nested Attributes block
-// becomes that block's own Typed struct. A user DataType lives in the
-// production crate, which common must not depend on, so its value is carried
-// as text — the glue converts it when it needs the production object.
+// True only for a user-declared DataType; a built-in never answers yes.
+static bool rustIsUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated pair is named once, where it is declared.
+static QString rustUserDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return dt.trimmed();
+    return name.trimmed();
+}
+
+// The type a field takes inside the Typed struct. A nested Attributes block
+// becomes that block's own Typed struct, and a user DataType its own Typed
+// struct, exactly as the other targets name them. What that Typed struct holds
+// is the text: Rust's constructor for a DataType returns Result<Self, String>
+// when the type can refuse a value and plain Self when it cannot — Pins::new
+// against FormattedDollar::new — and the generator cannot know which, so the
+// production value is read in the glue.
 QString RustGenerator::rustCommonType(const Field& f, const SpectableFile& file)
 {
     // A Collection field is a Vec of its element's Typed struct. Without this it
@@ -168,6 +198,8 @@ QString RustGenerator::rustCommonType(const Field& f, const SpectableFile& file)
                                                    : rustType(elem)) + ">";
     }
     if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
+    if (rustIsUserDataType(f.type, file))
+        return toTypeName(rustUserDataTypeName(f.type, file)) + "Typed";
     static const QSet<QString> builtin = {
         "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
         "bool", "string", "text", "character", "char", "date", "time",
@@ -247,11 +279,14 @@ static bool s_flattenSingleCellToScalar = false;
 // converts, so the glue never parses text the specification already declared
 // the type of.
 //
-// A step that names a *user* DataType is left alone. Rust's constructor for one
+// A step that names a *user* DataType is handed its cells as that DataType's
+// own String newtype, holding the cell's text. Rust's constructor for one
 // returns Result<Self, String> when the type can refuse a value and plain Self
 // when it cannot — Pins::new against FormattedDollar::new, and IDForm does not
-// even spell it `new` — so there is no single expression the generator could
-// emit. Those steps keep their grid of text and the glue converts as before.
+// even spell it `new` — so there is no expression the generator could emit
+// here. That is as well: the type's rule is the project's own and a
+// specification may state a value the rule refuses, so the conversion belongs
+// in the glue rather than on a line of a test body.
 //
 // The cell's text is turned into a literal here rather than parsed at run time,
 // so the three languages under this rule read alike; a cell that will not parse
@@ -283,6 +318,8 @@ static QString rustElemType(const QString& specType, const SpectableFile& file)
     const QString base = specType.trimmed();
     if (rustNamesAnAttrSet(base, file)) return RustGenerator::toTypeName(base) + "Typed";
     if (rustIsBuiltinType(base))        return RustGenerator::rustType(base);
+    if (rustIsUserDataType(base, file))
+        return RustGenerator::toTypeName(rustUserDataTypeName(base, file)) + "String";
     return {};
 }
 
@@ -317,6 +354,9 @@ static QString rustCellExpr(const QString& specType, const QString& cellText,
         return base + "Typed::from_str_struct(&" + base + "String::from_text(\""
              + rustEscape(cellText) + "\"))";
     }
+    if (rustIsUserDataType(specType.trimmed(), file))
+        return RustGenerator::toTypeName(rustUserDataTypeName(specType.trimmed(), file))
+             + "String::from(\"" + rustEscape(cellText) + "\")";
     return "\"" + rustEscape(cellText) + "\".to_string()";
 }
 
@@ -641,12 +681,29 @@ QString RustGenerator::genStringStruct(const AttrSet& as, const SpectableFile& f
         s << "use super::" << toIdentifier(f.type) << "_string::"
           << toTypeName(f.type) << "String;\n";
     }
+    // A user DataType column holds that DataType's own String struct, so its
+    // module has to be brought in too.
+    for (const Field& f : as.fields) {
+        if (!rustIsUserDataType(f.type, file)) continue;
+        const QString n = rustUserDataTypeName(f.type, file);
+        if (seenUses.contains(n.toLower())) continue;
+        seenUses.insert(n.toLower());
+        s << "use super::" << toIdentifier(n) << "_string::"
+          << toTypeName(n) << "String;\n";
+    }
     for (const QString& u : m_extraUses) s << u << "\n";
     if (!m_extraUses.isEmpty()) s << "\n";
 
     auto fieldType = [&](const Field& f) {
-        return isAttrSetType(f.type, file) ? toTypeName(f.type) + "String"
-                                          : QString("String");
+        if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "String";
+        if (rustIsUserDataType(f.type, file))
+            return toTypeName(rustUserDataTypeName(f.type, file)) + "String";
+        return QString("String");
+    };
+    // A newtype takes an explicit From; plain text does not.
+    auto dataTypeOf = [&](const Field& f) {
+        return rustIsUserDataType(f.type, file)
+             ? toTypeName(rustUserDataTypeName(f.type, file)) + "String" : QString();
     };
 
     s << "#[derive(Debug, Clone, Default)]\n";
@@ -666,8 +723,12 @@ QString RustGenerator::genStringStruct(const AttrSet& as, const SpectableFile& f
             s << "            " << toIdentifier(f.name) << ": Default::default(),\n";
             continue;
         }
-        s << "            " << toIdentifier(f.name)
-          << ": v.get(" << i << ").copied().unwrap_or(\"\").to_string(),\n";
+        s << "            " << toIdentifier(f.name) << ": ";
+        if (!dataTypeOf(f).isEmpty())
+            s << dataTypeOf(f) << "::from(v.get(" << i
+              << ").copied().unwrap_or(\"\")),\n";
+        else
+            s << "v.get(" << i << ").copied().unwrap_or(\"\").to_string(),\n";
     }
     s << "        }\n    }\n\n";
 
@@ -682,6 +743,8 @@ QString RustGenerator::genStringStruct(const AttrSet& as, const SpectableFile& f
         s << "            " << toIdentifier(f.name) << ": ";
         if (isAttrSetType(f.type, file))
             s << toTypeName(f.type) << "String::from_text(&parts[" << i << "]),\n";
+        else if (!dataTypeOf(f).isEmpty())
+            s << dataTypeOf(f) << "::from(parts[" << i << "].clone()),\n";
         else
             s << "parts[" << i << "].clone(),\n";
     }
@@ -754,6 +817,15 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
         s << "use super::" << toIdentifier(candidate) << "_typed::"
           << toTypeName(candidate) << "Typed;\n";
     }
+    // A user DataType column holds that DataType's own Typed struct.
+    for (const Field& f : as.fields) {
+        if (!rustIsUserDataType(f.type, file)) continue;
+        const QString n = rustUserDataTypeName(f.type, file);
+        if (seenTypedUses.contains(n.toLower())) continue;
+        seenTypedUses.insert(n.toLower());
+        s << "use super::" << toIdentifier(n) << "_typed::"
+          << toTypeName(n) << "Typed;\n";
+    }
     for (const QString& u : m_extraUses) s << u << "\n";
     s << "\n";
 
@@ -777,7 +849,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
         // -- so a Collection field starts empty and is filled from a reply.
         const QString expr = isCollectionType(f.type, file)
             ? QString("Vec::new()")
-            : isAttrSetType(f.type, file)
+            : (isAttrSetType(f.type, file) || rustIsUserDataType(f.type, file))
                 ? QString("%1::from_str_struct(&s.%2)").arg(rt, fid)
                 : (rt == "String" ? QString("s.%1.clone()").arg(fid)
                                   : parseExpr(fid, f.type));
@@ -802,7 +874,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
             // A String struct has one cell for this field and a collection has
             // many rows, so there is nothing faithful to put here.
             expr = QString("String::new()");
-        else if (isAttrSetType(f.type, file))
+        else if (isAttrSetType(f.type, file) || rustIsUserDataType(f.type, file))
             expr = QString("self.%1.to_str_struct()").arg(fid);
         else if (rt == "String")
             expr = QString("self.%1.clone()").arg(fid);
@@ -836,6 +908,10 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
             expr = QString("json::Value::Bool(self.%1)").arg(fid);
         else if (rt == "String")
             expr = QString("json::Value::Str(self.%1.clone())").arg(fid);
+        else if (rustIsUserDataType(f.type, file))
+            // A DataType crosses the wire as the text the table held, so a
+            // document written by one language reads back in the others.
+            expr = QString("json::Value::Str(self.%1.text.clone())").arg(fid);
         else if (isCollectionType(f.type, file)) {
             // A Collection is written as an array of its elements.
             const QString elem = collectionElementType(f.type, file);
@@ -874,6 +950,10 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
             expr = QString("json::as_bool(%1, \"%2\")?").arg(src, key);
         else if (rt == "String")
             expr = QString("json::as_string(%1, \"%2\")?").arg(src, key);
+        else if (rustIsUserDataType(f.type, file))
+            // The document holds the text; the DataType's own Typed struct is
+            // what carries it, exactly as a table cell does.
+            expr = QString("%1::from(json::as_string(%2, \"%3\")?)").arg(rt, src, key);
         else if (isCollectionType(f.type, file)) {
             // A Collection is read as an array of its elements. collect() over
             // a Result stops at the first bad element and returns its error.
@@ -917,6 +997,102 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
 }
 
 // ---------------------------------------------------------------------------
+// A user DataType's String/Typed pair  →  common/<name>_string.rs, _typed.rs
+//
+// A DataType column behaves exactly as an Entity column does: the String struct
+// holds what the table holds, and the Typed struct is what a converted row
+// holds. The pair is generated whether or not there is a production module, so
+// what a generated signature looks like does not depend on a project setting.
+// ---------------------------------------------------------------------------
+
+static QString genRustDataTypeStringStruct(const QString& name)
+{
+    const QString tn = RustGenerator::toTypeName(name) + "String";
+    QString out;
+    QTextStream s(&out);
+
+    s << "#![allow(dead_code, unused_imports, unused_variables)]\n\n";
+    s << "/// " << name.trimmed() << " as a table cell holds it: the unconverted text.\n";
+    s << "///\n";
+    s << "/// A newtype over String, and it derefs to str, so a cell reads as text\n";
+    s << "/// wherever text is what is wanted while a generated signature still names\n";
+    s << "/// the DataType the specification declared.\n";
+    s << "#[derive(Debug, Clone, Default)]\n";
+    s << "pub struct " << tn << "(pub String);\n\n";
+    s << "impl " << tn << " {\n";
+    s << "    pub fn from_text(text: &str) -> Self {\n";
+    s << "        Self(text.to_string())\n    }\n\n";
+    s << "    /// The cell's text.\n";
+    s << "    pub fn value(&self) -> &str {\n        &self.0\n    }\n}\n\n";
+    s << "impl From<&str> for " << tn << " {\n";
+    s << "    fn from(text: &str) -> Self {\n        Self(text.to_string())\n    }\n}\n\n";
+    s << "impl From<String> for " << tn << " {\n";
+    s << "    fn from(text: String) -> Self {\n        Self(text)\n    }\n}\n\n";
+    s << "impl std::ops::Deref for " << tn << " {\n";
+    s << "    type Target = str;\n";
+    s << "    fn deref(&self) -> &str {\n        &self.0\n    }\n}\n\n";
+    s << "impl std::fmt::Display for " << tn << " {\n";
+    s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
+    s << "        write!(f, \"{}\", self.0)\n    }\n}\n\n";
+    // The Do-Not-Care marker on either side matches whatever the other side
+    // holds, the same rule the String structs follow.
+    s << "impl PartialEq for " << tn << " {\n";
+    s << "    fn eq(&self, other: &Self) -> bool {\n";
+    s << "        crate::common::dnc_equal(&self.0, &other.0)\n    }\n}\n";
+
+    return out;
+}
+
+static QString genRustDataTypeTypedStruct(const QString& name)
+{
+    const QString base  = RustGenerator::toTypeName(name);
+    const QString strTn = base + "String";
+    const QString tn    = base + "Typed";
+    const QString strMod = RustGenerator::toIdentifier(name) + "_string";
+    QString out;
+    QTextStream s(&out);
+
+    s << "#![allow(dead_code, unused_imports, unused_variables)]\n\n";
+    s << "use super::" << strMod << "::" << strTn << ";\n\n";
+    s << "/// " << name.trimmed() << " converted: the text, which the glue converts to\n";
+    s << "/// the production value.\n";
+    s << "///\n";
+    s << "/// Rust's constructor for a DataType returns Result<Self, String> when the\n";
+    s << "/// type can refuse a value and plain Self when it cannot, and the generator\n";
+    s << "/// cannot know which, so there is no call it could write here. That rule is\n";
+    s << "/// the project's own in any case, and a specification may state a value the\n";
+    s << "/// rule refuses, so reading it belongs in the glue rather than on a line of\n";
+    s << "/// a test body.\n";
+    s << "#[derive(Debug, Clone, Default)]\n";
+    s << "pub struct " << tn << " {\n    pub text: String,\n}\n\n";
+    s << "impl " << tn << " {\n";
+    s << "    pub fn from_str_struct(s: &" << strTn << ") -> Self {\n";
+    s << "        Self { text: s.value().to_string() }\n    }\n\n";
+    s << "    pub fn to_str_struct(&self) -> " << strTn << " {\n";
+    s << "        " << strTn << "(self.text.clone())\n    }\n\n";
+    s << "    /// False for an empty cell and for the Do-Not-Care marker, neither of\n";
+    s << "    /// which states a value.\n";
+    s << "    pub fn has_value(&self) -> bool {\n";
+    s << "        !self.text.is_empty() && self.text != crate::common::DNC_STRING\n    }\n\n";
+    s << "    /// The text to convert.\n";
+    s << "    pub fn get(&self) -> &str {\n        &self.text\n    }\n\n";
+    s << "    pub fn to_string_list(list: &[" << tn << "]) -> Vec<" << strTn << "> {\n";
+    s << "        list.iter().map(|t| t.to_str_struct()).collect()\n    }\n\n";
+    s << "    pub fn from_string_list(list: &[" << strTn << "]) -> Vec<" << tn << "> {\n";
+    s << "        list.iter().map(" << tn << "::from_str_struct).collect()\n    }\n}\n\n";
+    s << "impl From<String> for " << tn << " {\n";
+    s << "    fn from(text: String) -> Self {\n        Self { text }\n    }\n}\n\n";
+    s << "impl std::fmt::Display for " << tn << " {\n";
+    s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
+    s << "        write!(f, \"{}\", self.text)\n    }\n}\n\n";
+    s << "impl PartialEq for " << tn << " {\n";
+    s << "    fn eq(&self, other: &Self) -> bool {\n";
+    s << "        crate::common::dnc_equal(&self.text, &other.text)\n    }\n}\n";
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Common mod.rs
 // ---------------------------------------------------------------------------
 
@@ -926,6 +1102,7 @@ QString RustGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& fi
 // `use crate::common::*` resolved almost nothing. The existing index is therefore
 // merged with the new entries instead of replaced.
 QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
+                                     const QStringList& dataTypeNames,
                                      const QString& existing,
                                      const QString& dir) const
 {
@@ -940,14 +1117,18 @@ QString RustGenerator::genCommonMod(const QVector<AttrSet>& attrSets,
     }
     mods = sourcescan::dropEntriesForMissingFiles(
                mods, dir, QRegularExpression("^pub (?:mod|use) ([A-Za-z0-9_]+)"), ".rs");
-    for (const AttrSet& as : attrSets) {
-        const QString mod = toIdentifier(as.name);
+    auto addPair = [&mods](const QString& name) {
+        const QString mod = RustGenerator::toIdentifier(name);
         for (const QString& l : { QString("pub mod %1_string;").arg(mod),
                                   QString("pub mod %1_typed;").arg(mod),
                                   QString("pub use %1_string::*;").arg(mod),
                                   QString("pub use %1_typed::*;").arg(mod) })
             if (!mods.contains(l)) mods << l;
-    }
+    };
+    for (const AttrSet& as : attrSets) addPair(as.name);
+    // A user DataType has a String/Typed pair of its own, the same as an
+    // Attributes block, and a test reaches it through `use crate::common::*`.
+    for (const QString& dt : dataTypeNames) addPair(dt);
     mods.sort();
 
     QString out;
@@ -1562,13 +1743,15 @@ QString RustGenerator::genTestFile(const SpectableFile& file, const QString& spe
                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
-                // Only a built-in, or an EveryCell grid of an Entity, is
-                // converted here — see rustCellExpr for why a user DataType is
-                // not. Anything else keeps its grid of text.
+                // A built-in is converted here; a user DataType is wrapped in
+                // its own String newtype, text and all — see rustCellExpr. An
+                // EveryCell grid of an Entity keeps its shape, one object per
+                // cell. Anything else keeps its grid of text.
                 const QString elem = rustElemType(step.attrSetName, file);
                 const bool convert = !elem.isEmpty();
                 const CellShape shape =
-                    (convert && rustIsBuiltinType(step.attrSetName))
+                    (convert && (rustIsBuiltinType(step.attrSetName)
+                              || rustIsUserDataType(step.attrSetName, file)))
                         ? cellShapeOf(step, file, s_flattenSingleRowToList,
                                       s_flattenSingleCellToScalar)
                         : CellShape::Grid;
@@ -1755,8 +1938,10 @@ QVector<RustGenerator::GlueSig> RustGenerator::collectGlueSigs(const SpectableFi
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 // A Collection step takes a slice of its element type.
                 record(meth, { meth, effectiveAttrSetName(step.attrSetName, file) + "String" }, step.line);
-            } else if (rustIsBuiltinType(step.attrSetName)) {
-                // A built-in is converted in the test; a user DataType is not.
+            } else if (rustIsBuiltinType(step.attrSetName)
+                    || rustIsUserDataType(step.attrSetName, file)) {
+                // A built-in arrives converted; a user DataType arrives as its
+                // own String newtype, holding the cell's text.
                 record(meth, { meth, "grid", step.attrSetName,
                                rustElemType(step.attrSetName, file),
                                cellShapeOf(step, file, s_flattenSingleRowToList,
@@ -2182,6 +2367,17 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
         writeFile(commonDir.filePath(mid + "_typed.rs"),  genTypedStruct(as, augmented),  msgs);
         domainSets.push_back(as);
     }
+    // A user DataType's own String/Typed pair
+    QStringList writtenDataTypes;
+    for (const QString& dt : augmented.dataTypeNames) {
+        const QString mid = toIdentifier(dt);
+        if (mid.isEmpty() || writtenDataTypes.contains(mid)) continue;
+        writtenDataTypes << mid;
+        writeFile(commonDir.filePath(mid + "_string.rs"),
+                  genRustDataTypeStringStruct(dt), msgs);
+        writeFile(commonDir.filePath(mid + "_typed.rs"),
+                  genRustDataTypeTypedStruct(dt), msgs);
+    }
     writeFile(commonDir.filePath("json.rs"), genRustJsonMod(),          msgs);
     writeFile(commonDir.filePath("tokens.rs"), genTokensRs(),           msgs);
     {
@@ -2192,7 +2388,9 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
             existingMod = QTextStream(&mf).readAll();
             mf.close();
         }
-        writeFile(commonDir.filePath("mod.rs"), genCommonMod(domainSets, existingMod, commonDir.path()), msgs);
+        writeFile(commonDir.filePath("mod.rs"),
+                  genCommonMod(domainSets, augmented.dataTypeNames, existingMod,
+                               commonDir.path()), msgs);
     }
 
     // Test file

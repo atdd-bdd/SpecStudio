@@ -75,6 +75,7 @@ private:
     QString genStringStruct(const AttrSet& as, const SpectableFile& file) const;
     QString genTypedStruct(const AttrSet& as, const SpectableFile& file) const;
     QString genCommonMod(const QVector<AttrSet>& attrSets,
+                         const QStringList& dataTypeNames,
                          const QString& existing,
                          const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,

@@ -76,9 +76,29 @@ bool SwiftGenerator::isAttrSetType(const QString& name, const SpectableFile& fil
     return false;
 }
 
-// The type a field takes inside the common folder. A nested Attributes block
-// becomes that block's own Typed struct. A user DataType lives in the production
-// folder, which common must not depend on, so its value is carried as text.
+// True only for a user-declared DataType; a built-in never answers yes.
+static bool swiftIsUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated pair is named once, where it is declared.
+static QString swiftUserDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return dt.trimmed();
+    return name.trimmed();
+}
+
+// The type a field takes inside the Typed struct. A nested Attributes block
+// becomes that block's own Typed struct, and a user DataType its own Typed
+// struct, exactly as the other targets name them. What that Typed struct holds
+// is the text: Swift's initializer for a DataType throws when the type can
+// refuse a value and does not when it cannot, and the generator cannot know
+// which, so the production value is read in the glue.
 QString SwiftGenerator::swiftCommonType(const Field& f, const SpectableFile& file)
 {
     // A Collection field is an array of its element's Typed struct. Without
@@ -90,6 +110,8 @@ QString SwiftGenerator::swiftCommonType(const Field& f, const SpectableFile& fil
                                                 : swiftType(elem)) + "]";
     }
     if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
+    if (swiftIsUserDataType(f.type, file))
+        return toTypeName(swiftUserDataTypeName(f.type, file)) + "Typed";
 
     static const QSet<QString> builtin = {
         "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
@@ -309,6 +331,8 @@ static QString swiftElemType(const QString& specType, const SpectableFile& file)
     const QString base = specType.trimmed();
     if (swiftNamesAnAttrSet(base, file)) return SwiftGenerator::toTypeName(base) + "Typed";
     if (swiftIsBuiltinType(base))        return SwiftGenerator::swiftType(base);
+    if (swiftIsUserDataType(base, file))
+        return SwiftGenerator::toTypeName(swiftUserDataTypeName(base, file)) + "String";
     return {};
 }
 
@@ -345,6 +369,9 @@ static QString swiftCellExpr(const QString& specType, const QString& cellText,
         return base + "Typed(from: " + base + "String.fromText(\""
              + swiftEscape(cellText) + "\"))";
     }
+    if (swiftIsUserDataType(specType.trimmed(), file))
+        return SwiftGenerator::toTypeName(swiftUserDataTypeName(specType.trimmed(), file))
+             + "String(\"" + swiftEscape(cellText) + "\")";
     return "\"" + swiftEscape(cellText) + "\"";
 }
 
@@ -675,8 +702,17 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
     if (!m_extraImports.isEmpty()) s << "\n";
 
     auto fieldType = [&](const Field& f) {
-        return isAttrSetType(f.type, file) ? toTypeName(f.type) + "String"
-                                          : QString("String");
+        if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "String";
+        if (swiftIsUserDataType(f.type, file))
+            return toTypeName(swiftUserDataTypeName(f.type, file)) + "String";
+        return QString("String");
+    };
+    // A DataType column holds that DataType's own String struct. It is
+    // ExpressibleByStringLiteral, so a generated row literal is unchanged; an
+    // expression that is not a literal takes the initializer.
+    auto dataTypeOf = [&](const Field& f) {
+        return swiftIsUserDataType(f.type, file)
+             ? toTypeName(swiftUserDataTypeName(f.type, file)) + "String" : QString();
     };
 
     s << "public struct " << typeName << ": CustomStringConvertible, Equatable {\n";
@@ -708,7 +744,11 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
               << "String(fromArray: [])\n";
             continue;
         }
-        s << "        self." << fid << " = v.count > " << i << " ? v[" << i << "] : \"\"\n";
+        s << "        self." << fid << " = ";
+        if (!dataTypeOf(f).isEmpty()) s << dataTypeOf(f) << "(";
+        s << "v.count > " << i << " ? v[" << i << "] : \"\"";
+        if (!dataTypeOf(f).isEmpty()) s << ")";
+        s << "\n";
     }
     s << "    }\n\n";
 
@@ -724,6 +764,8 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
         s << toArgLabel(f.name) << ": ";
         if (isAttrSetType(f.type, file))
             s << toTypeName(f.type) << "String.fromText(parts[" << i << "])";
+        else if (!dataTypeOf(f).isEmpty())
+            s << dataTypeOf(f) << "(parts[" << i << "])";
         else
             s << "parts[" << i << "]";
     }
@@ -737,6 +779,8 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
         const QString fid = toIdentifier(as.fields[i].name);
         if (isAttrSetType(as.fields[i].type, file))
             s << "Tokens.nested(" << fid << ".description)";
+        else if (!dataTypeOf(as.fields[i]).isEmpty())
+            s << "Tokens.token(" << fid << ".value)";
         else
             s << "Tokens.token(" << fid << ")";
     }
@@ -756,7 +800,7 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
             const Field& f = as.fields[i];
             const QString fid = toIdentifier(f.name);
             if (i) s << "\n            && ";
-            if (isAttrSetType(f.type, file))
+            if (isAttrSetType(f.type, file) || swiftIsUserDataType(f.type, file))
                 s << "a." << fid << " == b." << fid;
             else
                 s << "(a." << fid << " == dncString || b." << fid
@@ -773,6 +817,99 @@ QString SwiftGenerator::genStringStruct(const AttrSet& as, const SpectableFile& 
 // ---------------------------------------------------------------------------
 // Typed struct
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// A user DataType's String/Typed pair  →  common/<Name>String.swift, …Typed.swift
+//
+// A DataType column behaves exactly as an Entity column does: the String struct
+// holds what the table holds, and the Typed struct is what a converted row
+// holds. The pair is generated whether or not there is a production folder, so
+// what a generated signature looks like does not depend on a project setting.
+// ---------------------------------------------------------------------------
+
+static QString genSwiftDataTypeStringStruct(const QString& name,
+                                             const QStringList& extraImports)
+{
+    const QString base = SwiftGenerator::toTypeName(name);
+    const QString tn   = base + "String";
+    QString out;
+    QTextStream s(&out);
+
+    for (const QString& imp : extraImports) s << imp << "\n";
+    if (!extraImports.isEmpty()) s << "\n";
+
+    s << "/// " << name.trimmed() << " as a table cell holds it: the unconverted text.\n";
+    s << "///\n";
+    s << "/// ExpressibleByStringLiteral, so a generated row still writes the cell as a\n";
+    s << "/// literal while a signature names the DataType the specification declared.\n";
+    s << "public struct " << tn
+      << ": CustomStringConvertible, Equatable, ExpressibleByStringLiteral {\n";
+    s << "    public let value: String\n\n";
+    s << "    public init(_ value: String) {\n        self.value = value\n    }\n\n";
+    s << "    public init(stringLiteral value: String) {\n        self.value = value\n    }\n\n";
+    s << "    public static func fromText(_ text: String) -> " << tn << " {\n";
+    s << "        return " << tn << "(text)\n    }\n\n";
+    s << "    public var description: String {\n        return value\n    }\n\n";
+    s << "    public static let dncString = \"?DNC?\"\n\n";
+    // The Do-Not-Care marker on either side matches whatever the other side
+    // holds, the same rule the String structs follow.
+    s << "    public static func == (a: " << tn << ", b: " << tn << ") -> Bool {\n";
+    s << "        return a.value == dncString || b.value == dncString"
+      << " || a.value == b.value\n";
+    s << "    }\n";
+    s << "}\n";
+
+    return out;
+}
+
+static QString genSwiftDataTypeTypedStruct(const QString& name,
+                                            const QStringList& extraImports)
+{
+    const QString base  = SwiftGenerator::toTypeName(name);
+    const QString strTn = base + "String";
+    const QString tn    = base + "Typed";
+    QString out;
+    QTextStream s(&out);
+
+    for (const QString& imp : extraImports) s << imp << "\n";
+    if (!extraImports.isEmpty()) s << "\n";
+
+    s << "/// " << name.trimmed() << " converted: the text, which the glue converts to\n";
+    s << "/// the production value.\n";
+    s << "///\n";
+    s << "/// Swift's initializer for a DataType throws when the type can refuse a\n";
+    s << "/// value and does not when it cannot, and the generator cannot know which,\n";
+    s << "/// so there is no call it could write here. That rule is the project's own\n";
+    s << "/// in any case, and a specification may state a value the rule refuses, so\n";
+    s << "/// reading it belongs in the glue rather than on a line of a test body --\n";
+    s << "/// a test body throws nothing.\n";
+    s << "public struct " << tn << ": Equatable, CustomStringConvertible {\n";
+    s << "    public let text: String\n\n";
+    s << "    public init(_ text: String) {\n        self.text = text\n    }\n\n";
+    s << "    public init(from s: " << strTn << ") {\n        self.text = s.value\n    }\n\n";
+    s << "    public static let dncString = \"?DNC?\"\n\n";
+    s << "    /// False for an empty cell and for the Do-Not-Care marker, neither of\n";
+    s << "    /// which states a value.\n";
+    s << "    public var hasValue: Bool {\n";
+    s << "        return !text.isEmpty && text != " << tn << ".dncString\n    }\n\n";
+    s << "    /// The text to convert.\n";
+    s << "    public func get() -> String {\n        return text\n    }\n\n";
+    s << "    public func to" << strTn << "() -> " << strTn << " {\n";
+    s << "        return " << strTn << "(text)\n    }\n\n";
+    s << "    public static func toStringList(_ list: [" << tn << "]) -> ["
+      << strTn << "] {\n";
+    s << "        return list.map { $0.to" << strTn << "() }\n    }\n\n";
+    s << "    public static func fromStringList(_ list: [" << strTn << "]) -> ["
+      << tn << "] {\n";
+    s << "        return list.map { " << tn << "(from: $0) }\n    }\n\n";
+    s << "    public var description: String {\n        return text\n    }\n\n";
+    s << "    public static func == (a: " << tn << ", b: " << tn << ") -> Bool {\n";
+    s << "        return a.text == dncString || b.text == dncString || a.text == b.text\n";
+    s << "    }\n";
+    s << "}\n";
+
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 // common/Json.swift — field accessors over Foundation's JSONSerialization.
@@ -1009,6 +1146,9 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
             ? QString("[]")
             : isAttrSetType(f.type, file)
                 ? QString("%1Typed(from: s.%2)").arg(toTypeName(f.type), fid)
+            : swiftIsUserDataType(f.type, file)
+                ? QString("%1Typed(from: s.%2)")
+                      .arg(toTypeName(swiftUserDataTypeName(f.type, file)), fid)
                 : parseExpr(fid, f.type);
         s << "        self." << fid << " = " << expr << "\n";
     }
@@ -1033,6 +1173,9 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
             s << "\"\"";
         else if (isAttrSetType(f.type, file))
             s << fid << ".toStringStruct()";
+        else if (swiftIsUserDataType(f.type, file))
+            s << fid << ".to" << toTypeName(swiftUserDataTypeName(f.type, file))
+              << "String()";
         else
             s << "String(describing: " << fid << ")";
         if (i < as.fields.size() - 1) s << ",";
@@ -1069,6 +1212,10 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
         }
         else if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
             s << "            \"" << fid << "\": " << fid << ",\n";
+        else if (swiftIsUserDataType(f.type, file))
+            // A DataType crosses the wire as the text the table held, so a
+            // document written by one language reads back in the others.
+            s << "            \"" << fid << "\": " << fid << ".text,\n";
         else    // nested Attributes block — written as a nested object
             s << "            \"" << fid << "\": " << fid << ".toJSONValue(),\n";
     }
@@ -1101,6 +1248,10 @@ QString SwiftGenerator::genTypedStruct(const AttrSet& as, const SpectableFile& f
         }
         else if (st == "Int" || st == "Double" || st == "Bool" || st == "String")
             s << "        self." << fid << " = " << src << "\n";
+        else if (swiftIsUserDataType(f.type, file))
+            // The document holds the text; the DataType's own Typed struct is
+            // what carries it, exactly as a table cell does.
+            s << "        self." << fid << " = " << st << "(" << src << ")\n";
         else
             // Nested Attributes block — read as its own Typed struct.
             s << "        self." << fid << " = try " << swiftCommonType(f, file)
@@ -1250,13 +1401,15 @@ QString SwiftGenerator::genTestFile(const SpectableFile& file, const QString& cl
                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
-                // Only a built-in, or an EveryCell grid of an Entity, is
-                // converted here — see swiftCellExpr for why a user DataType is
-                // not. Anything else keeps its grid of text.
+                // A built-in is converted here; a user DataType is wrapped in
+                // its own String struct, text and all — see swiftCellExpr. An
+                // EveryCell grid of an Entity keeps its shape, one object per
+                // cell. Anything else keeps its grid of text.
                 const QString elem = swiftElemType(step.attrSetName, file);
                 const bool convert = !elem.isEmpty();
                 const CellShape shape =
-                    (convert && swiftIsBuiltinType(step.attrSetName))
+                    (convert && (swiftIsBuiltinType(step.attrSetName)
+                              || swiftIsUserDataType(step.attrSetName, file)))
                         ? cellShapeOf(step, file, s_flattenSingleRowToList,
                                       s_flattenSingleCellToScalar)
                         : CellShape::Grid;
@@ -1438,7 +1591,8 @@ QVector<SwiftGenerator::GlueSig> SwiftGenerator::collectGlueSigs(const Spectable
             } else if (!step.attrSetName.isEmpty() && !isDataType(step.attrSetName, file)) {
                 // A Collection step takes an array of its element type.
                 record(meth, { meth, effectiveAttrSetName(step.attrSetName, file) + "String" }, step.line);
-            } else if (swiftIsBuiltinType(step.attrSetName)) {
+            } else if (swiftIsBuiltinType(step.attrSetName)
+                    || swiftIsUserDataType(step.attrSetName, file)) {
                 // A built-in is converted in the test; a user DataType is not.
                 record(meth, { meth, "grid", step.attrSetName,
                                swiftElemType(step.attrSetName, file),
@@ -1815,6 +1969,20 @@ QStringList SwiftGenerator::generate(const SpectableFile& file, const Options& o
         const QString tn = toTypeName(as.name);
         writeFile(commonDir.filePath(tn + "String.swift"), genStringStruct(as, augmented), msgs);
         writeFile(commonDir.filePath(tn + "Typed.swift"),  genTypedStruct(as, augmented),  msgs);
+    }
+
+    // A user DataType's own String/Typed pair
+    {
+        QStringList writtenDataTypes;
+        for (const QString& dt : augmented.dataTypeNames) {
+            const QString tn = toTypeName(dt);
+            if (tn.isEmpty() || writtenDataTypes.contains(tn)) continue;
+            writtenDataTypes << tn;
+            writeFile(commonDir.filePath(tn + "String.swift"),
+                      genSwiftDataTypeStringStruct(dt, m_extraImports), msgs);
+            writeFile(commonDir.filePath(tn + "Typed.swift"),
+                      genSwiftDataTypeTypedStruct(dt, m_extraImports), msgs);
+        }
     }
 
     // Test file

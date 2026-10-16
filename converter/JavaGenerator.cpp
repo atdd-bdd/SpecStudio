@@ -155,6 +155,16 @@ static bool isUserDataType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated class is named once, where the DataType is declared, so every
+// reference has to come back to that spelling.
+static QString userDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return d.trimmed();
+    return name.trimmed();
+}
+
 // Defined further down, beside the grid converter it serves; declared here
 // because collectGlueSigs needs it and comes first.
 static QString gridElementType(const QString& specType, const SpectableFile& file);
@@ -179,6 +189,34 @@ static QString collectionElementType(const QString& name, const SpectableFile& f
     for (const Collection& c : file.collections)
         if (c.name.compare(name, Qt::CaseInsensitive) == 0) return c.elementType;
     return {};
+}
+
+// What a column declared as this type is called on each side of the boundary.
+// An Entity has long been held as its own String and Typed class; a user
+// DataType is now held the same way, so that neither side of a generated class
+// shows a column as a bare string and neither test body applies the DataType's
+// own rule.
+static QString stringFieldType(const QString& type, const SpectableFile& file)
+{
+    if (isAttrSetType(type, file))  return type.trimmed() + "String";
+    if (isUserDataType(type, file)) return userDataTypeName(type, file) + "String";
+    return "String";
+}
+
+static QString typedFieldType(const QString& type, const SpectableFile& file)
+{
+    if (isAttrSetType(type, file))  return type.trimmed() + "Typed";
+    if (isUserDataType(type, file)) return userDataTypeName(type, file) + "Typed";
+    return JavaGenerator::javaType(type);
+}
+
+// The same question for one element of a Collection, where a built-in has to be
+// boxed to go in a List.
+static QString typedElemType(const QString& type, const SpectableFile& file)
+{
+    if (isAttrSetType(type, file))  return type.trimmed() + "Typed";
+    if (isUserDataType(type, file)) return userDataTypeName(type, file) + "Typed";
+    return javaBoxedType(type);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,9 +244,8 @@ static QString jsonWriteExpr(const QString& expr, const QString& specType,
         return QString("%1 == null ? null : %1.toString()").arg(expr);
     if (t == "yesno")
         return QString("%1 == null ? null : %1.value").arg(expr);
-    if (isEnumType(type, file))
-        return QString("%1 == null ? null : %1.name()").arg(expr);
-    // A user DataType is written as its text form, which toString gives: the
+    // A user DataType -- an enumeration among them -- is written as its text
+    // form, which toString gives: the
     // production class decides what it holds -- Pins keeps an int -- and only
     // the text form is its business with the outside.
     if (isUserDataType(type, file))
@@ -242,10 +279,12 @@ static QString jsonReadExpr(const QString& expr, const QString& specType,
     if (t == "time")     return QString("java.time.LocalTime.parse(%1)").arg(str);
     if (t == "datetime") return QString("java.time.LocalDateTime.parse(%1)").arg(str);
     if (t == "duration") return QString("java.time.Duration.parse(%1)").arg(str);
-    if (isEnumType(type, file))
-        return QString("%1.valueOf(%2)").arg(type, str);
-    if (isUserDataType(type, file))
-        return QString("new %1(%2)").arg(type, str);
+    // A DataType reads back through its Typed form, which applies the type's
+    // own rule in one place.
+    if (isUserDataType(type, file)) {
+        const QString n = userDataTypeName(type, file);
+        return QString("new %1Typed(new %1String(%2))").arg(n, str);
+    }
     // string, text and anything unrecognised
     return str;
 }
@@ -668,13 +707,19 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
     s << "public class " << cn << " {\n";
     s << "    private static final String DNCString = \"?DNC?\";\n\n";
 
+    // A nested Attributes block is held as that block's own String class, and a
+    // user DataType as its own, so a column declared as one reads in the glue
+    // as that type rather than as a bare string. The constructor below still
+    // takes text for it, so everything that builds one of these is unchanged.
     for (const Field& f : as.fields) {
-        const QString fType = isAttrSetType(f.type, file) ? f.type + "String" : "String";
+        const QString fType = stringFieldType(f.type, file);
         s << "    public " << fType << " " << toCamelCase(f.name) << ";\n";
     }
     s << "\n";
 
-    // Constructor
+    // Constructor. A DataType parameter is text, and the field wraps it: every
+    // caller -- the generated test, fromText, a hand-written row -- writes the
+    // cell as it appears in the table.
     s << "    public " << cn << "(";
     for (int i = 0; i < as.fields.size(); ++i) {
         if (i) s << ", ";
@@ -682,8 +727,14 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
         s << fType << " " << toCamelCase(as.fields[i].name);
     }
     s << ") {\n";
-    for (const Field& f : as.fields)
-        s << "        this." << toCamelCase(f.name) << " = " << toCamelCase(f.name) << ";\n";
+    for (const Field& f : as.fields) {
+        const QString fn = toCamelCase(f.name);
+        if (isUserDataType(f.type, file))
+            s << "        this." << fn << " = new " << f.type.trimmed()
+              << "String(" << fn << ");\n";
+        else
+            s << "        this." << fn << " = " << fn << ";\n";
+    }
     s << "    }\n\n";
 
     // The text form: values as space separated tokens, in declaration order. A
@@ -732,8 +783,11 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
             // sub-object field — delegate to its own equals (no DNC at this level)
             s << "Objects.equals(" << field << ", that." << field << ")";
         } else {
-            s << "(DNCString.equals(" << field << ") || DNCString.equals(that." << field << ")"
-              << " || Objects.equals(" << field << ", that." << field << "))";
+            // A DataType field compares as the text it holds, marker and all.
+            const QString ref = isUserDataType(as.fields[i].type, file)
+                                    ? field + ".value" : field;
+            s << "(DNCString.equals(" << ref << ") || DNCString.equals(that." << ref << ")"
+              << " || Objects.equals(" << ref << ", that." << ref << "))";
         }
     }
     s << ";\n    }\n\n";
@@ -756,6 +810,10 @@ QString JavaGenerator::genStringClass(const AttrSet& as, const QString& pkg, con
         const QString tsField = toCamelCase(as.fields[i].name);
         if (isAttrSetType(as.fields[i].type, file))
             s << "Tokens.nested(String.valueOf(" << tsField << "))";
+        else if (isUserDataType(as.fields[i].type, file))
+            // One token, so it is written as one rather than wrapped the way a
+            // nested block is.
+            s << "Tokens.token(" << tsField << ".value)";
         else
             s << "Tokens.token(" << tsField << ")";
     }
@@ -805,9 +863,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
     for (const Field& f : as.fields) {
         const bool isCol = isCollectionType(f.type, file);
         const QString elemT = isCol ? collectionElementType(f.type, file) : QString();
-        const QString jt = isCol ? (isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT))
-                         : isAttrSetType(f.type, file) ? f.type + "Typed"
-                         : javaType(f.type);
+        const QString jt = isCol ? typedElemType(elemT, file) : typedFieldType(f.type, file);
         if (isCol)
             s << "    public List<" << jt << "> " << toCamelCase(f.name) << ";\n";
         else
@@ -822,9 +878,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         const Field& f = as.fields[i];
         const bool isCol = isCollectionType(f.type, file);
         const QString elemT = isCol ? collectionElementType(f.type, file) : QString();
-        const QString jt = isCol ? (isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT))
-                         : isAttrSetType(f.type, file) ? f.type + "Typed"
-                         : javaType(f.type);
+        const QString jt = isCol ? typedElemType(elemT, file) : typedFieldType(f.type, file);
         if (isCol)
             s << "List<" << jt << "> " << toCamelCase(f.name);
         else
@@ -841,6 +895,13 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         const QString fn = toCamelCase(f.name);
         if (isCollectionType(f.type, file)) {
             s << "        this." << fn << " = new ArrayList<>(); // Collection — populate from s." << fn << "\n";
+        } else if (isUserDataType(f.type, file)) {
+            // The String class holds this column as the DataType's own String
+            // form, and the Typed class as its Typed form, which is where the
+            // production value is read from the text -- inside the glue's call
+            // rather than in a test body.
+            s << "        this." << fn << " = new "
+              << userDataTypeName(f.type, file) << "Typed(s." << fn << ");\n";
         } else {
             const QString expr = parseExpr(fn, f.type, as.line, msgs, &file, "s");
             s << "        this." << fn << " = " << expr << ";\n";
@@ -908,7 +969,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         const QString fname = toCamelCase(f.name);
         if (isCollectionType(f.type, file)) {
             const QString elemT = collectionElementType(f.type, file);
-            const QString jt    = isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT);
+            const QString jt    = typedElemType(elemT, file);
             const QString local = "json_" + fname;
             s << "        List<Object> " << local << " = new ArrayList<Object>();\n";
             s << "        if (" << fname << " != null)\n";
@@ -933,7 +994,7 @@ QString JavaGenerator::genTypedClass(const AttrSet& as, const QString& pkg, cons
         if (!isCollectionType(f.type, file)) continue;
         const QString fname = toCamelCase(f.name);
         const QString elemT = collectionElementType(f.type, file);
-        const QString jt    = isAttrSetType(elemT, file) ? elemT + "Typed" : javaBoxedType(elemT);
+        const QString jt    = typedElemType(elemT, file);
         const QString raw   = "json_" + fname;
         s << "        List<" << jt << "> " << fname << " = new ArrayList<" << jt << ">();\n";
         s << "        List<Object> " << raw << " = Json.getArray(m, \"" << fname << "\");\n";
@@ -1521,10 +1582,11 @@ static QString cellConvertExpr(const QString& specType, const SpectableFile& fil
         return "Boolean.parseBoolean(cell)";
     if (t == "string" || t == "text" || t == "character" || t == "char")
         return "cell";
-    if (isEnumType(specType.trimmed(), file))
-        return specType.trimmed() + ".valueOf(cell)";
-    if (isDataType(specType.trimmed(), file))
-        return "new " + specType.trimmed() + "(cell)";
+    // A user DataType hands over its String form. Building the production value
+    // here would put the type's own rule in the test body, where a value the
+    // specification states as invalid throws before the glue is reached.
+    if (isUserDataType(specType.trimmed(), file))
+        return "new " + userDataTypeName(specType, file) + "String(cell)";
     // EveryCell over an Entity or Attributes block. The cell holds that block's
     // text form -- the values space separated, quoted where one contains a
     // space, nested blocks in single quotes -- which is exactly what fromText
@@ -1543,6 +1605,8 @@ static QString gridElementType(const QString& specType, const SpectableFile& fil
 {
     if (isAttrSetType(specType.trimmed(), file))
         return specType.trimmed() + "Typed";
+    if (isUserDataType(specType.trimmed(), file))
+        return userDataTypeName(specType, file) + "String";
     return javaBoxedType(specType);
 }
 
@@ -1982,6 +2046,134 @@ static QString genYesNoClass(const QString& pkg, const QStringList& extraImports
     s << "    }\n\n";
     s << "    @Override\n";
     s << "    public int hashCode() { return Objects.hash(toBoolean()); }\n";
+    s << "}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// common/<Name>String.java — the text form of a cell in a user DataType column.
+//
+// A DataType column is handed to the glue as this wrapper rather than as the
+// production class, for the same reason an Entity column is handed over as its
+// String form: converting in the test body would mean the test throwing on a
+// value the DataType's own rule rejects, and a specification is allowed to
+// state such a value deliberately (a ValidValues table with IsValid = no). The
+// conversion happens in <Name>Typed, on the glue's side of the boundary.
+//
+// The constructor takes text, so every generated call site and every literal in
+// a test reads exactly as it did when the field was a plain String.
+static QString genDataTypeStringClassJava(const QString& name, const QString& pkg,
+                                          const QStringList& extraImports)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.Objects;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+    s << "/** " << name << " as a table cell holds it: the unconverted text. */\n";
+    s << "public class " << name << "String {\n";
+    s << "    public final String value;\n\n";
+    s << "    public " << name << "String(String value) {\n";
+    s << "        this.value = value != null ? value : \"\";\n";
+    s << "    }\n\n";
+    s << "    public static " << name << "String fromText(String text) {\n";
+    s << "        return new " << name << "String(text);\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public String toString() { return value; }\n\n";
+    s << "    @Override\n";
+    s << "    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof " << name << "String)) return false;\n";
+    s << "        return value.equals(((" << name << "String) o).value);\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public int hashCode() { return Objects.hash(value); }\n";
+    s << "}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// common/<Name>Typed.java — the same DataType on the far side of the boundary.
+//
+// A column declared as an Entity is held as <Entity>String in the String class
+// and <Entity>Typed in the Typed one; a DataType column reads the same way, so
+// no generated class shows one as a bare string. What the Typed form holds is
+// the production value, built here -- the one place the type's own rule is
+// applied, and the glue's side of the call.
+//
+// An empty cell and ?DNC? carry no value: there is nothing to build from them,
+// and a specification writes ?DNC? precisely to say it does not care.
+static QString genDataTypeTypedClassJava(const QString& name, bool isEnum, bool prodReachable,
+                                         const QString& pkg, const QStringList& extraImports)
+{
+    const QString cn = name + "Typed";
+    const QString sn = name + "String";
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << ";\n\n";
+    s << "import java.util.ArrayList;\n";
+    s << "import java.util.List;\n";
+    s << "import java.util.Objects;\n";
+    for (const QString& imp : extraImports) s << imp << "\n";
+    s << "\n";
+
+    s << "/** " << name << " as the glue uses it: the text read into the declared type. */\n";
+    s << "public class " << cn << " {\n";
+    s << "    private static final String DNCString = \"?DNC?\";\n\n";
+    s << "    /** The cell as written. ?DNC? and an empty cell are kept as they came. */\n";
+    s << "    public final String text;\n";
+
+    if (prodReachable) {
+        s << "    private final " << name << " value;   // null for an empty cell or ?DNC?\n\n";
+        s << "    public " << cn << "(" << sn << " s) {\n";
+        s << "        this.text  = s == null ? \"\" : s.value;\n";
+        s << "        this.value = (text.isEmpty() || DNCString.equals(text)) ? null\n";
+        s << "                   : " << (isEnum ? name + ".valueOf(text)" : "new " + name + "(text)") << ";\n";
+        s << "    }\n\n";
+        s << "    public " << cn << "(" << name << " value) {\n";
+        s << "        this.value = value;\n";
+        s << "        this.text  = value == null ? \"\" : value.toString();\n";
+        s << "    }\n\n";
+        s << "    public boolean hasValue() { return value != null; }\n\n";
+        s << "    /** The declared value, or null for an empty cell or ?DNC?. */\n";
+        s << "    public " << name << " get() { return value; }\n\n";
+    } else {
+        // No production package to reach, so there is no class to hold. The
+        // Typed form is generated either way, so that what a generated
+        // signature looks like does not depend on a project setting.
+        s << "\n";
+        s << "    public " << cn << "(" << sn << " s) {\n";
+        s << "        this.text = s == null ? \"\" : s.value;\n";
+        s << "    }\n\n";
+        s << "    public boolean hasValue() { return !text.isEmpty() && !DNCString.equals(text); }\n\n";
+    }
+
+    s << "    public " << sn << " to" << sn << "() { return new " << sn << "(text); }\n\n";
+    s << "    public static List<" << cn << "> fromStringList(List<" << sn << "> list) {\n";
+    s << "        List<" << cn << "> result = new ArrayList<" << cn << ">();\n";
+    s << "        if (list != null) for (" << sn << " s : list) result.add(new " << cn << "(s));\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+    s << "    public static List<" << sn << "> toStringList(List<" << cn << "> list) {\n";
+    s << "        List<" << sn << "> result = new ArrayList<" << sn << ">();\n";
+    s << "        if (list != null) for (" << cn << " t : list) result.add(t.to" << sn << "());\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public String toString() { return text; }\n\n";
+    s << "    @Override\n";
+    s << "    public boolean equals(Object o) {\n";
+    s << "        if (this == o) return true;\n";
+    s << "        if (!(o instanceof " << cn << ")) return false;\n";
+    s << "        " << cn << " that = (" << cn << ") o;\n";
+    s << "        return DNCString.equals(text) || DNCString.equals(that.text)\n";
+    s << "            || Objects.equals(text, that.text);\n";
+    s << "    }\n\n";
+    s << "    @Override\n";
+    s << "    public int hashCode() { return Objects.hash(text); }\n";
     s << "}\n";
     return out;
 }
@@ -2648,6 +2840,8 @@ static QMap<QString, QString> genProductionConverters(const QVector<AttrSet>& en
                     s << fn;  // local variable already built above
                 else if (isAttrSetType(as.fields[i].type, file))
                     s << as.fields[i].type << "TypedToProduction(t." << fn << ")";
+                else if (isUserDataType(as.fields[i].type, file))
+                    s << "t." << fn << ".get()";   // the Typed form holds it
                 else
                     s << "t." << fn;
             }
@@ -2659,6 +2853,8 @@ static QMap<QString, QString> genProductionConverters(const QVector<AttrSet>& en
                 const QString fn = toCamelCase(as.fields[i].name);
                 if (isAttrSetType(as.fields[i].type, file))
                     s << as.fields[i].type << "TypedToProduction(t." << fn << ")";
+                else if (isUserDataType(as.fields[i].type, file))
+                    s << "t." << fn << ".get()";   // the Typed form holds it
                 else
                     s << "t." << fn;
             }
@@ -2678,6 +2874,8 @@ static QMap<QString, QString> genProductionConverters(const QVector<AttrSet>& en
                 s << elem << "ProductionToTypedList(p." << fn << ".read())";
             } else if (isAttrSetType(as.fields[i].type, file)) {
                 s << as.fields[i].type << "ProductionToTyped(p." << fn << ")";
+            } else if (isUserDataType(as.fields[i].type, file)) {
+                s << "new " << userDataTypeName(as.fields[i].type, file) << "Typed(p." << fn << ")";
             } else {
                 s << "p." << fn;
             }
@@ -2986,6 +3184,29 @@ QStringList JavaGenerator::generate(const SpectableFile& file, const Options& op
             }
             if (!sa.fields.isEmpty())
                 augmented.attrSets.push_back(sa);
+        }
+    }
+
+    // A String/Typed pair per user DataType, declared here or pulled in through
+    // --context: a field in this specification may name either, and both write
+    // into the same common package.
+    {
+        const bool prodReachable = !opts.productionClassesPackage.isEmpty()
+                                && productionPackageHasContents(file);
+        QStringList written;
+        for (const QString& dt : file.dataTypeNames) {
+            const QString name = dt.trimmed();
+            if (name.isEmpty()) continue;
+            bool already = false;
+            for (const QString& w : written)
+                if (w.compare(name, Qt::CaseInsensitive) == 0) { already = true; break; }
+            if (already) continue;
+            written << name;
+            writeFile(domainDir.filePath(name + "String.java"),
+                      genDataTypeStringClassJava(name, domainPkg, m_extraImports), msgs);
+            writeFile(domainDir.filePath(name + "Typed.java"),
+                      genDataTypeTypedClassJava(name, isEnumType(name, file), prodReachable,
+                                                domainPkg, m_extraImports), msgs);
         }
     }
 

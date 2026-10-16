@@ -253,7 +253,12 @@ static QString jsElemType(const QString& specType, const SpectableFile& file)
     };
     for (const QString& prim : primitives)
         if (prim.compare(base, Qt::CaseInsensitive) == 0) return QString();
-    return base;   // a user DataType, which lives in production/
+    // A user DataType reaches the glue as the cell's text, the same form the
+    // other eight targets hand over as <Name>String. Its rule is the project's
+    // own, and a specification may state a value that rule refuses, so the
+    // conversion belongs in the glue rather than on the line of a test body
+    // that builds a table. JavaScript declares no types, so text is that form.
+    return QString();
 }
 
 // `literal` is already escaped for a double-quoted JavaScript string.
@@ -274,7 +279,7 @@ static QString jsCellExpr(const QString& specType, const QString& literal,
     const QString base = specType.trimmed();
     if (jsNamesAnAttrSet(base, file))
         return base + "Typed.fromStringObj(" + base + "String.fromText(" + quoted + "))";
-    return "new " + base + "(" + quoted + ")";   // a user DataType
+    return quoted;   // a user DataType: its text, which the glue converts
 }
 
 // The name a step's glue method gets, honouring the configured naming. A step
@@ -849,7 +854,10 @@ QString JavaScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
               || t == "date"   || t == "time" || t == "datetime"  || t == "duration")
             expr = QString("_json.asString(%1, \"%2\")").arg(src, fn);
         else
-            expr = QString("new %1(_json.asString(%2, \"%3\"))").arg(f.type.trimmed(), src, fn);
+            // A user DataType is carried as text here, the same as it is when
+            // the row comes from a table: common does not import production,
+            // and `new Instrument(...)` named a class this file never imported.
+            expr = QString("_json.asString(%1, \"%2\")").arg(src, fn);
         s << "      " << expr;
         if (i < as.fields.size() - 1) s << ",";
         s << "\n";
@@ -1049,10 +1057,11 @@ QString JavaScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
     for (const NamedBlock& nb : file.namedBlocks)
         addWithNested(nb.examples.attrSetName);
 
-    // A DataType step is converted here rather than in the glue, so the test
-    // names that production class and has to import it. An Entity cell is built
-    // through its Typed form, which addWithNested above does not reach — it
-    // collects only the String classes a row literal names.
+    // Nothing in a test body names a production class: a built-in cell becomes
+    // a number, string or boolean, and a user DataType is handed over as the
+    // cell's text for the glue to convert. An Entity cell is built through its
+    // Typed form, which addWithNested above does not reach — it collects only
+    // the String classes a row literal names.
     QStringList prodTypes;
     auto noteCellClasses = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
@@ -1420,10 +1429,12 @@ QString JavaScriptGenerator::genStubMethod(const GlueSig& sig, bool failEveryTes
             s << "    throw new Error(\"Not implemented: " << sig.method << "\");\n";
         s << "  }";
     } else if (sig.paramType == "grid" && !sig.gridDataType.isEmpty()) {
-        // The values arrive already converted: the test builds them, so the
-        // glue is handed the type the specification declared rather than text
-        // it would have to parse for itself. EveryCell reaches here too — each
-        // of its cells is one object built from that cell's text form.
+        // A built-in arrives converted -- the test builds it, and the converter
+        // has already checked every cell. A declared DataType arrives as the
+        // cell's text, because its rule is the project's and a specification
+        // may state a value that rule refuses: converting here keeps that
+        // throw out of the test body. EveryCell reaches here too -- each of
+        // its cells is one value.
         if (sig.gridShape == CellShape::Scalar) {
             s << "\n  " << sig.method << "(value) {\n";
             s << "    console.log(String(value));\n";
@@ -1523,7 +1534,7 @@ QString JavaScriptGenerator::genGlueFile(const SpectableFile& file,
     QTextStream s(&out);
 
     // A JavaScript stub declares no parameter types, so a grid of a user
-    // DataType needs no import at all — the values arrive already built. An
+    // DataType needs no import at all — the cells arrive as text. An
     // Entity grid's String/Typed pair is still imported, so a hand-written body
     // has the pair to hand.
     QStringList glueTypes;

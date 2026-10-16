@@ -699,6 +699,36 @@ logs an INFO line saying where the type already lives. So consolidating several
 types into one file is fine, and so is renaming the file. Turn
 `createProductionClasses` off and no production files are written at all.
 
+### How a column reaches the glue
+
+A column's declared type decides what the glue is handed.
+
+A **built-in** type — `String`, `Integer`, `Decimal`, `Boolean`, `Date` and the
+rest — arrives already converted. The test does that conversion, and it cannot
+fail there: the converter checks every built-in cell when it generates, so a
+cell that would not convert is a build error, not a test that throws.
+
+A **DataType you declared** arrives as its text, in a wrapper named after the
+type: a column of `Pins` is a `PinsString`, and the glue reads `Pins` from it.
+The rule the DataType enforces is the project's own, and a specification may
+state a value it refuses on purpose, so the reading belongs where a test can
+report it — the glue — and not in the test body. No test body throws.
+
+An **attribute set** arrives as `<Set>String`, one object per row, holding every
+cell as text. `<Set>Typed` is the converted form, built from it in the glue with
+one call. A DataType field on a `Typed` is a `<Name>Typed` of its own, and
+`get()` hands back the value: `CatalogItemTyped.price.get()` is a `Dollar`.
+
+`EveryCell` changes nothing here. Each cell of the grid crosses as
+`<Name>String` too.
+
+In Go, Rust, Swift and JavaScript a `<Name>Typed` carries only the text, and
+`get()` returns that: a DataType's own constructor differs too much between
+projects in those languages — `(T, error)`, `Result<Self, String>`, `throws`,
+or none of the three — for generated code to call it, so the glue converts.
+Python and TypeScript keep the text for a DataType whose values are an
+enumeration, and hold the value otherwise.
+
 **Keep computation out of glue.** Glue should drive production objects and
 compare results. If a total needs calculating, the production class calculates
 it. Glue that does arithmetic is testing itself.

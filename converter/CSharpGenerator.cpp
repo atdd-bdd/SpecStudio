@@ -94,10 +94,14 @@ static bool s_flattenSingleCellToScalar = false;
 static bool    isCollectionType(const QString& name, const SpectableFile& file);
 static bool    isAttrSetType(const QString& name, const SpectableFile& file);
 static QString collectionElementType(const QString& name, const SpectableFile& file);
+static bool    isUserDataType(const QString& name, const SpectableFile& file);
+static QString userDataTypeName(const QString& name, const SpectableFile& file);
 
-// One table cell as an expression of the declared type. The test writes these,
-// so a cell that the type refuses fails there -- where the specification put
-// the rule -- rather than being handed to the glue as text for it to parse.
+// One table cell as an expression of the declared type. A built-in is converted
+// here, in the test: the converter has already checked the cell, so none of
+// these can throw. A user DataType is not -- its rule is the project's, and a
+// specification may state a value the rule rejects on purpose -- so the cell
+// goes over as its String form and the Typed form reads it in the glue.
 static QString csCellExpr(const QString& specType, const QString& literal,
                           const SpectableFile& file)
 {
@@ -116,13 +120,19 @@ static QString csCellExpr(const QString& specType, const QString& literal,
     if (isAttrSetType(specType.trimmed(), file))
         return specType.trimmed() + "String.FromText(" + quoted + ").To"
              + specType.trimmed() + "Typed()";
-    return "new " + specType.trimmed() + "(" + quoted + ")";   // a user DataType
+    if (isUserDataType(specType.trimmed(), file))
+        return "new " + userDataTypeName(specType.trimmed(), file) + "String(" + quoted + ")";
+    return "new " + specType.trimmed() + "(" + quoted + ")";
 }
 
 // The element type a converted cell has.
 static QString csElemType(const QString& specType, const SpectableFile& file)
 {
     if (isAttrSetType(specType.trimmed(), file)) return specType.trimmed() + "Typed";
+    // A DataType table crosses to the glue as text, so that a cell the type
+    // rejects is the glue's to judge and not a throw in the test body.
+    if (isUserDataType(specType.trimmed(), file))
+        return userDataTypeName(specType.trimmed(), file) + "String";
     return CSharpGenerator::csharpType(specType);
 }
 
@@ -215,6 +225,24 @@ static bool isEnumType(const QString& name, const SpectableFile& file)
     return false;
 }
 
+// True only for a user-declared DataType. A built-in never answers yes, so the
+// caller can tell a type the project owns from one the converter owns.
+static bool isUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated classes are named once, where it is declared.
+static QString userDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(name, Qt::CaseInsensitive) == 0) return d.trimmed();
+    return name.trimmed();
+}
+
 // Produce the expression used inside To<Name>Typed() to convert one field
 QString CSharpGenerator::parseExpr(const QString& field, const QString& specType,
                                    const SpectableFile* file)
@@ -245,9 +273,14 @@ QString CSharpGenerator::parseExpr(const QString& field, const QString& specType
         // The String class already holds the nested block's own String class.
         return QString("this.%1.To%2Typed()").arg(field, specType.trimmed());
     }
-    if (file && isEnumType(specType.trimmed(), *file))
-        return QString("System.Enum.Parse<%1>(this.%2)").arg(specType.trimmed(), field);
-    // User-defined DataType: wrap in constructor
+    // A user DataType -- an enumeration among them -- is held as its Typed form,
+    // which is where the type's own rule is applied: on the glue's side of the
+    // call, never in a test body.
+    if (file && isUserDataType(specType.trimmed(), *file))
+        return QString("new %1Typed(this.%2)")
+                   .arg(userDataTypeName(specType.trimmed(), *file), field);
+    // A type no declaration names: wrap in a constructor and let the compiler
+    // say so.
     return QString("new %1(this.%2)").arg(specType.trimmed()).arg(field);
 }
 
@@ -363,7 +396,12 @@ static bool isAttrSetType(const QString& name, const SpectableFile& file)
 // AttributeSet, which is that block's own String class.
 static QString stringFieldType(const Field& f, const SpectableFile& file)
 {
-    return isAttrSetType(f.type, file) ? f.type.trimmed() + "String" : QString("string");
+    if (isAttrSetType(f.type, file))  return f.type.trimmed() + "String";
+    // A user DataType column is held as its own String class, exactly as a
+    // nested block is: neither side of a generated class shows a declared type
+    // as a bare string.
+    if (isUserDataType(f.type, file)) return userDataTypeName(f.type, file) + "String";
+    return QString("string");
 }
 
 // Field type inside the *Typed class.
@@ -375,7 +413,8 @@ static QString typedFieldType(const Field& f, const SpectableFile& file)
                                                         : CSharpGenerator::csharpType(elem);
         return "List<" + inner + ">";
     }
-    if (isAttrSetType(f.type, file)) return f.type.trimmed() + "Typed";
+    if (isAttrSetType(f.type, file))  return f.type.trimmed() + "Typed";
+    if (isUserDataType(f.type, file)) return userDataTypeName(f.type, file) + "Typed";
     return CSharpGenerator::csharpType(f.type);
 }
 
@@ -559,6 +598,116 @@ static QVector<QStringList> resolveExamplesRows(const NamedBlock& block, const A
 }
 
 // ---------------------------------------------------------------------------
+// common/<Name>String.cs and common/<Name>Typed.cs — a user DataType on each
+// side of the test/glue boundary.
+//
+// A column declared as an Entity has long been carried as <Entity>String in the
+// String class and <Entity>Typed in the Typed one. A DataType column now reads
+// the same way, so that no generated class shows a declared type as a bare
+// string. The pair also decides where the type's own rule is applied: the
+// String form is only text, and the Typed form builds the production value --
+// which puts the one conversion that can throw on the glue's side of the call,
+// never in a test body, because a specification may state a value the rule
+// rejects on purpose (a ValidValues row with IsValid = no).
+//
+// The String form is a readonly struct that converts to and from string
+// implicitly, so every existing call site -- a literal in a test, Tokens.Token,
+// a production constructor taking text -- compiles unchanged.
+// ---------------------------------------------------------------------------
+
+static QString genCSharpDataTypeStringClass(const QString& name, const QString& ns,
+                                            const QStringList& extraImports)
+{
+    const QString cn = name + "String";
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    for (const QString& u : extraImports) s << u << "\n";
+    if (!extraImports.isEmpty()) s << "\n";
+    s << "    /// <summary>" << name
+      << " as a table cell holds it: the unconverted text.</summary>\n";
+    s << "    public readonly struct " << cn << "\n    {\n";
+    s << "        private readonly string? text;\n\n";
+    s << "        public " << cn << "(string? text) { this.text = text; }\n\n";
+    s << "        public string Value => this.text ?? \"\";\n\n";
+    s << "        public static implicit operator " << cn
+      << "(string? text) => new " << cn << "(text);\n";
+    s << "        public static implicit operator string(" << cn << " cell) => cell.Value;\n\n";
+    s << "        public static " << cn << " FromText(string text) => new " << cn << "(text);\n\n";
+    s << "        public override string ToString() => this.Value;\n\n";
+    s << "        public override bool Equals(object? obj) => obj is " << cn
+      << " other && this.Value == other.Value;\n\n";
+    s << "        public override int GetHashCode() => this.Value.GetHashCode();\n";
+    s << "    }\n}\n";
+    return out;
+}
+
+static QString genCSharpDataTypeTypedClass(const QString& name, bool isEnum, bool prodReachable,
+                                           const QString& ns, const QStringList& extraImports)
+{
+    const QString cn = name + "Typed";
+    const QString sn = name + "String";
+    QString out;
+    QTextStream s(&out);
+    s << "namespace " << ns << "\n{\n";
+    s << "using System.Collections.Generic;\n";
+    for (const QString& u : extraImports) s << u << "\n";
+    s << "\n";
+    s << "    /// <summary>" << name
+      << " as the glue uses it: the text read into the declared type.</summary>\n";
+    s << "    public class " << cn << "\n    {\n";
+    s << "        const string DNCString = \"?DNC?\";\n\n";
+    s << "        /// <summary>The cell as written. ?DNC? and an empty cell are kept as they came.</summary>\n";
+    s << "        public readonly string Text;\n";
+
+    if (prodReachable) {
+        s << "        private readonly " << name << "? value;   // null for an empty cell or ?DNC?\n\n";
+        s << "        public " << cn << "(" << sn << " s)\n        {\n";
+        s << "            this.Text  = s.Value;\n";
+        // The cast is needed for an enumeration: null and a non-nullable value
+        // type have no common type between them.
+        s << "            this.value = (this.Text.Length == 0 || this.Text == DNCString) ? ("
+          << name << "?)null\n";
+        s << "                       : " << (isEnum ? "System.Enum.Parse<" + name + ">(this.Text)"
+                                                    : "new " + name + "(this.Text)") << ";\n";
+        s << "        }\n\n";
+        s << "        public " << cn << "(" << name << "? value)\n        {\n";
+        s << "            this.value = value;\n";
+        s << "            this.Text  = value?.ToString() ?? \"\";\n";
+        s << "        }\n\n";
+        s << "        public bool HasValue => this.value is not null;\n\n";
+        s << "        /// <summary>The declared value. An empty cell and ?DNC? have none.</summary>\n";
+        s << "        public " << name << " Get() => this.value!" << (isEnum ? ".Value" : "") << ";\n\n";
+    } else {
+        // No production namespace to reach, so there is no type to hold. The
+        // Typed form is generated either way, so that what a generated
+        // signature looks like does not depend on a project setting.
+        s << "\n";
+        s << "        public " << cn << "(" << sn << " s) { this.Text = s.Value; }\n\n";
+        s << "        public bool HasValue => this.Text.Length != 0 && this.Text != DNCString;\n\n";
+    }
+
+    s << "        public " << sn << " To" << sn << "() => new " << sn << "(this.Text);\n\n";
+    s << "        public static List<" << cn << "> FromStringList(List<" << sn << "> list)\n        {\n";
+    s << "            var result = new List<" << cn << ">();\n";
+    s << "            foreach (var s in list) result.Add(new " << cn << "(s));\n";
+    s << "            return result;\n        }\n\n";
+    s << "        public static List<" << sn << "> ToStringList(List<" << cn << "> list)\n        {\n";
+    s << "            var result = new List<" << sn << ">();\n";
+    s << "            foreach (var t in list) result.Add(t.To" << sn << "());\n";
+    s << "            return result;\n        }\n\n";
+    s << "        public override string ToString() => this.Text;\n\n";
+    s << "        public override bool Equals(object? obj)\n        {\n";
+    s << "            if (obj is not " << cn << " other) return false;\n";
+    s << "            return DNCString == this.Text || DNCString == other.Text\n";
+    s << "                || this.Text == other.Text;\n";
+    s << "        }\n\n";
+    s << "        public override int GetHashCode() => this.Text.GetHashCode();\n";
+    s << "    }\n}\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // String class generator
 // ---------------------------------------------------------------------------
 
@@ -588,7 +737,12 @@ QString CSharpGenerator::genEqualityMembers(const AttrSet& as, const QString& cn
             if (i) s << "\n                && ";
             // A nested block delegates to its own Equals; DNC is a text marker
             // and does not apply at that level.
-            if (dncAware && !isAttrSetType(f.type, file))
+            if (dncAware && isUserDataType(f.type, file))
+                // Through .Value, so this is plain string equality rather than
+                // the struct's own Equals against a string.
+                s << "(DNCString == this." << fn << ".Value || DNCString == other." << fn
+                  << ".Value || this." << fn << ".Value == other." << fn << ".Value)";
+            else if (dncAware && !isAttrSetType(f.type, file))
                 s << "(DNCString == this." << fn << " || DNCString == other." << fn
                   << " || object.Equals(this." << fn << ", other." << fn << "))";
             else
@@ -1055,9 +1209,11 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
             s << "            w.WritePropertyName(\"" << fn << "\");\n";
             s << "            this." << fn << ".WriteJson(w);\n";
         }
-        else if (isEnumType(f.type, file))
+        else if (isUserDataType(f.type, file))
+            // The Typed form keeps the cell's text, which is all a DataType --
+            // an enumeration included -- has to say to the outside.
             s << "            w.WriteString(\"" << fn << "\", this." << fn << ".ToString());\n";
-        else    // user-defined DataType — same text convention parseExpr assumes
+        else
             s << "            w.WriteString(\"" << fn << "\", Json.ToText(this." << fn << "));\n";
     }
     s << "            w.WriteEndObject();\n";
@@ -1093,9 +1249,9 @@ QString CSharpGenerator::genTypedClass(const AttrSet& as, const QString& ns, con
         else if (isAttrSetType(f.type, file))
             // Nested block — read it as its own Typed object, not a production class.
             expr = QString("%1Typed.FromJsonElement(%2)").arg(f.type.trimmed(), src);
-        else if (isEnumType(f.type, file))
-            expr = QString("System.Enum.Parse<%1>(Json.AsString(%2, \"%3\"))")
-                       .arg(f.type.trimmed(), src, fn);
+        else if (isUserDataType(f.type, file))
+            expr = QString("new %1Typed(new %1String(Json.AsString(%2, \"%3\")))")
+                       .arg(userDataTypeName(f.type, file), src, fn);
         else                       expr = QString("new %1(Json.AsString(%2, \"%3\"))")
                                               .arg(f.type.trimmed(), src, fn);
         s << "                " << expr;
@@ -2020,6 +2176,29 @@ QStringList CSharpGenerator::generate(const SpectableFile& file, const Options& 
 
     writeFile(commonDir.filePath("Json.cs"), genCSharpJsonClass(commonNs, m_extraImports), msgs);
     writeFile(commonDir.filePath("Tokens.cs"), genTokensClass(commonNs, m_extraImports), msgs);
+
+    // 1a. A String/Typed pair per user DataType, declared here or pulled in
+    // through --context: a field in this specification may name either, and
+    // both write into the same common namespace.
+    {
+        const bool prodReachable = opts.createProductionClasses
+                                && productionNamespaceHasContents(file);
+        QStringList written;
+        for (const QString& dt : augmented.dataTypeNames) {
+            const QString name = dt.trimmed();
+            if (name.isEmpty()) continue;
+            bool already = false;
+            for (const QString& w : written)
+                if (w.compare(name, Qt::CaseInsensitive) == 0) { already = true; break; }
+            if (already) continue;
+            written << name;
+            writeFile(commonDir.filePath(name + "String.cs"),
+                      genCSharpDataTypeStringClass(name, commonNs, m_extraImports), msgs);
+            writeFile(commonDir.filePath(name + "Typed.cs"),
+                      genCSharpDataTypeTypedClass(name, isEnumType(name, augmented), prodReachable,
+                                                  commonNs, m_extraImports), msgs);
+        }
+    }
 
     // 1. String + Typed classes for each AttrSet → go into common/
     for (const AttrSet& as : augmented.attrSets) {

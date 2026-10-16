@@ -137,6 +137,23 @@ QString GoGenerator::goStringLiteral(const AttrSet& as, const QStringList& row,
     return expr + "}";
 }
 
+// True only for a user-declared DataType; a built-in never answers yes.
+static bool goIsUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated pair is named once, where it is declared.
+static QString goUserDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return dt.trimmed();
+    return name.trimmed();
+}
+
 bool GoGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
 {
     for (const AttrSet& as : file.attrSets)
@@ -144,10 +161,13 @@ bool GoGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
     return false;
 }
 
-// The type a field takes inside the common package. A nested Attributes block
-// becomes that block's own Typed struct. A user DataType lives in the
-// production package, which common must not depend on, so its value is carried
-// as text — the glue converts it when it needs the production object.
+// The type a field takes inside the Typed struct. A nested Attributes block
+// becomes that block's own Typed struct, and a user DataType its own Typed
+// type, exactly as the other targets name them. What that Typed type holds is
+// the text: Go's constructor for a DataType returns (T, error) when the type
+// can refuse a value and plain T when it cannot -- NewDollar against
+// NewInstrument -- and the generator cannot know which, so the production
+// object is read in the glue.
 QString GoGenerator::goCommonType(const Field& f, const SpectableFile& file)
 {
     // A Collection field is a slice of its element's Typed struct. Without this
@@ -159,6 +179,8 @@ QString GoGenerator::goCommonType(const Field& f, const SpectableFile& file)
                                                  : goType(elem));
     }
     if (isAttrSetType(f.type, file)) return toExported(f.type) + "Typed";
+    if (goIsUserDataType(f.type, file))
+        return toExported(goUserDataTypeName(f.type, file)) + "Typed";
 
     static const QSet<QString> builtin = {
         "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
@@ -219,11 +241,14 @@ static bool s_flattenSingleCellToScalar = false;
 // converts, so the glue never parses text the specification already declared
 // the type of.
 //
-// A step that names a *user* DataType is left alone. Go's constructor for one
-// returns (T, error) when the type can refuse a value and plain T when it
-// cannot -- NewPins against NewFormattedDollar -- and the generator has no way
-// to know which, so there is no single expression it could emit. Those steps
-// keep their grid of text, and the glue converts as it always did.
+// A step that names a *user* DataType is handed its cells as that DataType's
+// own String type -- a named string holding the cell's text. Go's constructor
+// for a DataType returns (T, error) when the type can refuse a value and plain
+// T when it cannot -- NewPins against NewFormattedDollar -- and the generator
+// has no way to know which, so there is no expression it could emit here. That
+// is as well: the type's rule is the project's own and a specification may
+// state a value the rule refuses, so the conversion belongs in the glue rather
+// than on a line of a test body.
 //
 // The conversion happens here rather than at run time because strconv.Atoi
 // returns two values and cannot be written inside a composite literal. The
@@ -259,6 +284,8 @@ static QString goElemType(const QString& specType, const SpectableFile& file)
     const QString base = specType.trimmed();
     if (goNamesAnAttrSet(base, file)) return "common." + GoGenerator::toExported(base) + "Typed";
     if (goIsBuiltinType(base))        return GoGenerator::goType(base);
+    if (goIsUserDataType(base, file))
+        return "common." + GoGenerator::toExported(goUserDataTypeName(base, file)) + "String";
     return {};
 }
 
@@ -292,6 +319,9 @@ static QString goCellExpr(const QString& specType, const QString& cellText,
         return "common.New" + base + "TypedFromString(common.New" + base
              + "StringFromText(\"" + goEscape(cellText) + "\"))";
     }
+    if (goIsUserDataType(specType.trimmed(), file))
+        return "common." + GoGenerator::toExported(goUserDataTypeName(specType.trimmed(), file))
+             + "String(\"" + goEscape(cellText) + "\")";
     // Character / String / Text / Date / Time / DateTime / Duration all carry
     // their text.
     return "\"" + goEscape(cellText) + "\"";
@@ -588,10 +618,19 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
     s << "package " << pkg << "\n\n";
 
     // A field whose type names another Attributes block holds that block's
-    // String struct, not a bare string.
+    // String struct, not a bare string; a user DataType column holds that
+    // DataType's own String type, which is a named string.
     auto fieldType = [&](const Field& f) {
-        return isAttrSetType(f.type, file) ? toExported(f.type) + "String"
-                                          : QString("string");
+        if (isAttrSetType(f.type, file)) return toExported(f.type) + "String";
+        if (goIsUserDataType(f.type, file))
+            return toExported(goUserDataTypeName(f.type, file)) + "String";
+        return QString("string");
+    };
+    // A named string type takes an explicit conversion from string, and the
+    // helpers in common.go take a plain one.
+    auto dataTypeOf = [&](const Field& f) {
+        return goIsUserDataType(f.type, file)
+             ? toExported(goUserDataTypeName(f.type, file)) + "String" : QString();
     };
 
     s << "type " << typeName << " struct {\n";
@@ -609,6 +648,8 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
           << " = ";
         if (isAttrSetType(as.fields[i].type, file))
             s << "New" << toExported(as.fields[i].type) << "StringFromText(v[" << i << "])";
+        else if (!dataTypeOf(as.fields[i]).isEmpty())
+            s << dataTypeOf(as.fields[i]) << "(v[" << i << "])";
         else
             s << "v[" << i << "]";
         s << " }\n";
@@ -626,6 +667,8 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
         if (isAttrSetType(as.fields[i].type, file))
             s << "New" << toExported(as.fields[i].type) << "StringFromText(parts["
               << i << "])";
+        else if (!dataTypeOf(as.fields[i]).isEmpty())
+            s << dataTypeOf(as.fields[i]) << "(parts[" << i << "])";
         else
             s << "parts[" << i << "]";
         s << ",\n";
@@ -640,6 +683,8 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
         const QString fx = toExported(as.fields[i].name);
         if (isAttrSetType(as.fields[i].type, file))
             s << "Nested(s." << fx << ".String())";
+        else if (!dataTypeOf(as.fields[i]).isEmpty())
+            s << "Token(string(s." << fx << "))";
         else
             s << "Token(s." << fx << ")";
     }
@@ -663,6 +708,8 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
             // convention and does not apply at that level.
             if (isAttrSetType(as.fields[i].type, file))
                 s << "s." << fn << ".Equals(o." << fn << ")";
+            else if (!dataTypeOf(as.fields[i]).isEmpty())
+                s << "DNCEqual(string(s." << fn << "), string(o." << fn << "))";
             else
                 s << "DNCEqual(s." << fn << ", o." << fn << ")";
         }
@@ -682,6 +729,87 @@ QString GoGenerator::genStringStruct(const AttrSet& as, const QString& pkg,
 // ---------------------------------------------------------------------------
 // Typed struct
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// A user DataType's String/Typed pair  →  common/<name>_string.go, _typed.go
+//
+// A DataType column behaves exactly as an Entity column does: the String type
+// holds what the table holds, and the Typed type is what a converted row holds.
+// The pair is generated whether or not there is a production package, so what a
+// generated signature looks like does not depend on a project setting.
+// ---------------------------------------------------------------------------
+
+static QString genGoDataTypeStringType(const QString& name, const QString& pkg)
+{
+    const QString base = GoGenerator::toExported(name);
+    const QString tn   = base + "String";
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << "\n\n";
+    s << "// " << tn << " is " << name.trimmed()
+      << " as a table cell holds it: the unconverted\n";
+    s << "// text. It is a named string, so the cell reads as text wherever text is\n";
+    s << "// what is wanted -- string(v) -- and a generated signature still names the\n";
+    s << "// DataType the specification declared.\n";
+    s << "type " << tn << " string\n\n";
+    s << "func New" << tn << "(text string) " << tn << " { return " << tn << "(text) }\n\n";
+    s << "// Value is the cell's text.\n";
+    s << "func (v " << tn << ") Value() string { return string(v) }\n\n";
+    s << "func (v " << tn << ") String() string { return string(v) }\n";
+
+    return out;
+}
+
+static QString genGoDataTypeTypedType(const QString& name, const QString& pkg)
+{
+    const QString base  = GoGenerator::toExported(name);
+    const QString strTn = base + "String";
+    const QString tn    = base + "Typed";
+    QString out;
+    QTextStream s(&out);
+
+    s << "package " << pkg << "\n\n";
+    s << "// " << tn << " is " << name.trimmed() << " converted: the text, which the glue\n";
+    s << "// converts to the production value.\n";
+    s << "//\n";
+    s << "// Go's constructor for a DataType returns (T, error) when the type can refuse\n";
+    s << "// a value and plain T when it cannot -- NewDollar against NewInstrument -- and\n";
+    s << "// the generator cannot know which, so there is no call it could write here.\n";
+    s << "// That rule is the project's own in any case, and a specification may state a\n";
+    s << "// value the rule refuses, so reading it belongs in the glue rather than on a\n";
+    s << "// line of a test body.\n";
+    s << "type " << tn << " struct {\n\tText string\n}\n\n";
+    s << "func New" << tn << "(text string) " << tn << " { return " << tn
+      << "{Text: text} }\n\n";
+    s << "func New" << tn << "FromString(s " << strTn << ") " << tn << " {\n";
+    s << "\treturn " << tn << "{Text: string(s)}\n}\n\n";
+    s << "// HasValue is false for an empty cell and for the Do-Not-Care marker, neither\n";
+    s << "// of which states a value.\n";
+    s << "func (t " << tn << ") HasValue() bool {\n";
+    s << "\treturn t.Text != \"\" && t.Text != DNCString\n}\n\n";
+    s << "// Get hands the glue the text to convert.\n";
+    s << "func (t " << tn << ") Get() string { return t.Text }\n\n";
+    s << "// To" << strTn << " converts back to the string form a table compares.\n";
+    s << "func (t " << tn << ") To" << strTn << "() " << strTn << " {\n";
+    s << "\treturn " << strTn << "(t.Text)\n}\n\n";
+    s << "func (t " << tn << ") String() string { return t.Text }\n\n";
+    s << "// Equals treats the Do-Not-Care marker on either side as a match, the same\n";
+    s << "// rule the String structs follow.\n";
+    s << "func (t " << tn << ") Equals(o " << tn << ") bool {\n";
+    s << "\treturn DNCEqual(t.Text, o.Text)\n}\n\n";
+    s << "func " << tn << "ToStringList(list []" << tn << ") []" << strTn << " {\n";
+    s << "\tresult := make([]" << strTn << ", 0, len(list))\n";
+    s << "\tfor _, t := range list { result = append(result, t.To" << strTn << "()) }\n";
+    s << "\treturn result\n}\n\n";
+    s << "func " << tn << "FromStringList(list []" << strTn << ") []" << tn << " {\n";
+    s << "\tresult := make([]" << tn << ", 0, len(list))\n";
+    s << "\tfor _, s := range list { result = append(result, New" << tn
+      << "FromString(s)) }\n";
+    s << "\treturn result\n}\n";
+
+    return out;
+}
 
 // ---------------------------------------------------------------------------
 // common/json.go — field accessors over the standard-library encoding/json.
@@ -1031,6 +1159,10 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
         }
         else if (gt == "int" || gt == "float64" || gt == "bool" || gt == "string")
             s << "\t\t\"" << key << "\": t." << fe << ",\n";
+        else if (goIsUserDataType(f.type, file))
+            // A DataType crosses the wire as the text the table held, so a
+            // document written by one language reads back in the others.
+            s << "\t\t\"" << key << "\": t." << fe << ".String(),\n";
         else    // nested Attributes block
             s << "\t\t\"" << key << "\": t." << fe << ".ToJSONValue(),\n";
     }
@@ -1073,7 +1205,10 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
             continue;
         }
 
-        const bool nested = !(gt == "int" || gt == "float64"
+        // A DataType field reads as text, like a plain string, and its Typed
+        // type is built from that text.
+        const bool dataType = goIsUserDataType(f.type, file);
+        const bool nested = !dataType && !(gt == "int" || gt == "float64"
                            || gt == "bool" || gt == "string");
         const QString fn  = nested            ? "JSONAsObject"
                           : (gt == "int")     ? "JSONAsInt"
@@ -1084,7 +1219,9 @@ QString GoGenerator::genTypedStruct(const AttrSet& as, const QString& pkg,
         s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
         s << "\tval" << fe << ", err := " << fn << "(raw" << fe << ", \"" << key << "\")\n";
         s << "\tif err != nil {\n\t\treturn t, err\n\t}\n";
-        if (!nested) {
+        if (dataType) {
+            s << "\tt." << fe << " = New" << gt << "(val" << fe << ")\n";
+        } else if (!nested) {
             s << "\tt." << fe << " = val" << fe << "\n";
         } else {
             // Nested Attributes block — read it as its own Typed struct.
@@ -1188,8 +1325,10 @@ QVector<GoGenerator::GlueSig> GoGenerator::collectGlueSigs(const SpectableFile& 
                 const QString effName = isCollectionType(step.attrSetName, file)
                     ? collectionElementType(step.attrSetName, file) : step.attrSetName;
                 record(meth, { meth, effName + "String" }, step.line);
-            } else if (goIsBuiltinType(step.attrSetName)) {
-                // A built-in is converted in the test; a user DataType is not.
+            } else if (goIsBuiltinType(step.attrSetName)
+                    || goIsUserDataType(step.attrSetName, file)) {
+                // A built-in arrives converted; a user DataType arrives as its
+                // own String type, holding the cell's text.
                 record(meth, { meth, "grid", step.attrSetName,
                                goElemType(step.attrSetName, file),
                                cellShapeOf(step, file, s_flattenSingleRowToList,
@@ -1340,9 +1479,14 @@ QString GoGenerator::genGlueFile(const SpectableFile& file, const QString& specP
     const QVector<GlueSig> sigs = collectGlueSigs(file);
 
     bool needsCommon = false;
-    for (const GlueSig& sig : sigs)
-        if (!sig.paramType.isEmpty() && sig.paramType != "grid" && sig.paramType != "docstring")
+    for (const GlueSig& sig : sigs) {
+        // A String struct parameter, or a grid whose cells are a type in
+        // common -- an Entity's Typed struct or a DataType's String type.
+        if ((!sig.paramType.isEmpty() && sig.paramType != "grid"
+             && sig.paramType != "docstring")
+         || sig.gridElemType.startsWith("common."))
             { needsCommon = true; break; }
+    }
 
     QString out;
     QTextStream s(&out);
@@ -1462,13 +1606,15 @@ QString GoGenerator::genTestFile(const SpectableFile& file, const QString& specP
                                           || isDataType(step.attrSetName, file));
                 const int startRow = (!isTypedGrid && tbl.hasHeader && !tbl.vertical) ? 1 : 0;
 
-                // Only a built-in, or an EveryCell grid of an Entity, is
-                // converted here -- see goCellExpr for why a user DataType is
-                // not. Anything else keeps its grid of text.
+                // A built-in is converted here; a user DataType is wrapped in
+                // its own String type, text and all -- see goCellExpr. An
+                // EveryCell grid of an Entity keeps its shape, one object per
+                // cell. Anything else keeps its grid of text.
                 const QString elem = goElemType(step.attrSetName, file);
                 const bool convert = !elem.isEmpty();
                 const CellShape shape =
-                    (convert && goIsBuiltinType(step.attrSetName))
+                    (convert && (goIsBuiltinType(step.attrSetName)
+                              || goIsUserDataType(step.attrSetName, file)))
                         ? cellShapeOf(step, file, s_flattenSingleRowToList,
                                       s_flattenSingleCellToScalar)
                         : CellShape::Grid;
@@ -1944,6 +2090,20 @@ QStringList GoGenerator::generate(const SpectableFile& file, const Options& opts
     }
 
     writeFile(commonDir.filePath("json.go"), genGoJsonHelpers(commonPkg), msgs);
+
+    // A user DataType's own String/Typed pair
+    {
+        QStringList written;
+        for (const QString& dt : augmented.dataTypeNames) {
+            const QString mid = toIdentifier(dt);
+            if (mid.isEmpty() || written.contains(mid)) continue;
+            written << mid;
+            writeFile(commonDir.filePath(mid + "_string.go"),
+                      genGoDataTypeStringType(dt, commonPkg), msgs);
+            writeFile(commonDir.filePath(mid + "_typed.go"),
+                      genGoDataTypeTypedType(dt, commonPkg), msgs);
+        }
+    }
 
     // Write String + Typed structs for each AttrSet
     for (const AttrSet& as : augmented.attrSets) {

@@ -70,6 +70,34 @@ static bool pyNamesAnAttrSet(const QString& name, const SpectableFile& file)
     return false;
 }
 
+// True only for a user-declared DataType; a built-in never answers yes.
+static bool isUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated pair is named once, where it is declared.
+static QString userDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return dt.trimmed();
+    return name.trimmed();
+}
+
+// True for a DataType whose Examples table is EnumerationValues.
+static bool pyIsEnumDataType(const QString& name, const SpectableFile& file)
+{
+    for (const NamedBlock& nb : file.namedBlocks)
+        if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0
+         && nb.name.compare(name, Qt::CaseInsensitive) == 0
+         && nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0)
+            return true;
+    return false;
+}
+
 // `literal` is already escaped for a single-quoted Python string.
 static QString pyCellExpr(const QString& specType, const QString& literal,
                           const SpectableFile& file)
@@ -88,9 +116,12 @@ static QString pyCellExpr(const QString& specType, const QString& literal,
         const QString base = PythonGenerator::toTypeName(specType.trimmed());
         return base + "Typed.from_string_obj(" + base + "String.from_text(" + quoted + "))";
     }
-    // A user DataType, enumeration included: enum.Enum called with a value
-    // returns the member holding it, which is the same spelling as a class
-    // built from its text.
+    // A user DataType is not converted here. Its rule is the project's, and a
+    // specification may state a value the rule rejects on purpose, so the cell
+    // goes over as its String form and the Typed form reads it in the glue.
+    if (isUserDataType(specType.trimmed(), file))
+        return PythonGenerator::toTypeName(userDataTypeName(specType.trimmed(), file))
+             + "String(" + quoted + ")";
     return PythonGenerator::toTypeName(specType.trimmed()) + "(" + quoted + ")";
 }
 
@@ -106,6 +137,8 @@ static QString pyElemType(const QString& specType, const SpectableFile& file)
     for (const QString& b : builtins)
         if (b.compare(specType.trimmed(), Qt::CaseInsensitive) == 0)
             return PythonGenerator::pythonType(specType);
+    if (isUserDataType(specType.trimmed(), file))
+        return PythonGenerator::toTypeName(userDataTypeName(specType.trimmed(), file)) + "String";
     return PythonGenerator::toTypeName(specType.trimmed());
 }
 
@@ -574,6 +607,14 @@ QString PythonGenerator::genStringClass(const AttrSet& as,
         if (isAttrSetType(f.type, file))
             s << "from ." << toModuleName(f.type) << "_string import "
               << toTypeName(f.type) << "String\n";
+    // A user DataType column is held as that DataType's own String class, so
+    // its module has to be imported too.
+    for (const Field& f : as.fields)
+        if (isUserDataType(f.type, file)) {
+            const QString n = userDataTypeName(f.type, file);
+            s << "from ." << toModuleName(n) << "_string import "
+              << toTypeName(n) << "String\n";
+        }
     s << "from . import tokens\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     if (!m_extraImports.isEmpty()) s << "\n";
@@ -591,8 +632,18 @@ QString PythonGenerator::genStringClass(const AttrSet& as,
             s << ", " << toIdentifier(f.name) << ": str = ''";
     }
     s << "):\n";
-    for (const Field& f : as.fields)
-        s << "        self." << toIdentifier(f.name) << " = " << toIdentifier(f.name) << "\n";
+    // A DataType parameter is text and the field wraps it, so every caller --
+    // the generated test, from_text, a hand-written row -- writes the cell as it
+    // appears in the table. The wrapper is a str, so nothing that read the field
+    // as text has to change either.
+    for (const Field& f : as.fields) {
+        const QString fid = toIdentifier(f.name);
+        if (isUserDataType(f.type, file))
+            s << "        self." << fid << " = "
+              << toTypeName(userDataTypeName(f.type, file)) << "String(" << fid << ")\n";
+        else
+            s << "        self." << fid << " = " << fid << "\n";
+    }
     s << "\n";
 
     // from_list classmethod
@@ -715,6 +766,12 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
             s << "from ." << toModuleName(nested) << "_typed import "
               << toTypeName(nested) << "Typed\n";
     }
+    for (const Field& f : as.fields)
+        if (isUserDataType(f.type, file)) {
+            const QString n = userDataTypeName(f.type, file);
+            s << "from ." << toModuleName(n) << "_typed import "
+              << toTypeName(n) << "Typed\n";
+        }
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
 
@@ -732,6 +789,13 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
         }
         if (isAttrSetType(f.type, file)) {
             s << ", " << fid << ": '" << toTypeName(f.type) << "Typed' = None";
+            continue;
+        }
+        // A user DataType field holds that DataType's Typed form, the same way
+        // a nested block does.
+        if (isUserDataType(f.type, file)) {
+            s << ", " << fid << ": '"
+              << toTypeName(userDataTypeName(f.type, file)) << "Typed' = None";
             continue;
         }
         const QString pt  = pythonType(f.type);
@@ -764,6 +828,13 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
             ? QString("[]")
             : isAttrSetType(f.type, file)
                 ? QString("%1Typed.from_string_obj(s.%2)").arg(toTypeName(f.type), fid)
+            : isUserDataType(f.type, file)
+                // The String class holds this column as the DataType's own
+                // String form, and the Typed class as its Typed form, which is
+                // where the production value is read from the text -- inside
+                // the glue's call rather than in a test body.
+                ? QString("%1Typed(s.%2)")
+                      .arg(toTypeName(userDataTypeName(f.type, file)), fid)
                 : parseExpr(fid, f.type);
         s << "            " << expr;
         if (i < as.fields.size() - 1) s << ",";
@@ -827,6 +898,10 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
         else if (isAttrSetType(f.type, file))
             s << "            '" << key << "': self." << fid
               << ".to_json_value() if self." << fid << " else None,\n";
+        else if (isUserDataType(f.type, file))
+            // A DataType crosses the wire as the text the table held, so a
+            // document written by one language reads back in the others.
+            s << "            '" << key << "': str(self." << fid << "),\n";
         else
             s << "            '" << key << "': self." << fid << ",\n";
     }
@@ -851,6 +926,12 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
         } else if (isAttrSetType(f.type, file)) {
             s << "            " << toTypeName(f.type)
               << "Typed.from_json_value(_json.require(m, '" << key << "'))";
+        } else if (isUserDataType(f.type, file)) {
+            // The document holds the text; the DataType's own Typed class is
+            // what converts it, exactly as a table cell does.
+            s << "            " << toTypeName(userDataTypeName(f.type, file))
+              << "Typed(_json.as_str(_json.require(m, '" << key << "'), '"
+              << key << "'))";
         } else {
             const QString pt  = pythonType(f.type);
             const QString fn  = (pt == "int")             ? "as_int"
@@ -896,6 +977,139 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
 }
 
 // ---------------------------------------------------------------------------
+// A user DataType's String/Typed pair  →  common/{name}_string.py, _typed.py
+//
+// A DataType column behaves exactly as an Entity column does: the String class
+// holds what the table holds, and the Typed class holds the converted value.
+// The pair is generated whether or not there is a production folder, so what a
+// generated signature looks like does not depend on a project setting.
+// ---------------------------------------------------------------------------
+
+static QString genPyDataTypeStringModule(const QString& name)
+{
+    const QString cn = PythonGenerator::toTypeName(name) + "String";
+    QString out;
+    QTextStream s(&out);
+
+    s << "# " << name.trimmed() << " as a table cell holds it: the unconverted text.\n";
+    s << "#\n";
+    s << "# This is a str, so a cell read as text before still compares, strips and\n";
+    s << "# formats the way it always did. The class exists so that a generated\n";
+    s << "# signature names the DataType the specification declared.\n\n\n";
+    s << "class " << cn << "(str):\n";
+    s << "    def __new__(cls, value: str = ''):\n";
+    s << "        return super().__new__(cls, '' if value is None else str(value))\n\n";
+    s << "    @property\n";
+    s << "    def value(self) -> str:\n";
+    s << "        return str(self)\n\n";
+    s << "    @classmethod\n";
+    s << "    def from_text(cls, text: str) -> '" << cn << "':\n";
+    s << "        return cls(text)\n";
+
+    return out;
+}
+
+static QString genPyDataTypeTypedModule(const QString& name, bool isEnum,
+                                         bool prodReachable)
+{
+    const QString base  = PythonGenerator::toTypeName(name);
+    const QString strCn = base + "String";
+    const QString cn    = base + "Typed";
+    const QString strMod = PythonGenerator::toModuleName(name) + "_string";
+    // An enumeration keeps the text here even when production is reachable:
+    // enum.Enum(x) reads by value, and a generated enumeration carries its
+    // descriptions as values while a cell holds the member's name. How this
+    // DataType's text names a member is the production module's own business,
+    // so the glue is where it is read.
+    const bool holdsValue = prodReachable && !isEnum;
+
+    QString out;
+    QTextStream s(&out);
+
+    s << "from ." << strMod << " import " << strCn << "\n";
+    if (holdsValue)
+        s << "from production." << base << " import " << base << "\n";
+    s << "\nDNC_STRING = '?DNC?'\n\n\n";
+    s << "class " << cn << ":\n";
+    s << "    \"\"\"" << name.trimmed() << " converted";
+    if (holdsValue) s << ": the production value and the text it came from.";
+    else            s << ": the text, which the glue converts.";
+    s << "\n\n";
+    if (holdsValue) {
+        s << "    The conversion happens here rather than in a test body. "
+          << name.trimmed() << "'s rule\n";
+        s << "    is the project's own, and a specification may state a value that rule\n";
+        s << "    refuses, so whatever it raises belongs on the glue's call -- not on the\n";
+        s << "    line that builds the table.\n";
+    } else if (isEnum) {
+        s << "    An enumeration's text names a member, and only the production module\n";
+        s << "    knows how: enum.Enum(x) reads by value, while the generated form\n";
+        s << "    carries a description there. So get() hands the glue the text.\n";
+    } else {
+        s << "    There is no production class to convert to here, so get() hands the\n";
+        s << "    glue the text.\n";
+    }
+    s << "    \"\"\"\n\n";
+
+    s << "    def __init__(self, text: str = ''):\n";
+    s << "        self.text = '' if text is None else str(text)\n";
+    if (holdsValue) {
+        s << "        # An empty cell and ?DNC? both state no value, so neither is\n";
+        s << "        # converted -- a CompareOnly table must be able to say nothing\n";
+        s << "        # about this column.\n";
+        s << "        self._value = None\n";
+        s << "        if self.text and self.text != DNC_STRING:\n";
+        s << "            self._value = " << base << "(self.text)\n\n";
+    } else {
+        s << "\n";
+    }
+
+    s << "    def has_value(self) -> bool:\n";
+    s << "        return " << (holdsValue ? "self._value is not None"
+                                          : "bool(self.text) and self.text != DNC_STRING")
+      << "\n\n";
+
+    s << "    def get(self)";
+    if (!holdsValue) s << " -> str";
+    s << ":\n";
+    s << "        return " << (holdsValue ? "self._value" : "self.text") << "\n\n";
+
+    s << "    def to_" << PythonGenerator::toModuleName(name) << "_string(self) -> '"
+      << strCn << "':\n";
+    s << "        return " << strCn << "(self.text)\n\n";
+
+    s << "    @staticmethod\n";
+    s << "    def from_string_list(items) -> list:\n";
+    s << "        return [" << cn << "(s) for s in items]\n\n";
+
+    s << "    @staticmethod\n";
+    s << "    def to_string_list(items) -> list:\n";
+    s << "        return [" << strCn << "(t.text) for t in items]\n\n";
+
+    s << "    def __str__(self):\n";
+    s << "        return self.text\n\n";
+
+    s << "    def __repr__(self):\n";
+    s << "        return f'" << cn << "({self.text})'\n\n";
+
+    // A field holding ?DNC? on either side matches whatever the other holds,
+    // the same rule the String classes follow.
+    s << "    def __eq__(self, other):\n";
+    s << "        if isinstance(other, " << cn << "):\n";
+    s << "            o = other.text\n";
+    s << "        elif isinstance(other, str):\n";
+    s << "            o = str(other)\n";
+    s << "        else:\n";
+    s << "            return NotImplemented\n";
+    s << "        return self.text == o or self.text == DNC_STRING or o == DNC_STRING\n\n";
+
+    s << "    def __hash__(self):\n";
+    s << "        return hash(self.text)\n";
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // common/__init__.py
 // ---------------------------------------------------------------------------
 
@@ -905,6 +1119,7 @@ QString PythonGenerator::genTypedClass(const AttrSet& as,
 // others, so `from common import *` resolved almost nothing. The existing
 // index is therefore merged with the new entries instead of replaced.
 QString PythonGenerator::genCommonInit(const QVector<AttrSet>& attrSets,
+                                        const QStringList& dataTypeNames,
                                         const QString& existing,
                                         const QString& dir) const
 {
@@ -915,14 +1130,18 @@ QString PythonGenerator::genCommonInit(const QVector<AttrSet>& attrSets,
     }
     lines = sourcescan::dropEntriesForMissingFiles(
                 lines, dir, QRegularExpression(R"(^from \.([A-Za-z0-9_]+) import)"), ".py");
-    for (const AttrSet& as : attrSets) {
-        const QString cn  = toTypeName(as.name);
-        const QString mod = toModuleName(as.name);
+    auto addPair = [&lines](const QString& name) {
+        const QString cn  = PythonGenerator::toTypeName(name);
+        const QString mod = PythonGenerator::toModuleName(name);
         const QString a = QString("from .%1_string import %2String").arg(mod, cn);
         const QString b = QString("from .%1_typed import %2Typed").arg(mod, cn);
         if (!lines.contains(a)) lines << a;
         if (!lines.contains(b)) lines << b;
-    }
+    };
+    for (const AttrSet& as : attrSets) addPair(as.name);
+    // A user DataType has a String/Typed pair of its own, the same as an
+    // Attributes block, and a test imports it through `from common import *`.
+    for (const QString& dt : dataTypeNames) addPair(dt);
     lines.sort();
     return lines.join('\n') + "\n";
 }
@@ -1049,24 +1268,18 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
     QString out;
     QTextStream s(&out);
 
-    // A DataType step is converted here rather than in the glue, so the test
-    // names that production class and has to import it. Entity cells need no
-    // import -- their String/Typed pair is in common, which is imported whole.
-    // The names are gathered before anything is written because the imports go
-    // at the top of the file.
-    QStringList prodImports;
+    // Nothing in a test body names a production class. A built-in cell is
+    // converted here -- the converter has already checked it, so it cannot
+    // throw -- and a declared DataType is handed over as its own String class,
+    // which lives in common and is imported whole. Only a Decimal cell needs
+    // an import, and that one is the standard library's.
     bool needsDecimal = false;
     auto noteCellTypes = [&](const QVector<Step>& steps) {
         for (const Step& step : steps) {
             if (step.attrSetName.isEmpty() || !step.hasTable) continue;
             if (!isDataType(step.attrSetName, file)) continue;
             const QString t = step.attrSetName.trimmed();
-            if (t.compare("Decimal", Qt::CaseInsensitive) == 0) { needsDecimal = true; continue; }
-            const QString elem = pyElemType(t, file);
-            // A built-in maps to a Python type; only a declared DataType is a
-            // class of its own, in production/.
-            if (elem != toTypeName(t)) continue;
-            if (!prodImports.contains(elem)) prodImports << elem;
+            if (t.compare("Decimal", Qt::CaseInsensitive) == 0) needsDecimal = true;
         }
     };
     noteCellTypes(file.backgroundSteps);
@@ -1076,8 +1289,6 @@ QString PythonGenerator::genTestFile(const SpectableFile& file, const QString& s
     s << "import pytest\n";
     if (needsDecimal) s << "import decimal\n";
     s << "from common import *\n";
-    for (const QString& t : prodImports)
-        s << "from production." << t << " import " << t << "\n";
     s << "from " << specSnake << "_glue import " << glueClass << "\n";
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
@@ -1425,10 +1636,12 @@ QString PythonGenerator::genStubMethod(const GlueSig& sig, bool failEveryTest)
         if (failEveryTest)
             s << "        raise NotImplementedError('" << sig.method << "')\n";
     } else if (sig.paramType == "grid" && !sig.gridDataType.isEmpty()) {
-        // The values arrive already converted: the test builds them, so the
-        // glue is handed the type the specification declared rather than text
-        // it would have to parse for itself. EveryCell reaches here too -- each
-        // of its cells is one object built from that cell's text form.
+        // A built-in arrives converted -- the test builds it, and the converter
+        // has already checked every cell. A declared DataType arrives as its
+        // own String class holding the cell's text, because its rule is the
+        // project's and a specification may state a value that rule rejects:
+        // converting here keeps that throw out of the test body. EveryCell
+        // reaches here too -- each of its cells is one value.
         const QString elem = sig.gridElemType.isEmpty() ? QStringLiteral("object")
                                                         : sig.gridElemType;
         if (sig.gridShape == CellShape::Scalar) {
@@ -1847,6 +2060,21 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         writeFile(commonDir.filePath(mod + "_typed.py"),  genTypedClass(as, file),  msgs);
         domainSets.push_back(as);
     }
+    // A user DataType's own String/Typed pair. Written before the __init__ so
+    // the merge below sees the files on disk.
+    QStringList dataTypeIds;
+    for (const QString& dt : augmented.dataTypeNames) {
+        const QString id = toModuleName(dt);
+        if (id.isEmpty() || dataTypeIds.contains(id)) continue;
+        dataTypeIds << id;
+        const bool isEnum = pyIsEnumDataType(dt, augmented);
+        const bool prodReachable = opts.createProductionClasses
+                                && !opts.productionClassesDir.isEmpty();
+        writeFile(commonDir.filePath(id + "_string.py"),
+                  genPyDataTypeStringModule(dt), msgs);
+        writeFile(commonDir.filePath(id + "_typed.py"),
+                  genPyDataTypeTypedModule(dt, isEnum, prodReachable), msgs);
+    }
     writeFile(commonDir.filePath("json_util.py"), genJsonUtil(),               msgs);
     writeFile(commonDir.filePath("tokens.py"),    genTokensUtil(),           msgs);
     {
@@ -1855,7 +2083,8 @@ QStringList PythonGenerator::generate(const SpectableFile& file, const Options& 
         QFile ef(initPath);
         if (ef.open(QIODevice::ReadOnly | QIODevice::Text))
             existing = QTextStream(&ef).readAll();
-        writeFile(initPath, genCommonInit(domainSets, existing, commonDir.path()), msgs);
+        writeFile(initPath, genCommonInit(domainSets, augmented.dataTypeNames,
+                                          existing, commonDir.path()), msgs);
     }
 
     // Test file (always overwritten)

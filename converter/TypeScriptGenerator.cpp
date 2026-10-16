@@ -108,6 +108,23 @@ bool TypeScriptGenerator::isAttrSetType(const QString& name, const SpectableFile
     return false;
 }
 
+// True only for a user-declared DataType; a built-in never answers yes.
+static bool isUserDataType(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The declared spelling of a user DataType. A field may name it in any casing;
+// the generated pair is named once, where it is declared.
+static QString userDataTypeName(const QString& name, const SpectableFile& file)
+{
+    for (const QString& dt : file.dataTypeNames)
+        if (dt.compare(name, Qt::CaseInsensitive) == 0) return dt.trimmed();
+    return name.trimmed();
+}
+
 // The type a field takes inside the common folder. A nested Attributes block
 // becomes that block's own Typed class. A user DataType lives in the production
 // folder, which common must not depend on, so its value is carried as text.
@@ -121,6 +138,10 @@ QString TypeScriptGenerator::tsCommonType(const Field& f, const SpectableFile& f
         return (isAttrSetType(elem, file) ? elem.trimmed() + "Typed" : tsType(elem)) + "[]";
     }
     if (isAttrSetType(f.type, file)) return f.type.trimmed() + "Typed";
+    // A user DataType reads the same way a nested block does: the String class
+    // holds <Name>String and the Typed class <Name>Typed, so no generated class
+    // shows a declared type as a bare string.
+    if (isUserDataType(f.type, file)) return userDataTypeName(f.type, file) + "Typed";
 
     static const QSet<QString> builtin = {
         "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
@@ -217,9 +238,11 @@ QString TypeScriptGenerator::parseExpr(const QString& field, const QString& spec
         return QString("s.%1 !== \"\" ? Number(s.%1) : 0.0").arg(field);
     if (t == "boolean" || t == "yesno" || t == "bool")
         return QString("[\"true\",\"t\",\"yes\",\"y\",\"1\"].includes(s.%1.toLowerCase())").arg(field);
-    // A user DataType lives in the production folder, which common must not
-    // depend on, so its value is carried as text — the glue converts it when it
-    // needs the production object.
+    // A user DataType is read into its Typed form, which is where the type's
+    // own rule is applied: on the glue's side of the call, never in a test body.
+    if (file && isUserDataType(specType.trimmed(), *file))
+        return QString("new %1Typed(s.%2)")
+                   .arg(userDataTypeName(specType.trimmed(), *file), field);
     return QString("s.%1").arg(field);
 }
 
@@ -305,7 +328,12 @@ static QString tsCellExpr(const QString& specType, const QString& literal,
     const QString base = specType.trimmed();
     if (tsNamesAnAttrSet(base, file))
         return base + "Typed.fromStringObj(" + base + "String.fromText(" + quoted + "))";
-    return "new " + base + "(" + quoted + ")";   // a user DataType
+    // A user DataType is not converted here. Its rule is the project's, and a
+    // specification may state a value the rule rejects on purpose, so the cell
+    // goes over as its String form -- which is the text -- and the Typed form
+    // reads it inside the glue.
+    if (isUserDataType(base, file)) return quoted;
+    return "new " + base + "(" + quoted + ")";
 }
 
 // What one cell becomes, for the stub's parameter type.
@@ -313,6 +341,8 @@ static QString tsElemType(const QString& specType, const SpectableFile& file)
 {
     if (tsNamesAnAttrSet(specType.trimmed(), file))
         return specType.trimmed() + "Typed";
+    if (isUserDataType(specType.trimmed(), file))
+        return userDataTypeName(specType.trimmed(), file) + "String";
     return TypeScriptGenerator::tsType(specType);
 }
 
@@ -602,6 +632,102 @@ static QString genTokensModule()
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// common/<Name>String.ts and common/<Name>Typed.ts — a user DataType on each
+// side of the test/glue boundary.
+//
+// A column declared as an Entity has long been carried as <Entity>String in the
+// String class and <Entity>Typed in the Typed one; a DataType column now reads
+// the same way. The pair also decides where the type's own rule is applied: the
+// String form is only text, and the Typed form builds the production value --
+// which puts the one conversion that can throw on the glue's side of the call,
+// never in a test body, because a specification may state a value the rule
+// rejects on purpose (a ValidValues row with IsValid = no).
+//
+// The String form is an alias for string rather than a class, which names the
+// type in a signature while leaving every cell literal and every existing call
+// site exactly as it was.
+// ---------------------------------------------------------------------------
+
+static QString genTsDataTypeStringModule(const QString& name)
+{
+    QString out;
+    QTextStream s(&out);
+    s << "// " << name << " as a table cell holds it: the unconverted text.\n";
+    s << "//\n";
+    s << "// An alias rather than a class, so a signature says which DataType a\n";
+    s << "// column is while the value stays the string the cell held. " << name
+      << "Typed\n";
+    s << "// is the form that holds the value itself.\n";
+    s << "export type " << name << "String = string;\n";
+    return out;
+}
+
+// `prodImport` is the module specifier for the production folder, empty when
+// there is none to reach. `isEnum` is true for a DataType whose Examples table
+// is EnumerationValues: TypeScript has no one way to read such a value back --
+// the production module may be an enum, a frozen object or a class, and which
+// one is the project's choice -- so those keep the text and say so.
+static QString genTsDataTypeTypedModule(const QString& name, bool isEnum,
+                                        const QString& prodImport)
+{
+    const bool holdsValue = !isEnum && !prodImport.isEmpty();
+    QString out;
+    QTextStream s(&out);
+    s << "import type { " << name << "String } from \"./" << name << "String.js\";\n";
+    if (holdsValue)
+        s << "import { " << name << " } from \"" << prodImport << "\";\n";
+    s << "\n";
+    s << "/** " << name << " as the glue uses it: the text read into the declared type. */\n";
+    s << "export class " << name << "Typed {\n";
+    s << "  static readonly DNC_STRING = \"?DNC?\";\n\n";
+    s << "  /** The cell as written. ?DNC? and an empty cell are kept as they came. */\n";
+    s << "  readonly text: string;\n";
+    if (holdsValue)
+        s << "  private readonly value: " << name << " | undefined;\n";
+    s << "\n";
+    s << "  constructor(s: " << name << "String = \"\") {\n";
+    s << "    this.text = s ?? \"\";\n";
+    if (holdsValue) {
+        s << "    this.value = (this.text === \"\" || this.text === " << name
+          << "Typed.DNC_STRING)\n";
+        s << "      ? undefined\n";
+        s << "      : new " << name << "(this.text);\n";
+    }
+    s << "  }\n\n";
+    s << "  static fromStringObj(s: " << name << "String): " << name << "Typed {\n";
+    s << "    return new " << name << "Typed(s);\n  }\n\n";
+    if (holdsValue) {
+        s << "  hasValue(): boolean { return this.value !== undefined; }\n\n";
+        s << "  /** The declared value. An empty cell and ?DNC? have none. */\n";
+        s << "  get(): " << name << " { return this.value as " << name << "; }\n\n";
+    } else {
+        s << "  hasValue(): boolean {\n";
+        s << "    return this.text !== \"\" && this.text !== " << name
+          << "Typed.DNC_STRING;\n  }\n\n";
+        s << "  /** The cell's text. ";
+        if (isEnum)
+            s << "An enumeration is read by the production module,\n"
+              << "   * which the glue imports; common does not choose how. */\n";
+        else
+            s << "There is no production module to read it into. */\n";
+        s << "  get(): string { return this.text; }\n\n";
+    }
+    s << "  to" << name << "String(): " << name << "String { return this.text; }\n\n";
+    s << "  static fromStringList(list: " << name << "String[]): " << name << "Typed[] {\n";
+    s << "    return list.map((s) => new " << name << "Typed(s));\n  }\n\n";
+    s << "  static toStringList(list: " << name << "Typed[]): " << name << "String[] {\n";
+    s << "    return list.map((t) => t.text);\n  }\n\n";
+    s << "  toString(): string { return this.text; }\n\n";
+    s << "  equals(other: " << name << "Typed): boolean {\n";
+    s << "    return this.text === " << name << "Typed.DNC_STRING\n";
+    s << "      || other.text === " << name << "Typed.DNC_STRING\n";
+    s << "      || this.text === other.text;\n";
+    s << "  }\n";
+    s << "}\n";
+    return out;
+}
+
 QString TypeScriptGenerator::genStringClass(const AttrSet& as, const SpectableFile& file) const
 {
     const QString cn = as.name + "String";
@@ -617,12 +743,22 @@ QString TypeScriptGenerator::genStringClass(const AttrSet& as, const SpectableFi
         const QString sub = f.type.trimmed();
         s << "import { " << sub << "String } from \"./" << sub << "String.js\";\n";
     }
+    // A user DataType field is held as that DataType's own String alias, so the
+    // name has to be in scope even though it stands for a string.
+    for (const Field& f : as.fields) {
+        if (!isUserDataType(f.type, file)) continue;
+        const QString sub = userDataTypeName(f.type, file);
+        if (seenImports.contains(sub.toLower())) continue;
+        seenImports.insert(sub.toLower());
+        s << "import type { " << sub << "String } from \"./" << sub << "String.js\";\n";
+    }
     for (const QString& imp : m_extraImports) s << imp << "\n";
     s << "\n";
 
     auto fieldType = [&](const Field& f) {
-        return isAttrSetType(f.type, file) ? f.type.trimmed() + "String"
-                                          : QString("string");
+        if (isAttrSetType(f.type, file))  return f.type.trimmed() + "String";
+        if (isUserDataType(f.type, file)) return userDataTypeName(f.type, file) + "String";
+        return QString("string");
     };
 
     s << "import * as tokens from \"./tokens.js\";\n\n";
@@ -715,6 +851,11 @@ QString TypeScriptGenerator::genEqualsMethod(const AttrSet& as, const QString& c
             if (i) s << "\n      && ";
             if (isAttrSetType(f.type, file))
                 s << "this." << fn << ".equals(other." << fn << ")";
+            // In the Typed class a user DataType field holds its own Typed
+            // object, which compares by text and honours ?DNC? itself; === on
+            // two of them would ask whether they are the same object.
+            else if (!dncAware && isUserDataType(f.type, file))
+                s << "this." << fn << ".equals(other." << fn << ")";
             else if (dncAware)
                 s << "(this." << fn << " === " << cn << ".DNC_STRING"
                   << " || other." << fn << " === " << cn << ".DNC_STRING"
@@ -761,6 +902,13 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
         if (seenTypedImports.contains(candidate.trimmed().toLower())) continue;
         seenTypedImports.insert(candidate.trimmed().toLower());
         const QString sub = candidate.trimmed();
+        s << "import { " << sub << "Typed } from \"./" << sub << "Typed.js\";\n";
+    }
+    for (const Field& f : as.fields) {
+        if (!isUserDataType(f.type, file)) continue;
+        const QString sub = userDataTypeName(f.type, file);
+        if (seenTypedImports.contains(sub.toLower())) continue;
+        seenTypedImports.insert(sub.toLower());
         s << "import { " << sub << "Typed } from \"./" << sub << "Typed.js\";\n";
     }
     for (const QString& imp : m_extraImports) s << imp << "\n";
@@ -859,7 +1007,11 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
         else if (isAttrSetType(f.type, file))
             // Nested Attributes block — written as a nested object.
             s << "      " << fn << ": this." << fn << ".toJsonValue(),\n";
-        else    // a user DataType is carried as text inside common
+        else if (isUserDataType(f.type, file))
+            // The Typed form keeps the cell's text, which is all a DataType has
+            // to say to the outside.
+            s << "      " << fn << ": String(this." << fn << "),\n";
+        else
             s << "      " << fn << ": this." << fn << ",\n";
     }
     s << "    };\n";
@@ -896,8 +1048,10 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
         else if (isAttrSetType(f.type, file))
             // Nested Attributes block — read it as its own Typed object.
             expr = QString("%1Typed.fromJsonValue(%2)").arg(f.type.trimmed(), src);
+        else if (isUserDataType(f.type, file))
+            expr = QString("new %1Typed(_json.asString(%2, \"%3\"))")
+                       .arg(userDataTypeName(f.type, file), src, fn);
         else
-            // A user DataType is carried as text inside common.
             expr = QString("_json.asString(%1, \"%2\")").arg(src, fn);
         s << "      " << expr;
         if (i < as.fields.size() - 1) s << ",";
@@ -941,6 +1095,7 @@ QString TypeScriptGenerator::genTypedClass(const AttrSet& as, const SpectableFil
 // re-export barrel resolved almost nothing. The existing index is therefore
 // merged with the new entries instead of replaced.
 QString TypeScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets,
+                                             const QStringList& dataTypeNames,
                                              const QString& existing,
                                              const QString& dir) const
 {
@@ -955,6 +1110,12 @@ QString TypeScriptGenerator::genCommonIndex(const QVector<AttrSet>& attrSets,
     for (const AttrSet& as : attrSets) {
         for (const QString& l : { QString("export * from \"./%1String.js\";").arg(as.name),
                                   QString("export * from \"./%1Typed.js\";").arg(as.name) })
+            if (!lines.contains(l)) lines << l;
+    }
+    // A DataType's pair goes in the barrel too; the glue imports both from here.
+    for (const QString& dt : dataTypeNames) {
+        for (const QString& l : { QString("export * from \"./%1String.js\";").arg(dt),
+                                  QString("export * from \"./%1Typed.js\";").arg(dt) })
             if (!lines.contains(l)) lines << l;
     }
     lines.sort();
@@ -1139,6 +1300,12 @@ QString TypeScriptGenerator::genTestFile(const SpectableFile& file, const QStrin
             if (step.everyCell && isAttrSetType(step.attrSetName, file)) {
                 const QString typed = step.attrSetName.trimmed() + "Typed";
                 if (!usedTypes.contains(typed)) usedTypes.insert(typed);
+                continue;
+            }
+            // A user DataType table goes over as its String alias, which lives
+            // in common beside the Entity classes -- no production import.
+            if (isUserDataType(step.attrSetName, file)) {
+                usedTypes.insert(userDataTypeName(step.attrSetName, file) + "String");
                 continue;
             }
             if (!isDataType(step.attrSetName, file)) continue;
@@ -1651,6 +1818,11 @@ QString TypeScriptGenerator::genGlueFile(const SpectableFile& file,
                 for (const QString& n : { sig.gridDataType + "String",
                                           sig.gridDataType + "Typed" })
                     if (!glueTypes.contains(n)) glueTypes << n;
+            } else if (isUserDataType(sig.gridDataType, file)) {
+                // A DataType grid's cells are that DataType's String alias,
+                // which lives in common beside the Entity classes.
+                const QString n = userDataTypeName(sig.gridDataType, file) + "String";
+                if (!glueTypes.contains(n)) glueTypes << n;
             } else if (sig.gridElemType == sig.gridDataType.trimmed()
                        && !prodTypes.contains(sig.gridElemType)) {
                 // tsType left the name alone, so it is a class the project
@@ -1991,6 +2163,47 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
         writeFile(commonDir.filePath(as.name + "Typed.ts"),  genTypedClass(as, augmented),  msgs);
         domainSets.push_back(as);
     }
+    // 1b. A String/Typed pair per user DataType, declared here or pulled in
+    // through --context: a field in this specification may name either, and
+    // both write into the same common folder.
+    QStringList dataTypeIds;
+    {
+        // The module specifier common uses to reach production. Empty when the
+        // project asked for no production classes, in which case the Typed form
+        // carries the text alone -- it is generated either way, so that what a
+        // generated signature looks like does not depend on a setting.
+        QString prodImport;
+        if (opts.createProductionClasses) {
+            const QString prodAbs = QFileInfo(
+                opts.productionClassesDir.isEmpty() ? (opts.outputDir + "/production")
+                                                    : opts.productionClassesDir).absoluteFilePath();
+            QString rel = QDir(QFileInfo(commonDir.path()).absoluteFilePath())
+                              .relativeFilePath(prodAbs);
+            if (!rel.startsWith('.')) rel.prepend("./");
+            prodImport = rel + "/index.js";
+        }
+        for (const QString& dt : augmented.dataTypeNames) {
+            const QString name = dt.trimmed();
+            if (name.isEmpty()) continue;
+            bool already = false;
+            for (const QString& w : dataTypeIds)
+                if (w.compare(name, Qt::CaseInsensitive) == 0) { already = true; break; }
+            if (already) continue;
+            dataTypeIds << name;
+            bool isEnum = false;
+            for (const NamedBlock& nb : augmented.namedBlocks)
+                if (nb.kind.compare("DataType", Qt::CaseInsensitive) == 0
+                 && nb.name.compare(name, Qt::CaseInsensitive) == 0
+                 && nb.examples.attrSetName.compare("EnumerationValues",
+                                                    Qt::CaseInsensitive) == 0)
+                    { isEnum = true; break; }
+            writeFile(commonDir.filePath(name + "String.ts"),
+                      genTsDataTypeStringModule(name), msgs);
+            writeFile(commonDir.filePath(name + "Typed.ts"),
+                      genTsDataTypeTypedModule(name, isEnum, prodImport), msgs);
+        }
+    }
+
     writeFile(commonDir.filePath("json.ts"),  genTsJsonModule(),             msgs);
     writeFile(commonDir.filePath("tokens.ts"), genTokensModule(), msgs);
     // A tsconfig at the output root so `npx tsc` compiles the tree as-is.
@@ -2009,7 +2222,7 @@ QStringList TypeScriptGenerator::generate(const SpectableFile& file, const Optio
             xf.close();
         }
         writeFile(commonDir.filePath("index.ts"),
-                  genCommonIndex(domainSets, existingIndex, commonDir.path()), msgs);
+                  genCommonIndex(domainSets, dataTypeIds, existingIndex, commonDir.path()), msgs);
     }
 
     // 2. Test file (always overwritten)

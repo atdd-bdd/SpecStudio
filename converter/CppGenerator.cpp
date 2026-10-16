@@ -80,6 +80,72 @@ static bool namesAnAttrSet(const QString& name, const SpectableFile& file)
     return false;
 }
 
+// A type the generator knows how to convert on its own. Every other declared
+// type belongs to the project.
+static bool isBuiltinSpecType(const QString& name)
+{
+    static const QSet<QString> builtin = {
+        "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
+        "bool", "string", "text", "character", "char", "date", "time",
+        "datetime", "duration"
+    };
+    return builtin.contains(name.trimmed().toLower());
+}
+
+// Whether a DataType's Typed form holds the production class. A project with
+// no production folder has no class for it to hold, so there the Typed form
+// carries the text alone. The pair itself is generated either way: what a
+// generated signature looks like should not depend on a setting.
+static bool s_dataTypeProduction = false;
+
+// A user DataType, which gets the same String and Typed pair an Attributes
+// block gets: the String form carries the cell's text, the Typed form holds the
+// production class the project wrote. That pair is what keeps a conversion out
+// of a test body -- a value the type refuses is refused in the glue, where the
+// specification can say it meant to be refused.
+static bool namesADataType(const QString& name, const SpectableFile& file)
+{
+    const QString n = name.trimmed();
+    if (n.isEmpty() || isBuiltinSpecType(n)) return false;
+    for (const QString& d : file.dataTypeNames)
+        if (d.compare(n, Qt::CaseInsensitive) == 0) return true;
+    return false;
+}
+
+// The Do-Not-Care marker a CompareOnly step puts in every column it does not
+// name, and the Yes/No reader. Every String header carries it, which is why it
+// is guarded.
+static QString dncBlockCpp()
+{
+    QString out;
+    QTextStream s(&out);
+    s << "#ifndef SPECTABLE_DNC_STRING\n";
+    s << "#define SPECTABLE_DNC_STRING\n";
+    s << "inline const std::string DNCString = \"?DNC?\";\n";
+    s << "inline bool dnc_equal(const std::string& a, const std::string& b) {\n";
+    s << "    return a == b || a == DNCString || b == DNCString;\n";
+    s << "}\n";
+    s << "// Reads the Yes/No/True/False text a spec cell may hold, in any casing.\n";
+    s << "inline bool parse_bool_cell(const std::string& v) {\n";
+    s << "    std::string t;\n";
+    s << "    for (char c : v) t += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));\n";
+    s << "    return t == \"true\" || t == \"t\" || t == \"yes\" || t == \"y\" || t == \"1\";\n";
+    s << "}\n";
+    s << "#endif\n";
+    return out;
+}
+
+// An enumerator has to be an identifier; the value the specification lists is
+// kept as written for the text form. Both the production enum and the Typed
+// struct that reads it name the members this way, so they agree.
+static QString cppEnumMemberName(const QString& value)
+{
+    QString member = value;
+    member.replace(QRegularExpression(R"([^A-Za-z0-9_])"), "_");
+    if (!member.isEmpty() && member[0].isDigit()) member.prepend('_');
+    return member;
+}
+
 static QString cppCellExpr(const QString& specType, const QString& literal,
                            const SpectableFile& file)
 {
@@ -97,6 +163,11 @@ static QString cppCellExpr(const QString& specType, const QString& literal,
         const QString base = CppGenerator::toTypeName(specType.trimmed());
         return base + "Typed::from_string_struct(" + base + "String::from_text(" + quoted + "))";
     }
+    // A user DataType hands over its String form. Constructing the production
+    // class here would put the type's own rule in the test body, where a value
+    // the specification states as invalid throws before the glue is reached.
+    if (namesADataType(specType.trimmed(), file))
+        return CppGenerator::toTypeName(specType.trimmed()) + "String(" + quoted + ")";
     return CppGenerator::toTypeName(specType.trimmed()) + "(" + quoted + ")";  // a user DataType
 }
 
@@ -105,6 +176,8 @@ static QString cppElemType(const QString& specType, const SpectableFile& file)
 {
     if (namesAnAttrSet(specType.trimmed(), file))
         return CppGenerator::toTypeName(specType.trimmed()) + "Typed";
+    if (namesADataType(specType.trimmed(), file))
+        return CppGenerator::toTypeName(specType.trimmed()) + "String";
     return CppGenerator::cppType(specType);
 }
 
@@ -116,8 +189,10 @@ bool CppGenerator::isAttrSetType(const QString& name, const SpectableFile& file)
 }
 
 // The type a field takes inside the common headers. A nested Attributes block
-// becomes that block's own Typed struct. A user DataType lives in the production
-// folder, which common must not depend on, so its value is carried as text.
+// becomes that block's own Typed struct, and a user DataType becomes its own
+// Typed struct in the same way -- that one holds the production class, so
+// common does reach into production for it, by the include the DataType's own
+// typed header carries and nothing else.
 QString CppGenerator::cppCommonType(const Field& f, const SpectableFile& file)
 {
     // A Collection field is a vector of its element's Typed struct. Without this
@@ -130,13 +205,9 @@ QString CppGenerator::cppCommonType(const Field& f, const SpectableFile& file)
              + ">";
     }
     if (isAttrSetType(f.type, file)) return toTypeName(f.type) + "Typed";
+    if (namesADataType(f.type, file)) return toTypeName(f.type) + "Typed";
 
-    static const QSet<QString> builtin = {
-        "integer", "int", "float", "decimal", "scientific", "boolean", "yesno",
-        "bool", "string", "text", "character", "char", "date", "time",
-        "datetime", "duration"
-    };
-    if (!builtin.contains(f.type.trimmed().toLower())) return "std::string";
+    if (!isBuiltinSpecType(f.type)) return "std::string";
     return cppType(f.type);
 }
 
@@ -585,10 +656,11 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
     s << "#include <vector>\n";
     s << "#include <sstream>\n";
     s << "#include \"tokens.h\"\n";
-    // A nested Attributes block is held as that block's own String struct.
+    // A nested Attributes block is held as that block's own String struct, and
+    // a user DataType as its own.
     QSet<QString> seenIncludes;
     for (const Field& f : as.fields) {
-        if (!isAttrSetType(f.type, file)) continue;
+        if (!isAttrSetType(f.type, file) && !namesADataType(f.type, file)) continue;
         if (seenIncludes.contains(f.type.trimmed().toLower())) continue;
         seenIncludes.insert(f.type.trimmed().toLower());
         s << "#include \"" << toIdentifier(f.type) << "_string.h\"\n";
@@ -596,25 +668,12 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
     for (const QString& inc : m_extraIncludes) s << inc << "\n";
     s << "\n";
 
-    // The Do-Not-Care marker a CompareOnly step puts in every column it does not
-    // name. Guarded because every String header defines it.
-    s << "#ifndef SPECTABLE_DNC_STRING\n";
-    s << "#define SPECTABLE_DNC_STRING\n";
-    s << "inline const std::string DNCString = \"?DNC?\";\n";
-    s << "inline bool dnc_equal(const std::string& a, const std::string& b) {\n";
-    s << "    return a == b || a == DNCString || b == DNCString;\n";
-    s << "}\n";
-    s << "// Reads the Yes/No/True/False text a spec cell may hold, in any casing.\n";
-    s << "inline bool parse_bool_cell(const std::string& v) {\n";
-    s << "    std::string t;\n";
-    s << "    for (char c : v) t += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));\n";
-    s << "    return t == \"true\" || t == \"t\" || t == \"yes\" || t == \"y\" || t == \"1\";\n";
-    s << "}\n";
-    s << "#endif\n\n";
+    s << dncBlockCpp() << "\n";
 
     auto fieldType = [&](const Field& f) {
-        return isAttrSetType(f.type, file) ? toTypeName(f.type) + "String"
-                                          : QString("std::string");
+        return (isAttrSetType(f.type, file) || namesADataType(f.type, file))
+                   ? toTypeName(f.type) + "String"
+                   : QString("std::string");
     };
 
     s << "struct " << typeName << " {\n";
@@ -647,6 +706,8 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
         if (isAttrSetType(as.fields[i].type, file))
             s << toTypeName(as.fields[i].type) << "String::from_text(parts[" << i << "]);\n";
         else
+            // A DataType field takes the token as it stands: its String form is
+            // one value, and converts from a string on its own.
             s << "parts[" << i << "];\n";
     }
     s << "        return obj;\n";
@@ -662,6 +723,8 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
         if (isAttrSetType(as.fields[i].type, file))
             s << "tokens::nested(" << fid << ".to_string());\n";
         else
+            // A DataType is one token, so it is written as one rather than
+            // wrapped the way a nested block is.
             s << "tokens::token(" << fid << ");\n";
     }
     s << "        return ss.str();\n";
@@ -680,6 +743,8 @@ QString CppGenerator::genStringHeader(const AttrSet& as, const SpectableFile& fi
             if (isAttrSetType(as.fields[i].type, file))
                 s << fid << " == o." << fid;
             else
+                // A DataType field compares as the text it holds, marker and
+                // all -- its String form converts to a string to get here.
                 s << "dnc_equal(" << fid << ", o." << fid << ")";
         }
         s << ";\n";
@@ -716,7 +781,7 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
         const QString candidate = isCollectionType(f.type, file)
                                 ? collectionElementType(f.type, file)
                                 : f.type;
-        if (!isAttrSetType(candidate, file)) continue;
+        if (!isAttrSetType(candidate, file) && !namesADataType(candidate, file)) continue;
         if (seenTypedIncludes.contains(candidate.trimmed().toLower())) continue;
         seenTypedIncludes.insert(candidate.trimmed().toLower());
         s << "#include \"" << toIdentifier(candidate) << "_typed.h\"\n";
@@ -752,7 +817,7 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
         // user DataType is carried as text, so only the built-ins go through
         // parseExpr.
         if (isCollectionType(f.type, file)) continue;
-        const QString expr = isAttrSetType(f.type, file)
+        const QString expr = (isAttrSetType(f.type, file) || namesADataType(f.type, file))
             ? QString("%1::from_string_struct(s.%2)").arg(ct, fid)
             : (ct == "std::string" ? QString("s.%1").arg(fid) : parseExpr(fid, f.type));
         s << "        t." << fid << " = " << expr << ";\n";
@@ -778,7 +843,7 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
             continue;
         }
         s << "        s." << fid << " = ";
-        if (isAttrSetType(f.type, file))
+        if (isAttrSetType(f.type, file) || namesADataType(f.type, file))
             s << fid << ".to_string_struct()";
         else if (ct == "std::string")
             s << fid;
@@ -838,6 +903,12 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
             s << "        m.emplace_back(\"" << key << "\", " << fid << ".to_json_value());\n";
             continue;
         }
+        if (namesADataType(f.type, file)) {
+            // A DataType is one value, so it goes on the wire as the text form
+            // its own typed struct writes.
+            s << "        m.emplace_back(\"" << key << "\", " << fid << ".to_json_value());\n";
+            continue;
+        }
         s << "        m.emplace_back(\"" << key << "\", json::Convert<" << cppCommonType(f, file)
           << ">::to_json(" << fid << "));\n";
     }
@@ -866,8 +937,9 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
                   << ">::from_json(e, \"" << key << "\"));\n";
             continue;
         }
-        if (isAttrSetType(f.type, file)) {
-            // Nested Attributes block — read as its own Typed struct.
+        if (isAttrSetType(f.type, file) || namesADataType(f.type, file)) {
+            // Nested Attributes block, or a DataType — read as its own Typed
+            // struct.
             s << "        t." << fid << " = " << cppCommonType(f, file)
               << "::from_json_value(json::require(v, \"" << key << "\"));\n";
             continue;
@@ -925,6 +997,7 @@ QString CppGenerator::genTypedHeader(const AttrSet& as, const SpectableFile& fil
 // AttrSets meant the last file processed erased every struct contributed by the
 // others. The existing header is therefore merged with the new entries.
 QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets,
+                                      const QStringList& dataTypeIds,
                                       const QString& existing,
                                       const QString& dir) const
 {
@@ -939,6 +1012,11 @@ QString CppGenerator::genCommonHeader(const QVector<AttrSet>& attrSets,
                    includes, dir, QRegularExpression(R"(^#include "([A-Za-z0-9_]+)\.h")"), ".h");
     for (const AttrSet& as : attrSets) {
         const QString id = toIdentifier(as.name);
+        for (const QString& l : { QString("#include \"%1_string.h\"").arg(id),
+                                  QString("#include \"%1_typed.h\"").arg(id) })
+            if (!includes.contains(l)) includes << l;
+    }
+    for (const QString& id : dataTypeIds) {
         for (const QString& l : { QString("#include \"%1_string.h\"").arg(id),
                                   QString("#include \"%1_typed.h\"").arg(id) })
             if (!includes.contains(l)) includes << l;
@@ -1911,10 +1989,7 @@ static QString genProductionDataTypeEnumCpp(const NamedBlock& nb)
             if (valueCol >= row.size()) continue;
             const QString v = row[valueCol].trimmed();
             if (v.isEmpty()) continue;
-            QString member = v;
-            member.replace(QRegularExpression(R"([^A-Za-z0-9_])"), "_");
-            if (!member.isEmpty() && member[0].isDigit()) member.prepend('_');
-            members << member;
+            members << cppEnumMemberName(v);
             values  << v;
             notes   << ((notesCol >= 0 && notesCol < row.size()) ? row[notesCol].trimmed()
                                                                  : QString());
@@ -1969,6 +2044,183 @@ static QString genProductionDataTypeClassCpp(const NamedBlock& nb)
     s << "    bool operator==(const " << nb.name << "& o) const { return text == o.text; }\n\n";
     s << "private:\n";
     s << "    std::string text;\n";
+    s << "};\n";
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// A DataType's own String and Typed pair, in common/
+// ---------------------------------------------------------------------------
+//
+// An Attributes block gets a String struct holding every cell as text and a
+// Typed struct holding the values converted. A DataType gets the same two, for
+// the same reason: a column declared as one reads in the glue as that type
+// rather than as a bare string. The conversion the type's own rule performs
+// happens on the way into the Typed form, which is in the glue and never in a
+// test body -- a value the specification states as invalid would otherwise
+// throw before the step it belongs to was reached.
+
+static QString genDataTypeStringHeaderCpp(const NamedBlock& nb)
+{
+    const QString typeName = CppGenerator::toTypeName(nb.name) + "String";
+    QString out;
+    QTextStream s(&out);
+
+    s << "#pragma once\n";
+    s << "// The text form of the DataType " << nb.name.trimmed()
+      << ", as a table cell holds it.\n";
+    s << "// " << CppGenerator::toTypeName(nb.name)
+      << "Typed holds the value itself; this one names the type in a\n";
+    s << "// signature while behaving like the text it is. It converts to and from a\n";
+    s << "// string implicitly, so glue written against the text keeps working and a\n";
+    s << "// cell can be compared, streamed or handed to the production class directly.\n";
+    s << "// No operator== of its own, deliberately: one would make `cell == \"x\"`\n";
+    s << "// ambiguous against the string comparison the conversion already allows.\n\n";
+    s << "#include <cctype>\n";
+    s << "#include <ostream>\n";
+    s << "#include <string>\n";
+    s << "#include <utility>\n\n";
+    s << dncBlockCpp() << "\n";
+
+    s << "struct " << typeName << " {\n";
+    s << "    std::string value;\n\n";
+    s << "    " << typeName << "() = default;\n";
+    s << "    " << typeName << "(const char* text) : value(text ? text : \"\") {}\n";
+    s << "    " << typeName << "(std::string text) : value(std::move(text)) {}\n\n";
+    s << "    operator const std::string&() const { return value; }\n\n";
+    s << "    static " << typeName << " from_text(const std::string& text) { return "
+      << typeName << "(text); }\n";
+    s << "    std::string to_string() const { return value; }\n";
+    s << "};\n\n";
+    // Streaming needs its own operator: the one for std::string is a template,
+    // and template argument deduction does not apply a user-defined conversion,
+    // so `message << cell` would not find it. A glue line that puts a cell into
+    // a gtest failure message does exactly that.
+    s << "inline std::ostream& operator<<(std::ostream& os, const " << typeName
+      << "& v) { return os << v.value; }\n";
+    return out;
+}
+
+static QString genDataTypeTypedHeaderCpp(const NamedBlock& nb, const QString& prodInclude)
+{
+    const QString strName   = CppGenerator::toTypeName(nb.name) + "String";
+    const QString typedName = CppGenerator::toTypeName(nb.name) + "Typed";
+    // At global scope, so a field whose name matches its own type does not hide
+    // it -- the same reason the production Entity struct writes it this way.
+    const QString prodName  = "::" + nb.name.trimmed();
+    const bool isEnum = nb.hasExamples
+        && nb.examples.attrSetName.compare("EnumerationValues", Qt::CaseInsensitive) == 0;
+    // Without a production folder there is no class to hold, so the Typed form
+    // carries the text alone. The struct is generated either way, so that a
+    // field's declared type does not depend on a project setting.
+    const bool hasProduction = !prodInclude.isEmpty();
+
+    QString out;
+    QTextStream s(&out);
+
+    s << "#pragma once\n";
+    if (hasProduction) {
+        s << "// The typed form of the DataType " << nb.name.trimmed()
+          << ": the production class, built\n";
+        s << "// from the cell's text. This is the only place common reaches into\n";
+        s << "// production, and it is here so that reading a value happens in the glue.\n\n";
+    } else {
+        s << "// The typed form of the DataType " << nb.name.trimmed()
+          << ". This project has no\n";
+        s << "// production folder, so there is no class to hold the value and the text\n";
+        s << "// is all there is -- the glue reads it as it sees fit.\n\n";
+    }
+    if (hasProduction) {
+        s << "#include <optional>\n";
+        s << "#include <stdexcept>\n";
+    }
+    s << "#include <string>\n";
+    s << "#include <vector>\n";
+    s << "#include \"json.h\"\n";
+    s << "#include \"" << CppGenerator::toIdentifier(nb.name) << "_string.h\"\n";
+    if (hasProduction)
+        s << "#include \"" << prodInclude << "\"\n";
+    s << "\n";
+
+    s << "struct " << typedName << " {\n";
+    if (hasProduction) {
+        s << "    // Empty when the cell was blank or held the do-not-care marker:\n";
+        s << "    // neither states a value, so the type is not asked to read one.\n";
+        s << "    std::optional<" << prodName << "> value;\n";
+    }
+    s << "    // The text it was read from. Comparing and writing back use this, so\n";
+    s << "    // neither needs anything of the production class.\n";
+    s << "    std::string text;\n\n";
+
+    s << "    static " << typedName << " from_string_struct(const " << strName << "& s) {\n";
+    s << "        " << typedName << " t;\n";
+    s << "        t.text = s.value;\n";
+    if (!hasProduction) {
+        s << "        return t;\n";
+        s << "    }\n\n";
+    } else {
+    s << "        if (s.value.empty() || s.value == DNCString) return t;\n";
+    if (isEnum) {
+        const int valueCol = cppExampleCol(nb, "Value");
+        s << "        // The values the specification lists, read here rather than\n";
+        s << "        // through a function in the production file, whose name is the\n";
+        s << "        // project's to choose.\n";
+        if (valueCol >= 0) {
+            for (const QStringList& row : nb.examples.rows) {
+                if (valueCol >= row.size()) continue;
+                const QString v = row[valueCol].trimmed();
+                if (v.isEmpty()) continue;
+                s << "        if (s.value == \"" << cppEscape(v) << "\") { t.value = "
+                  << prodName << "::" << cppEnumMemberName(v) << "; return t; }\n";
+            }
+        }
+        // No return after the throw: every value the list holds has returned
+        // already, so anything reaching here is not one of them.
+        s << "        throw std::invalid_argument(\"" << nb.name.trimmed()
+          << " does not take the value: \" + s.value);\n";
+        s << "    }\n\n";
+    } else {
+        s << "        // The production class decides what it accepts, and a refusal is\n";
+        s << "        // its own exception, thrown here -- inside the glue's call.\n";
+        s << "        t.value.emplace(s.value);\n";
+        s << "        return t;\n";
+        s << "    }\n\n";
+    }
+    }
+
+    s << "    " << strName << " to_string_struct() const { return " << strName << "(text); }\n\n";
+    if (hasProduction) {
+        s << "    // The value itself. A blank cell has none, which has_value() answers.\n";
+        s << "    bool has_value() const { return value.has_value(); }\n";
+        s << "    const " << prodName << "& get() const { return value.value(); }\n\n";
+    }
+
+    s << "    static std::vector<" << strName << "> to_string_list(const std::vector<"
+      << typedName << ">& list) {\n";
+    s << "        std::vector<" << strName << "> result;\n";
+    s << "        for (const auto& t : list) result.push_back(t.to_string_struct());\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+    s << "    static std::vector<" << typedName << "> from_string_list(const std::vector<"
+      << strName << ">& list) {\n";
+    s << "        std::vector<" << typedName << "> result;\n";
+    s << "        for (const auto& s : list) result.push_back(from_string_struct(s));\n";
+    s << "        return result;\n";
+    s << "    }\n\n";
+
+    s << "    json::Value to_json_value() const { return json::Convert<std::string>::to_json(text); }\n";
+    s << "    std::string to_json() const { return json::write(to_json_value()); }\n";
+    s << "    static " << typedName << " from_json_value(const json::Value& v) {\n";
+    s << "        return from_string_struct(" << strName
+      << "(json::Convert<std::string>::from_json(v, \"" << nb.name.trimmed() << "\")));\n";
+    s << "    }\n";
+    s << "    static " << typedName << " from_json(const std::string& text) {\n";
+    s << "        return from_json_value(json::parse(text));\n";
+    s << "    }\n\n";
+
+    s << "    bool operator==(const " << typedName
+      << "& o) const { return dnc_equal(text, o.text); }\n";
+    s << "    bool operator!=(const " << typedName << "& o) const { return !(*this == o); }\n";
     s << "};\n";
     return out;
 }
@@ -2124,6 +2376,10 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
     s_flattenSingleRowToList    = opts.flattenSingleRowToList;
     s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
+    // A DataType's Typed struct holds the production class where the project
+    // has a production folder for it to come from.
+    s_dataTypeProduction =
+        opts.createProductionClasses && !opts.productionClassesDir.isEmpty();
 
     if (file.specName.isEmpty()) {
         msgs << "ERROR:0:No Specification declaration found";
@@ -2212,6 +2468,45 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
         writeFile(commonDir.filePath(id + "_typed.h"),  genTypedHeader(as, augmented),  msgs);
         domainSets.push_back(as);
     }
+
+    // A DataType's own String and Typed pair, written beside the Attributes
+    // blocks' pairs and for the same reasons. A DataType declared in another
+    // specification is written too: a field here may name it, and the pair has
+    // to exist for the include to find.
+    QStringList dataTypeIds;
+    {
+        const QDir prodDir(opts.productionClassesDir);
+        const sourcescan::ProductionScan prodScan(
+            s_dataTypeProduction ? prodDir.path() : QString(), {"*.h"});
+        QSet<QString> written;
+        for (const NamedBlock& nb : augmented.namedBlocks) {
+            if (nb.kind.compare("DataType", Qt::CaseInsensitive) != 0) continue;
+            const QString name = nb.name.trimmed();
+            if (name.isEmpty() || written.contains(name.toLower())) continue;
+            written.insert(name.toLower());
+
+            // The file that declares the production class, which is not always
+            // <Name>.h: a project may group several types in one header, and the
+            // production writer leaves such a file alone, so the include here
+            // has to agree with where the type actually is. Empty when the
+            // project has no production folder at all.
+            QString include;
+            if (s_dataTypeProduction) {
+                QString declared = prodScan.declaredIn(name);
+                if (declared.isEmpty()) declared = prodDir.filePath(name + ".h");
+                include = QDir(QFileInfo(commonDir.path()).absoluteFilePath())
+                              .relativeFilePath(QFileInfo(declared).absoluteFilePath());
+            }
+
+            const QString id = toIdentifier(name);
+            writeFile(commonDir.filePath(id + "_string.h"),
+                      genDataTypeStringHeaderCpp(nb), msgs);
+            writeFile(commonDir.filePath(id + "_typed.h"),
+                      genDataTypeTypedHeaderCpp(nb, include), msgs);
+            dataTypeIds << id;
+        }
+    }
+
     writeFile(commonDir.filePath("json.h"),   genJsonHeader(),                 msgs);
     writeFile(commonDir.filePath("tokens.h"), genTokensHeader(),               msgs);
     {
@@ -2223,7 +2518,7 @@ QStringList CppGenerator::generate(const SpectableFile& file, const Options& opt
             cf.close();
         }
         writeFile(commonDir.filePath("common.h"),
-                  genCommonHeader(domainSets, existingCommon, commonDir.path()), msgs);
+                  genCommonHeader(domainSets, dataTypeIds, existingCommon, commonDir.path()), msgs);
     }
 
     // Test file (always overwritten)

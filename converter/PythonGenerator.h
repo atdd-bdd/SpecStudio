@@ -44,6 +44,7 @@ public:
     // call them)
     static QString pythonType(const QString& specType);
     static QString toTypeName(const QString& name);     // PascalCase
+    static QString toModuleName(const QString& name);   // snake_case module
 
 private:
     QStringList m_extraImports;
@@ -56,7 +57,6 @@ private:
     static QString toMethodName(const QString& keyword, const QString& stepText,
                                 const QString& attrSetName = QString());
     static QString toMethodName(const Step& step);
-    static QString toModuleName(const QString& name);   // snake_case module
 
     // Lookup helpers
     static bool        isAttrSetType(const QString& name, const SpectableFile& file);
@@ -79,7 +79,9 @@ private:
     QString genTypedClass(const AttrSet& as, const SpectableFile& file) const;
     QString genEqualityMethods(const AttrSet& as, const QString& cn,
                                bool dncAware) const;
-    QString genCommonInit(const QVector<AttrSet>& attrSets, const QString& existing,
+    QString genCommonInit(const QVector<AttrSet>& attrSets,
+                          const QStringList& dataTypeNames,
+                          const QString& existing,
                           const QString& dir) const;
     QString genTestFile(const SpectableFile& file, const QString& specSnake,
                         const QString& glueClass, QStringList& errors) const;
