@@ -56,6 +56,14 @@ struct SpecConfig
     // their implementations. New Project writes it true.
     bool    stepNameIncludesAttrSet = false;
 
+    // Where that appending applies. False appends the set to every affected
+    // glue method; true appends it only where two occurrences of one step
+    // phrase take different tables, so every name that was already
+    // unambiguous keeps reading as the step does. Absent from a .specconfig
+    // means false, which is what projects written before the choice existed
+    // already do. New Project writes it true.
+    bool    stepNameAttrSetOnCollision = false;
+
     // Cross-project type imports — external .spectable files whose types are visible here
     QList<ExternalSpectable> externalSpectables;
 

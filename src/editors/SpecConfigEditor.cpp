@@ -15,6 +15,7 @@
 #include <QSignalBlocker>
 #include <QListWidget>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -186,11 +187,36 @@ SpecConfigEditor::SpecConfigEditor(const QString& filePath, QWidget* parent)
     testLayout->addWidget(m_stepNameAttrSet);
     testLayout->addWidget(stepNameHint);
 
-    // Changing this renames glue methods that already exist, and nothing
-    // renames the old ones -- appendMissingStubs only adds. Say so at the
-    // moment of the change rather than in the hint, which is easy to skim.
+    // Where the type goes. Appending it to every method makes the names that
+    // were never ambiguous worse, so the choice is offered rather than assumed.
+    m_stepNameWhen = new QWidget(testGroup);
+    auto* whenLayout = new QVBoxLayout(m_stepNameWhen);
+    whenLayout->setContentsMargins(24, 0, 0, 0);
+    m_stepNameAlways = new QRadioButton(
+        tr("Always \u2014 every step that takes a table"), m_stepNameWhen);
+    m_stepNameOnCollision = new QRadioButton(
+        tr("Only where two steps would otherwise share one method"), m_stepNameWhen);
+    auto* whenHint = new QLabel(
+        tr("Only where needed keeps the name the step reads as \u2014 "
+           "Given_the_value_is \u2014 unless another occurrence of that same phrase "
+           "takes a different table, and then both are qualified. Always is the "
+           "older behaviour, and makes every affected name longer whether or not "
+           "anything collided."),
+        m_stepNameWhen);
+    whenHint->setWordWrap(true);
+    whenHint->setStyleSheet("color: gray; font-size: 11px;");
+    whenLayout->addWidget(m_stepNameAlways);
+    whenLayout->addWidget(m_stepNameOnCollision);
+    whenLayout->addWidget(whenHint);
+    testLayout->addWidget(m_stepNameWhen);
+
+    // Changing either of these renames glue methods that already exist, and
+    // nothing renames the old ones -- appendMissingStubs only adds. Say so at
+    // the moment of the change rather than in the hint, which is easy to skim.
     connect(m_stepNameAttrSet, &QCheckBox::toggled, this,
             &SpecConfigEditor::warnStepNameChanged);
+    connect(m_stepNameOnCollision, &QRadioButton::toggled, this,
+            &SpecConfigEditor::warnStepNameWhenChanged);
 
     root->addWidget(testGroup);
 
@@ -487,11 +513,17 @@ void SpecConfigEditor::populateFromConfig(const SpecConfig& cfg)
     m_flattenCell->setChecked(cfg.flattenSingleCellToScalar);
     // Record what was loaded and set without a signal, so opening the file
     // never raises the warning -- only a change by hand does.
-    m_stepNameAttrSetLoaded = cfg.stepNameIncludesAttrSet;
+    m_stepNameAttrSetLoaded     = cfg.stepNameIncludesAttrSet;
+    m_stepNameOnCollisionLoaded = cfg.stepNameAttrSetOnCollision;
     {
         QSignalBlocker block(m_stepNameAttrSet);
+        QSignalBlocker blockAlways(m_stepNameAlways);
+        QSignalBlocker blockCollision(m_stepNameOnCollision);
         m_stepNameAttrSet->setChecked(cfg.stepNameIncludesAttrSet);
+        m_stepNameOnCollision->setChecked(cfg.stepNameAttrSetOnCollision);
+        m_stepNameAlways->setChecked(!cfg.stepNameAttrSetOnCollision);
     }
+    updateStepNameWhenEnabled();
     m_copySpectable->setChecked(cfg.copySpectable);
     m_converterPath->setText(cfg.converterPath);
     m_imports->setPlainText(cfg.imports.join("\n"));
@@ -531,7 +563,8 @@ SpecConfig SpecConfigEditor::configFromForm() const
     cfg.failEveryTest   = m_failEveryTest->isChecked();
     cfg.flattenSingleRowToList    = m_flattenRow->isChecked();
     cfg.flattenSingleCellToScalar = m_flattenCell->isChecked();
-    cfg.stepNameIncludesAttrSet = m_stepNameAttrSet->isChecked();
+    cfg.stepNameIncludesAttrSet    = m_stepNameAttrSet->isChecked();
+    cfg.stepNameAttrSetOnCollision = m_stepNameOnCollision->isChecked();
     cfg.copySpectable   = m_copySpectable->isChecked();
     cfg.converterPath   = m_converterPath->text().trimmed();
     const QString impText = m_imports->toPlainText();
@@ -713,7 +746,52 @@ void SpecConfigEditor::warnStepNameChanged(bool on)
     if (answer != QMessageBox::Yes) {
         QSignalBlocker block(m_stepNameAttrSet);
         m_stepNameAttrSet->setChecked(m_stepNameAttrSetLoaded);
+        updateStepNameWhenEnabled();
+        return;
+    }
+    updateStepNameWhenEnabled();
+    markDirty();
+}
+
+// The same renaming, from the other control: a method that was qualified
+// because the project qualified everything loses its suffix the moment the
+// project qualifies only collisions, and the glue it held stays behind under
+// the old name.
+void SpecConfigEditor::warnStepNameWhenChanged(bool on)
+{
+    if (on == m_stepNameOnCollisionLoaded) return;   // back to where it started
+    // Nothing is named after a table yet, so there is nothing to rename.
+    if (!m_stepNameAttrSet->isChecked()) { markDirty(); return; }
+
+    const QString what = on
+        ? tr("Glue methods that did not need the table type will be renamed to drop "
+             "it, for example Given_the_value_is_Money becomes Given_the_value_is.")
+        : tr("Every glue method whose step takes a table will be renamed to include "
+             "the table type, for example Given_the_value_is becomes "
+             "Given_the_value_is_Money.");
+
+    const auto answer = QMessageBox::warning(
+        this, tr("Glue methods will be renamed"),
+        what + "\n\n" +
+        tr("The next build writes the new names and adds an empty stub for each. "
+           "Your existing methods are not renamed and not deleted \u2014 they stay in "
+           "the glue file under their old names, holding their implementations, "
+           "and nothing calls them. Every affected step will report as not "
+           "implemented until its code is moved across.\n\n"
+           "Change the setting anyway?"),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+    if (answer != QMessageBox::Yes) {
+        QSignalBlocker blockCollision(m_stepNameOnCollision);
+        QSignalBlocker blockAlways(m_stepNameAlways);
+        m_stepNameOnCollision->setChecked(m_stepNameOnCollisionLoaded);
+        m_stepNameAlways->setChecked(!m_stepNameOnCollisionLoaded);
         return;
     }
     markDirty();
+}
+
+void SpecConfigEditor::updateStepNameWhenEnabled()
+{
+    if (m_stepNameWhen) m_stepNameWhen->setEnabled(m_stepNameAttrSet->isChecked());
 }

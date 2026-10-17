@@ -114,6 +114,15 @@ int main(int argc, char* argv[])
         "methods rather than one collision.");
     cli.addOption(stepNameAttrSetOpt);
 
+    // Only where it is needed, which is the usable half of the flag above:
+    // qualifying every method makes all the names that were fine worse.
+    QCommandLineOption stepNameAttrSetOnCollisionOpt("step-name-attrset-on-collision",
+        "With --step-name-attrset, append the AttributeSet or Entity only to "
+        "the glue methods that would otherwise collide -- two occurrences of "
+        "one step phrase taking different tables. Every other method keeps the "
+        "name the step reads as.");
+    cli.addOption(stepNameAttrSetOnCollisionOpt);
+
     QCommandLineOption noFailEveryTestOpt("no-fail-every-test",
         "Generate glue stubs that print their arguments and return, without a "
         "trailing failure. An unimplemented step will then report success.");
@@ -263,6 +272,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         JavaGenerator gen;
@@ -280,6 +290,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         RustGenerator gen;
@@ -298,6 +309,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         PythonGenerator gen;
@@ -315,6 +327,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         CppGenerator gen;
@@ -332,6 +345,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         JavaScriptGenerator gen;
@@ -349,6 +363,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         TypeScriptGenerator gen;
@@ -366,6 +381,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         GoGenerator gen;
@@ -382,6 +398,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses  = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest            = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet  = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList  = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         SwiftGenerator gen;
@@ -402,6 +419,7 @@ int main(int argc, char* argv[])
         opts.createProductionClasses     = !opts.productionClassesDir.isEmpty();
         opts.failEveryTest               = !cli.isSet(noFailEveryTestOpt);
         opts.stepNameIncludesAttrSet     = cli.isSet(stepNameAttrSetOpt);
+        opts.stepNameAttrSetOnCollision = cli.isSet(stepNameAttrSetOnCollisionOpt);
         opts.flattenSingleRowToList     = !cli.isSet(noFlattenRowOpt);
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         CSharpGenerator gen;

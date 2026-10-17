@@ -1920,6 +1920,72 @@ QVector<ParseMessage> validateStepTableShapes(const SpectableFile& file,
 }
 
 // ---------------------------------------------------------------------------
+// Which glue methods need the attribute set in their name
+// ---------------------------------------------------------------------------
+
+QString stepPhraseKey(const QString& keyword, const QString& stepText)
+{
+    QString s = keyword + "_" + stepText;
+    s.replace(QRegularExpression(R"([^A-Za-z0-9]+)"), "_");
+    s.remove(QRegularExpression("^_+|_+$"));
+    return s.toLower();
+}
+
+// What a step hands its glue method, as a key rather than a type name: the nine
+// languages spell the types differently but divide the steps the same way.
+static QString glueTakeKey(const Step& step, const SpectableFile& file)
+{
+    if (step.hasDocString) return QStringLiteral("docstring");
+
+    if (!step.defineRef.isEmpty() && step.attrSetName.isEmpty()) {
+        for (const Define& d : file.defines)
+            if (d.name.compare(step.defineRef, Qt::CaseInsensitive) == 0)
+                return d.hasDocString ? QStringLiteral("docstring") : QString();
+        return QString();
+    }
+
+    // No set named means nothing reaches the glue, table or no table: an
+    // unread table is its own warning.
+    if (step.attrSetName.trimmed().isEmpty()) return QString();
+
+    const QString named = step.attrSetName.trimmed();
+    if (step.everyCell)                        return "grid:" + named.toLower();
+    if (isDataTypeOrBuiltin(named, file))      return "type:" + named.toLower();
+
+    // A Collection reaches the glue as a list of its element type, so a step
+    // naming the collection and one naming the element take the same thing and
+    // do not need telling apart.
+    for (const Collection& c : file.collections)
+        if (c.name.compare(named, Qt::CaseInsensitive) == 0)
+            return "set:" + c.elementType.toLower();
+    return "set:" + named.toLower();
+}
+
+QSet<QString> stepPhrasesNeedingAttrSet(const SpectableFile& file)
+{
+    QMap<QString, QSet<QString>> takes;   // phrase -> what its occurrences hand the glue
+    QMap<QString, QSet<QString>> sets;    // phrase -> the attribute sets they name
+
+    auto note = [&](const Step& step) {
+        const QString key = stepPhraseKey(step.keyword, step.text);
+        if (key.isEmpty()) return;
+        takes[key].insert(glueTakeKey(step, file));
+        sets[key].insert(step.attrSetName.trimmed().toLower());
+    };
+
+    for (const Scenario& s : file.scenarios)
+        for (const Step& step : s.steps) note(step);
+    for (const Step& step : file.backgroundSteps) note(step);
+    for (const Step& step : file.cleanupSteps)    note(step);
+
+    QSet<QString> needed;
+    for (auto it = takes.cbegin(); it != takes.cend(); ++it)
+        if (it.value().size() > 1 && sets.value(it.key()).size() > 1)
+            needed.insert(it.key());
+    return needed;
+}
+
+// ---------------------------------------------------------------------------
 // An Examples: table against the attribute set it names
 // ---------------------------------------------------------------------------
 //

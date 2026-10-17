@@ -78,6 +78,26 @@ QVector<ParseMessage> validateStepTableShapes(const SpectableFile& file,
                                               bool flattenSingleRowToList = true,
                                               bool flattenSingleCellToScalar = false);
 
+// ---------------------------------------------------------------------------
+// Which glue methods need the attribute set in their name
+// ---------------------------------------------------------------------------
+//
+// A project may append a step's attribute set to its glue method name always,
+// or only where leaving it off would make two different steps share one method.
+// These answer the second question.
+//
+// The phrase is a step's keyword and text, normalised the way every generator's
+// name function normalises them. One is returned for qualifying when its
+// occurrences hand the glue different things *and* name different attribute
+// sets, because appending the set is only what separates those. Occurrences
+// that differ in the shape of one set's table are a different complaint --
+// validateStepTableShapes makes it -- and no name would fix them.
+//
+// Language-neutral on purpose: the nine generators ask here and then apply
+// their own naming, so they cannot disagree about which methods got qualified.
+QString       stepPhraseKey(const QString& keyword, const QString& stepText);
+QSet<QString> stepPhrasesNeedingAttrSet(const SpectableFile& file);
+
 // Whether one value satisfies the built-in type its column declares -- the
 // rule validateStepTables, validateExamplesTables and validateAttributeDefaults
 // apply, offered on its own for anything that judges a cell at a time. A user

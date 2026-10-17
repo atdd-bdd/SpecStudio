@@ -85,12 +85,21 @@ A real one, from `AlignThreeVariousTests/TestProject/A Java Config.specconfig`:
 | `failEveryTest` | `true` | End every generated glue stub with a failure, so an unimplemented step cannot report success. |
 | `flattenSingleRowToList` | `true` | A DataType or built-in table of one row or one column reaches the glue as a list rather than a grid. |
 | `flattenSingleCellToScalar` | `false` | A DataType or built-in table of one cell reaches the glue as a single value rather than a list of one. |
+| `stepNameIncludesAttrSet` | `false` | Append the step's AttributeSet or Entity to its glue method name. New Project writes `true`. |
+| `stepNameAttrSetOnCollision` | `false` | Where that appending applies: `true` only where two steps would otherwise share one method. New Project writes `true`. |
 | `externalSpectables` | `[]` | Specifications from elsewhere whose types are visible here — see below. |
 
 ### The shape a DataType table arrives in
 
-A step naming a DataType or a built-in hands the glue values of that type —
-`Pins`, not text. These two say what shape they arrive in.
+A step naming a DataType or a built-in hands the glue the declared type rather
+than a grid of text. A built-in arrives converted — an `Integer` column is an
+`int` — because the converter checks those cells as it generates and a cell
+that would not convert is a build error. A DataType you declared arrives as
+`<Name>String`, the cell's text with the type in its name, and the glue reads
+the DataType from it: the rule is your project's, a specification may state a
+value it refuses on purpose, and a test body must not throw.
+
+These two options say what shape they arrive in, either way.
 
 ```
 Given rolls are : Pins
@@ -99,9 +108,9 @@ Given rolls are : Pins
 
 | Options | The glue receives |
 |---|---|
-| both off | a grid — `List<List<Pins>>` |
-| `flattenSingleRowToList` (the default) | a list — `List<Pins>` |
-| both on, and one cell | one value — `Pins` |
+| both off | a grid — `List<List<PinsString>>` |
+| `flattenSingleRowToList` (the default) | a list — `List<PinsString>` |
+| both on, and one cell | one value — `PinsString` |
 
 Row flattening is on by default because the row count is a property of the
 table's shape, and every occurrence of a step agrees on it. Cell flattening is
@@ -115,6 +124,39 @@ shape of its table. A disagreement is an error, naming both lines, and turning
 cell flattening on can create one where none existed — which is the point: you
 are told, rather than given a method whose signature depends on which scenario
 was generated last.
+
+### Naming a glue method after the table it takes
+
+Two steps can read alike and take different tables:
+
+```
+Given the value is : Money
+Given the value is : Count
+```
+
+Both want the method `Given_the_value_is`, and only one can have it. The build
+says so, and `stepNameIncludesAttrSet` is the fix: the table's name joins the
+method's, so the two become `Given_the_value_is_Money` and
+`Given_the_value_is_Count`.
+
+`stepNameAttrSetOnCollision` says where that happens.
+
+| Settings | What the glue methods are called |
+|---|---|
+| `stepNameIncludesAttrSet: false` | `Given_the_value_is` for both, and the build warns about the clash |
+| `stepNameIncludesAttrSet: true` | every method whose step takes a table is qualified, collision or not |
+| both `true` | only the methods that would collide are qualified; the rest read as their steps do |
+
+New projects get both, which is the combination worth having: a name is
+qualified exactly where ambiguity would otherwise force it, and
+`When_the_total_is_computed` is not renamed to
+`When_the_total_is_computed_Count` for nothing.
+
+**Changing either setting renames glue methods, and nothing renames them back.**
+A build appends the stubs the new names need and leaves your old methods where
+they are, under their old names, holding their implementations, called by
+nothing. The editor asks before it lets you change either one. Do it when the
+glue is empty, or be ready to move code across.
 
 ### Why `copySpectable` defaults to off
 
@@ -316,6 +358,8 @@ The last two arguments are input and output. Useful flags:
 | `--overwrite-glue` | `overwriteGlue` |
 | `--no-copy-spectable` | `copySpectable: false` |
 | `--no-fail-every-test` | `failEveryTest: false` |
+| `--step-name-attrset` | `stepNameIncludesAttrSet` |
+| `--step-name-attrset-on-collision` | `stepNameAttrSetOnCollision` |
 
 `--fail-every-test` is accepted and does nothing; failing stubs are the default.
 

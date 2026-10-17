@@ -221,6 +221,23 @@ QString JavaScriptGenerator::toPascalCase(const QString& name)
 // a member because the name function is static, and threading one flag through
 // every call site in nine generators buys nothing.
 static bool s_stepNameIncludesAttrSet = false;
+
+// Whether that naming applies to every step, or only where two steps would
+// otherwise share one glue method -- and, in the second case, which step
+// phrases those are. The parser works the set out, so all nine agree on it.
+static bool          s_stepNameAttrSetOnCollision = false;
+static QSet<QString> s_attrSetQualifiedPhrases;
+
+// The attribute set to append to this step's glue method name, or nothing.
+static QString attrSetForName(const Step& step)
+{
+    if (!s_stepNameIncludesAttrSet) return QString();
+    if (s_stepNameAttrSetOnCollision
+        && !s_attrSetQualifiedPhrases.contains(stepPhraseKey(step.keyword, step.text)))
+        return QString();
+    return step.attrSetName;
+}
+
 static bool s_flattenSingleRowToList    = true;
 static bool s_flattenSingleCellToScalar = false;
 
@@ -286,8 +303,7 @@ static QString jsCellExpr(const QString& specType, const QString& literal,
 // with no table is unaffected either way -- there is no type to append.
 QString JavaScriptGenerator::toMethodName(const Step& step)
 {
-    return toMethodName(step.keyword, step.text,
-              s_stepNameIncludesAttrSet ? step.attrSetName : QString());
+    return toMethodName(step.keyword, step.text, attrSetForName(step));
 }
 
 QString JavaScriptGenerator::toMethodName(const QString& keyword, const QString& stepText,
@@ -1745,6 +1761,9 @@ QStringList JavaScriptGenerator::generate(const SpectableFile& file, const Optio
     m_tagFilter    = opts.tagFilter;
     m_failEveryTest = opts.failEveryTest;
     s_stepNameIncludesAttrSet = opts.stepNameIncludesAttrSet;
+    s_stepNameAttrSetOnCollision = opts.stepNameAttrSetOnCollision;
+    s_attrSetQualifiedPhrases    = s_stepNameIncludesAttrSet && s_stepNameAttrSetOnCollision
+                                 ? stepPhrasesNeedingAttrSet(file) : QSet<QString>();
     s_flattenSingleRowToList    = opts.flattenSingleRowToList;
     s_flattenSingleCellToScalar = opts.flattenSingleCellToScalar;
 

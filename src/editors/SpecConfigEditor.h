@@ -6,6 +6,7 @@
 class QLineEdit;
 class QComboBox;
 class QCheckBox;
+class QRadioButton;
 class QLabel;
 class QListWidget;
 class QPlainTextEdit;
@@ -36,11 +37,18 @@ private slots:
     // Renaming glue methods is not undoable by rebuilding, so warn at the
     // moment of the change rather than leaving it to the hint text.
     void warnStepNameChanged(bool on);
+    // Choosing between every method and only the colliding ones renames
+    // methods just as surely, so it warns the same way.
+    void warnStepNameWhenChanged(bool on);
 
 private:
     void populateFromConfig(const SpecConfig& cfg);
     SpecConfig configFromForm() const;
     void saveCurrentExtSpecRow();
+    // The two radio buttons are only meaningful while the box above them is
+    // ticked. Called wherever that box changes, including where a refused
+    // warning puts it back.
+    void updateStepNameWhenEnabled();
 
     QLineEdit*    m_outputDir      = nullptr;
     QComboBox*    m_language       = nullptr;
@@ -50,6 +58,10 @@ private:
     QCheckBox*    m_failEveryTest  = nullptr;
     QCheckBox*    m_stepNameAttrSet = nullptr;
     bool          m_stepNameAttrSetLoaded = false;  // value as loaded, for the warning
+    QWidget*      m_stepNameWhen        = nullptr;  // holds the two radio buttons
+    QRadioButton* m_stepNameAlways      = nullptr;
+    QRadioButton* m_stepNameOnCollision = nullptr;
+    bool          m_stepNameOnCollisionLoaded = false;
     QCheckBox*    m_copySpectable  = nullptr;
     QCheckBox*    m_flattenRow     = nullptr;
     QCheckBox*    m_flattenCell    = nullptr;

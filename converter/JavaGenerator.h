@@ -29,6 +29,9 @@ public:
         // appendMissingStubs matches by name, so the old ones are left behind
         // holding their implementations.
         bool        stepNameIncludesAttrSet = false;
+        // Only where leaving the set off would make two different steps share
+        // one glue method. Ignored unless stepNameIncludesAttrSet is set.
+        bool        stepNameAttrSetOnCollision = false;
         // How a table of a DataType or a built-in reaches the glue. The values
         // are of the declared type either way; these say what shape they come
         // in. Flattening a single row is safe by default -- row count is a

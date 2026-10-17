@@ -41,11 +41,16 @@ Attributes block. Two options control the shape: `flattenSingleRowToList`
 `converter/main.cpp` prints them, so all nine generators -- and `analyze_cli`
 -- now emit the same warning the IDE emitted.
 
-**Still open:** `--step-name-attrset` appends the attribute set to *every*
-method name (`when_account_added_account`), not only the colliding ones, which
-makes all the other names worse. Renaming the step was the better choice here.
-Appending only where there is an actual collision would make the flag much more
-usable.
+**The rest is DONE 2026-10-17.** Where the attribute set is appended is now a
+choice, because both answers are reasonable: `stepNameAttrSetOnCollision`
+appends it only to the methods that would otherwise share one name, and leaves
+`when_account_added` alone. New Project writes it on. The set of phrases that
+need qualifying is worked out in `SpectableParser`
+(`stepPhrasesNeedingAttrSet`), so the nine generators cannot disagree about
+which methods got the suffix, and the test's call sites match the glue by
+construction. `--step-name-attrset-on-collision` is the CLI half; the editor
+offers two radio buttons under the existing checkbox, and warns before either
+change, since renaming a method leaves the old one behind holding its code.
 
 ---
 

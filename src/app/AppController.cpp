@@ -345,6 +345,9 @@ void AppController::onNewProject()
             // holding its implementation. A project with no glue yet has nothing
             // to lose, which is the only moment this is free.
             cfg.stepNameIncludesAttrSet  = true;
+            // And only where it is needed: a name that was never ambiguous
+            // keeps reading as its step does.
+            cfg.stepNameAttrSetOnCollision = true;
 
             if (!cfg.save(cfgPath))
                 QMessageBox::warning(m_mainWindow, tr("Configuration Not Written"),
@@ -1563,6 +1566,8 @@ void AppController::onBuildCurrentFile()
         args << "--prod-package" << cfg.productionClassesPackage;
     if (!cfg.failEveryTest)             args << "--no-fail-every-test";
     if (cfg.stepNameIncludesAttrSet)    args << "--step-name-attrset";
+    if (cfg.stepNameIncludesAttrSet && cfg.stepNameAttrSetOnCollision)
+        args << "--step-name-attrset-on-collision";
     // Pass other .spectable files from the same project as context
     if (m_solution) {
         auto* ownerProj = m_solution->projectForFile(ed->filePath());
@@ -1686,6 +1691,8 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
                     args << "--prod-package" << cfg.productionClassesPackage;
                 if (!cfg.failEveryTest)       args << "--no-fail-every-test";
                 if (cfg.stepNameIncludesAttrSet) args << "--step-name-attrset";
+                if (cfg.stepNameIncludesAttrSet && cfg.stepNameAttrSetOnCollision)
+                    args << "--step-name-attrset-on-collision";
                 for (auto* other : proj->files())
                     if (other->type() == FileType::SpecTable && other->absolutePath() != pf->absolutePath())
                         args << "--context" << other->absolutePath();

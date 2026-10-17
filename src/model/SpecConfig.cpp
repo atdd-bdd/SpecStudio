@@ -43,6 +43,8 @@ SpecConfig SpecConfig::load(const QString& filePath)
     // Absent means false, deliberately: see the note on the field.
     if (o.contains("stepNameIncludesAttrSet"))
         cfg.stepNameIncludesAttrSet = o["stepNameIncludesAttrSet"].toBool();
+    if (o.contains("stepNameAttrSetOnCollision"))
+        cfg.stepNameAttrSetOnCollision = o["stepNameAttrSetOnCollision"].toBool();
     if (o.contains("externalSpectables")) {
         for (const QJsonValue& v : o["externalSpectables"].toArray()) {
             const QJsonObject ev = v.toObject();
@@ -93,6 +95,7 @@ bool SpecConfig::save(const QString& filePath) const
     // would silently re-enable it on the next load.
     o["failEveryTest"] = failEveryTest;
     o["stepNameIncludesAttrSet"] = stepNameIncludesAttrSet;
+    o["stepNameAttrSetOnCollision"] = stepNameAttrSetOnCollision;
     if (!externalSpectables.isEmpty()) {
         QJsonArray extArr;
         for (const ExternalSpectable& es : externalSpectables) {
