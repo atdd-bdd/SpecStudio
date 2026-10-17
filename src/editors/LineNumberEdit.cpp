@@ -1,4 +1,5 @@
 #include "LineNumberEdit.h"
+#include "CompletionLists.h"
 
 #include <QAbstractItemView>
 #include <QCompleter>
@@ -500,30 +501,12 @@ void LineNumberEdit::updateCompleterWords()
         return;
     }
 
-    static const QStringList stepPrefixes = {
-        "given ", "when ", "then ", "and ", "but "
-    };
-
-    QSet<QString> seen;
+    // Step phrases are harvested from the document the caret is in, which for a
+    // .spectable is exactly one Specification -- the scope step suggestions are
+    // meant to have. Nothing has to refresh them: they are read from the text
+    // on the way to the popup, so they include a step typed a moment ago.
     QStringList all = m_baseWords + m_tagWords;
-    for (const QString& w : all)
-        seen.insert(w.toLower());
-
-    QTextBlock b = document()->begin();
-    while (b.isValid()) {
-        const QString line  = b.text().trimmed();
-        const QString lower = line.toLower();
-        if (!line.isEmpty() && !seen.contains(lower)) {
-            for (const QString& p : stepPrefixes) {
-                if (lower.startsWith(p)) {
-                    seen.insert(lower);
-                    all.append(line);
-                    break;
-                }
-            }
-        }
-        b = b.next();
-    }
+    all += harvestStepPhrases(document()->toPlainText(), all);
 
     qobject_cast<QStringListModel*>(m_completer->model())->setStringList(all);
 }

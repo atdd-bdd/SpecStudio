@@ -52,6 +52,8 @@ set(SOURCES
 
     editors/LineNumberEdit.h
     editors/LineNumberEdit.cpp
+    editors/CompletionLists.h
+    editors/CompletionLists.cpp
     editors/PlainTextEditor.h
     editors/PlainTextEditor.cpp
 

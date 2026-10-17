@@ -247,7 +247,8 @@ converter/        SpectableParser and one generator per target language;
                   Analyze reads the same parse tree the generators do
 third_party/      hunspell 1.7.2, as source
 resources/        help text and the en_US dictionary, compiled in
-tools/            analyze_cli, spell_cli, diff_cli -- the IDE's checks from a terminal
+tools/            analyze_cli, spell_cli, diff_cli, cursor_cli, complete_cli --
+                  the IDE's checks, line readings and suggestion lists from a terminal
 ```
 
 ## Documentation

@@ -1,4 +1,5 @@
 #include "SpecTableEditor.h"
+#include "CompletionLists.h"
 #include "SpecTableBlocks.h"
 #include "syntax/SpecTableHighlighter.h"
 #include "../spell/SpellChecker.h"
@@ -1766,39 +1767,12 @@ void SpecTableEditor::refreshDynamicCompletions()
 {
     if (!m_index) return;
 
+    // The lists themselves are built in CompletionLists.cpp, away from the
+    // widget, so tools/complete_cli can print exactly what the popup offers.
     const SpecTableSymbols& syms = m_index->projectSymbols();
-    QStringList words = m_staticKeywords;
-
-    for (const QString& n : syms.entities.keys())      words << n;
-    for (const QString& n : syms.attributes.keys())    words << n;
-    for (const QString& n : syms.dataTypes.keys())     words << n;
-    for (const QString& n : syms.businessRules.keys()) words << n;
-    for (const QString& n : syms.calculations.keys())  words << n;
-    for (const QString& n : syms.domainTerms.keys())   words << n;
-    for (const QString& n : syms.defines.keys())       words << ("=" + n);
-
-    words.removeDuplicates();
-    setCompletionWords(words);
-
-    // Dedicated list for the step-colon dropdown (Given/When/Then/Examples: <name>)
-    // DataTypes are excluded — they are for the Type column, not step parameters.
-    QStringList attrSets;
-    for (const QString& n : syms.entities.keys())   attrSets << n;
-    for (const QString& n : syms.attributes.keys()) attrSets << n;
-    attrSets.sort(Qt::CaseInsensitive);
-    attrSets.removeDuplicates();
-    lineNumberEdit()->setAttrSetCompletionWords(attrSets);
-
-    // Dedicated list for the Type column dropdown in Attributes/Entity tables
-    static const QStringList builtInTypes = {
-        "Boolean", "Character", "Date", "DateTime", "Decimal", "Duration",
-        "Float", "Integer", "Scientific", "String", "Text", "Time", "YesNo"
-    };
-    QStringList typeWords = builtInTypes;
-    for (const QString& n : syms.dataTypes.keys()) typeWords << n;
-    typeWords.sort(Qt::CaseInsensitive);
-    typeWords.removeDuplicates();
-    lineNumberEdit()->setTypeCompletionWords(typeWords);
+    setCompletionWords(specTableCompletionWords(syms, m_staticKeywords));
+    lineNumberEdit()->setAttrSetCompletionWords(specTableAttrSetWords(syms));
+    lineNumberEdit()->setTypeCompletionWords(specTableTypeWords(syms));
 }
 
 void SpecTableEditor::populateContextMenu(QMenu* menu)

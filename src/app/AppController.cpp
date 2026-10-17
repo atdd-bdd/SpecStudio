@@ -1835,6 +1835,14 @@ void AppController::doAnalyze(const QList<Project*>& targets)
     QList<CoverageEntry> coverageEntries;
     QStringList allTags;
 
+    // The spec table index is rebuilt once per project below, so after the loop
+    // it holds only the last project's symbols. The completion lists, the Entity
+    // tree and the spell checker's known names serve every open editor, whatever
+    // project it belongs to, so note every file here and rebuild across the lot
+    // at the end -- the same scope File > Save already uses.
+    QStringList allSpecTableFiles;
+    QStringList allExternalFiles;
+
     for (auto* proj : targets) {
         const int batchStart = all.size();
 
@@ -1874,6 +1882,9 @@ void AppController::doAnalyze(const QList<Project*>& targets)
                 }
             }
         }
+
+        allSpecTableFiles += specTableFiles;
+        allExternalFiles   += externalFiles;
 
         if (!specTableFiles.isEmpty() || !externalFiles.isEmpty()) {
             { m_specTableIndex->rebuildProject(specTableFiles, externalFiles); SpellChecker::instance()->setKnownNames(m_specTableIndex->declaredNames()); }
@@ -1951,6 +1962,14 @@ void AppController::doAnalyze(const QList<Project*>& targets)
     for (auto it = marksByFile.cbegin(); it != marksByFile.cend(); ++it) {
         if (auto* ed = m_mainWindow->editorForPath(it.key()))
             ed->setErrorMarks(it.value());
+    }
+
+    // Analysis itself is per project -- a name declared in one project is not
+    // declared in another -- but what the editors read afterwards is not.
+    if (targets.size() > 1
+            && !(allSpecTableFiles.isEmpty() && allExternalFiles.isEmpty())) {
+        m_specTableIndex->rebuildProject(allSpecTableFiles, allExternalFiles);
+        SpellChecker::instance()->setKnownNames(m_specTableIndex->declaredNames());
     }
 
     for (auto* ed : m_mainWindow->allOpenEditors()) {

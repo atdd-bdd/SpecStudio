@@ -63,8 +63,9 @@ src/
                  converter/SpectableParser's parse tree; no regex reads a .spectable)
   spell/         SpellChecker (Hunspell, vendored under third_party/hunspell)
   build/         BuildController (QProcess), BuildOutputParser
-tools/           analyze_cli, spell_cli, diff_cli -- run the IDE's checks headlessly;
-                 verify with these, never by driving the GUI
+tools/           analyze_cli, spell_cli, diff_cli, cursor_cli, complete_cli -- run
+                 the IDE's checks and readings headlessly; verify with these,
+                 never by driving the GUI
 ```
 
 ## Architecture

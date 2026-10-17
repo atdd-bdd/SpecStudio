@@ -429,6 +429,30 @@ A file named by an `Insert` that does not exist is reported wherever the
 `Insert` stands -- `Inserted file not found: 'data.csv'` -- by Analyze and by the
 build alike. So is an `Import` of a file that is not there.
 
+### Suggestions as you type
+
+The editor offers four lists, and it matters which one you are looking at,
+because they are not all kept current the same way.
+
+| Where | What it offers | Kept current by |
+|---|---|---|
+| Anywhere, after two characters | The keywords, plus every name declared in the project, plus `=` and a `Define` name | **Analyze** and **File > Save** |
+| After the `:` on a `Given` / `When` / `Then` / `WhenThen` / `Examples:` line | Attribute sets and entities -- the tables a step can take | **Analyze** and **File > Save** |
+| In a `Type` cell of an `Attributes` or `Entity` table | The built-in types and the project's own `DataType`s | **Analyze** and **File > Save** |
+| Anywhere, after two characters | The step phrases already written **in this file** | Nothing -- read from the text each time |
+
+So a name you have just declared in *another* file appears in the first three
+lists only once the project has been re-indexed: save, or run **Analyze**.
+A step you wrote a moment ago in the file you are editing is offered straight
+away, saved or not, because that list is read from the document rather than
+from the index. Step phrases are deliberately scoped to the one file -- each
+`Specification` has its own steps, and a phrase from a specification you are not
+writing is noise.
+
+**Analyze > Solution** indexes every project, and afterwards all three
+index-backed lists cover the whole solution. **Analyze** on its own covers the
+active project.
+
 ---
 
 ## Tags
