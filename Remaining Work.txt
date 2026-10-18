@@ -32,7 +32,8 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
-### A $tag on a ScenarioGroup should tag the whole group.
+### A $tag on a ScenarioGroup should tag the whole group; an @tag on one is
+  ignored with a warning.
 
   Ken's decision, 2026-10-17. Not implemented -- held deliberately.
 
@@ -45,19 +46,28 @@ Altered so that it is separated into Issues and Future Features
   Scenario_First_In_Group and not the second scenario. Documented as it stands
   in "spectable syntax v3.3a.md" section 2.8, which this change will replace.
 
-  What has to be decided first:
+  Settled when the decision was made (2026-10-17):
 
-  - Where a group ends. ScenarioGroup is recorded as { name, line } only
-    (SpectableModel.h) and no Scenario records which group it is in, so the
-    extent of a group exists nowhere yet. The next ScenarioGroup, a Background,
-    or the end of the file are all candidates.
-  - Whether an @tag on the group behaves the same way -- i.e. every scenario in
-    the group carries it into the generated test. Symmetry says yes.
+  - A ScenarioGroup is JUST AN ORGANIZING MECHANISM. It
+    ends at the end of the file, or where the next ScenarioGroup is declared.
+    Nothing else closes one. The extent still has to be represented: a group is
+    recorded as { name, line } only (SpectableModel.h) and no Scenario records
+    which group it is in, so every scenario after the group line and before the
+    next one belongs to it.
+  - An @tag on a ScenarioGroup is IGNORED, with a warning. Nothing is
+    generated for a scenario group, so there is no test to put an @tag on.
+    (Today it is not ignored and says nothing: it lands on the first
+    scenario's test -- verified, @Tag("groupwide") appeared on
+    Scenario_First_In_Group alone.)
+  - Nothing is generated for a group, so the group's tags show nowhere in the
+    output; they only widen each scenario's effective set.
+
+  Still open:
+
   - Whether a scenario's own tag adds to the group's or replaces it. Adding is
     the obvious reading, and is what the Specification-line tags already do:
-    effective tags are file-level + block-level.
-  - Whether the group tag shows anywhere a reader would look: the generated
-    test's class or describe-block name, or nothing at all.
+    effective tags are file-level + block-level, so a group makes three levels
+    -- file + group + scenario.
 
   Scope when it goes ahead: the parser has to give a Scenario its group (or the
   group its scenarios), and all nine generators have to fold the group's tags

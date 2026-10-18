@@ -275,8 +275,8 @@ Given item collection is : OrderItemCollection
   `Attributes`, `Collection`, `Define`, `DomainTerm` or `ScenarioGroup` line
   passes over it and lands on the `Scenario` or rule that follows. Two
   consequences worth knowing:
-  * `$wip` above a `ScenarioGroup` tags the **first scenario in the group**,
-    not the group.
+  * A tag of either kind above a `ScenarioGroup` applies to the **first
+    scenario in the group**, not the group.
   * `$wip` above an `Attributes` block, with no blank line between that block
     and the scenario after it, tags **that scenario**.
 
