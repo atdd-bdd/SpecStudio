@@ -238,10 +238,60 @@ Uses <Comment>?
   * referenced Define blocks
   * supporting calculations
 
+### 2.8 Tags
+
+A tag labels the block written under it. There are two kinds, told apart by
+their first character, and they do different things.
+
+```
+@smoke @checkout $ready
+Scenario Add items
+Given item collection is : OrderItemCollection
+| Name | Price | Quantity | ItemTotal |
+```
+
+* **`@Name`** reaches the generated test, as whatever the target framework uses
+  to categorise one -- a JUnit `@Tag("smoke")`, for instance.
+* **`$Name`** is read by the generator and never emitted. It exists only so a
+  filter can decide whether to generate the block at all.
+
+#### Rules
+
+* A tag name is letters, digits and underscores. There is no quoted form and no
+  hyphen.
+* Any number of tags of either kind may stand on one line, and tag lines may be
+  stacked. Both kinds may share a line.
+* Tags apply to the **next block**: a `Scenario`, a `BusinessRule`, a
+  `Calculation`, a `DataType`, or the `Specification` line, where they apply to
+  every block in the file.
+* **A tag must sit immediately above its block.** A blank line between them
+  clears the tag -- that is the rule that makes a tag belong to the block below
+  it rather than to the next one that happens to follow. A `$tag` cleared this
+  way is reported where it was written (section 4.7); an `@tag` is not.
+* A tag line is not a comment line: `#` still starts a comment, and a tag
+  inside comment text is text.
+* **Only a blank line clears a tag; a declaration does not.** A tag is held
+  until the next block that takes one, so a tag written above an `Entity`,
+  `Attributes`, `Collection`, `Define`, `DomainTerm` or `ScenarioGroup` line
+  passes over it and lands on the `Scenario` or rule that follows. Two
+  consequences worth knowing:
+  * `$wip` above a `ScenarioGroup` tags the **first scenario in the group**,
+    not the group.
+  * `$wip` above an `Attributes` block, with no blank line between that block
+    and the scenario after it, tags **that scenario**.
+
+  Writing the tag directly above the block it means, which is the rule above,
+  avoids both.
+
 ## 3. Formal Grammar (v3.3.a)
 
 ```
-Specification      ::= "Specification" Identifier
+Specification      ::= TagLine* "Specification" Identifier
+
+TagLine            ::= (TestTag | GeneratorTag)+        # any order, any mix
+TestTag            ::= "@" Identifier                   # emitted into the test
+GeneratorTag       ::= "$" Identifier                   # filtering only
+TaggableBlock      ::= TagLine* (Scenario | BusinessRule | Calculation | DataType)
 
 Entity             ::= "Entity" Identifier Uses? EntityTable
 EntityTable        ::= Table(AttributeRow+)
@@ -397,6 +447,63 @@ Reference          ::= "=" Identifier
   * supporting calculations
   * referenced Define blocks
 
+### 4.7 Tag Semantics
+
+* An **`@tag`** is carried through to the generated test and means whatever the
+  target framework makes of it. It never affects what is generated.
+* A **`$tag`** is consumed by the generator. It appears nowhere in the output --
+  not in the test, not in the glue, not in a comment.
+* The tags that apply to a block are the block's own plus those written above
+  the `Specification` line, which belong to every block in the file.
+
+#### Filtering
+
+* The configuration carries one boolean expression, `tagFilter`. A block is
+  generated when the expression is true of its tags; an empty expression
+  generates everything.
+
+  ```
+  smoke                            only blocks tagged $smoke
+  NOT wip                          everything except unfinished work
+  smoke AND NOT wip
+  (smoke OR regression) AND NOT draft
+  ```
+
+* `AND`, `OR`, `NOT`, the parentheses and the tag names are all
+  **case-insensitive**: `READY or WIP` means the same as `ready OR wip`.
+* A tag name in the expression may be written **with or without its `$`** --
+  `NOT $wip` and `NOT wip` are the same filter. The `@` kind cannot be filtered
+  on at all; that is what a test runner's own selection is for.
+* A name that no block carries is simply false. An unknown tag is not an error,
+  so a filter can be written before the tag it names exists.
+* Filtering happens at generation time, so a filtered-out block produces no
+  test. **Its glue stub is still written**, deliberately: implementing a
+  filtered block is then write the code, fill in the glue, take the tag off.
+  Were stubs filtered too, the tag would have to come off before there was any
+  glue to fill in, and the build would break in between.
+
+#### A tag that marks nothing
+
+A blank line clears a pending tag, so a `$tag` separated from its block marks
+nothing and the block is generated as though it were untagged. That is silent
+in both directions -- a block believed skipped is tested, and after an edit
+that inserts a line, a block believed tested is skipped, which looks exactly
+like a passing test. So the parser reports it where the tag was written:
+
+```
+$Orphan
+
+Scenario Separated By A Blank Line
+```
+
+> `$Orphan marks nothing -- a blank line ends a tag, so what follows is
+> generated as though it were untagged. Put the tag immediately above the block
+> it belongs to.`
+
+It is a warning, not an error: generation continues. The same is said for a
+`$tag` at the end of a file with no block after it. An `@tag` cleared the same
+way is not reported -- it costs a category on a test, not a test.
+
 ## 5. Full Example (v3.3.a)
 
 ### 5.1 Entities
@@ -483,6 +590,22 @@ Uses Final cart state
 Removed in v3.3. Collections replace all multiplicity semantics.
 
 ## 7. Version Notes
+
+### Document revision 2026-10-17
+
+* Tags were in the language, in all nine generators and in the IDE, and in no
+  version of this document: sections 2.8, 4.7 and the grammar now carry them --
+  the two kinds, what each one does, that a blank line clears a pending tag and
+  that a cleared `$tag` is reported, the filter expression's case-insensitivity
+  and optional `$`, and that a filtered-out block still gets its glue stub.
+* Writing it found that a line mixing the two kinds kept only the sigil it
+  started with: `@smoke $ready` dropped `$ready` silently, so a filter on
+  `ready` skipped a scenario that carried it. Both kinds are read from a tag
+  line now. No specification in the test repositories mixed them, so nothing
+  already written changes.
+* Also stated, having been found by trying it rather than by reading the
+  parser: only a blank line clears a tag, so a tag above a declaration or a
+  `ScenarioGroup` passes over it onto the next scenario or rule (section 2.8).
 
 ### v3.3.a Enhancements
 * Added **Uses** named comment block

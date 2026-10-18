@@ -476,15 +476,17 @@ Given item collection is : OrderItemCollection
 | Name | Price | Quantity | ItemTotal |
 ```
 
-Several tags go on one line or on separate lines, and they apply to whatever
-block comes next — `Scenario`, `BusinessRule`, `Calculation`, `DataType`, or the
-`Specification` line itself, where they apply to everything in the file.
+Several tags go on one line or on separate lines, either kind with either, and
+they apply to whatever block comes next — `Scenario`, `BusinessRule`,
+`Calculation`, `DataType`, or the `Specification` line itself, where they apply
+to everything in the file.
 
 > **Tags must sit immediately above their block.** A blank line between the tag
-> and the block discards it, silently. This is deliberate — it is what stops a
-> stray tag at the top of a file from attaching itself to the first scenario
-> that happens to follow — but it does mean a tag separated by whitespace does
-> nothing at all.
+> and the block discards it. This is deliberate — it is what stops a stray tag
+> at the top of a file from attaching itself to the first scenario that happens
+> to follow — but it does mean a tag separated by whitespace does nothing at
+> all. A discarded `$tag` is reported where you wrote it; a discarded `@tag` is
+> not, since it costs a category on a test rather than a test.
 
 ### Filtering what gets generated
 
@@ -512,9 +514,20 @@ stubs filtered too, the tag would have to come off before there was any glue to
 fill in, and the build would break in between.
 
 A tag is cleared by a blank line, so `$wip` must sit immediately above the
-block it marks. `$wip`, a blank line, then `Scenario` tags nothing, and nothing
-says so — the scenario is generated and tested as though the tag were absent.
-A `$tag` above the `Specification` line tags every block in the file.
+block it marks. `$wip`, a blank line, then `Scenario` tags nothing — the
+scenario is generated and tested as though the tag were absent — and Analyze
+and the build both say so where the tag was written:
+
+```
+$wip marks nothing -- a blank line ends a tag, so what follows is generated
+as though it were untagged. Put the tag immediately above the block it
+belongs to.
+```
+
+A `$tag` above the `Specification` line tags every block in the file. A tag
+name in the filter may be written with or without its `$`, so `NOT wip` and
+`NOT $wip` are the same filter, and a tag no block carries is simply false
+rather than an error.
 
 ---
 

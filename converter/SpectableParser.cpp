@@ -635,20 +635,22 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
         if (trimmed.startsWith('#'))
             continue;
 
-        // ── Tags (@TagName) — accumulate for the next block ──────────────────
-        if (trimmed.startsWith('@')) {
+        // ── Tags — accumulate for the next block ─────────────────────────────
+        // @TagName reaches the generated test; $TagName is read by the generator
+        // for filtering and never emitted. Both kinds may share a line. Each
+        // sigil used to be read only on a line that started with it, so
+        // "@smoke $ready" kept smoke and dropped ready silently -- a filter on
+        // ready then skipped a scenario that carried it, which looks exactly
+        // like a scenario that was never written.
+        if (trimmed.startsWith('@') || trimmed.startsWith('$')) {
             static QRegularExpression reTag(R"(@(\w+))");
+            static QRegularExpression reGenTag(R"(\$(\w+))");
             auto it = reTag.globalMatch(trimmed);
             while (it.hasNext()) pendingTags << it.next().captured(1);
-            continue;
-        }
-
-        // ── Generator tags ($TagName) — filtering only, never emitted ────────
-        if (trimmed.startsWith('$')) {
-            static QRegularExpression reGenTag(R"(\$(\w+))");
-            auto it = reGenTag.globalMatch(trimmed);
-            if (pendingGeneratorTags.isEmpty()) pendingGeneratorTagLine = lineNum;
-            while (it.hasNext()) pendingGeneratorTags << it.next().captured(1);
+            auto gi = reGenTag.globalMatch(trimmed);
+            if (gi.hasNext() && pendingGeneratorTags.isEmpty())
+                pendingGeneratorTagLine = lineNum;
+            while (gi.hasNext()) pendingGeneratorTags << gi.next().captured(1);
             continue;
         }
 
