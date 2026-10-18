@@ -479,7 +479,13 @@ Given item collection is : OrderItemCollection
 Several tags go on one line or on separate lines, either kind with either, and
 they apply to whatever block comes next — `Scenario`, `BusinessRule`,
 `Calculation`, `DataType`, or the `Specification` line itself, where they apply
-to everything in the file.
+to everything in the file: every scenario, every rule, every calculation.
+
+**A `ScenarioGroup` is the exception: it takes no tags.** A group organises
+scenarios and nothing is generated for it, so there is no test for a tag to
+mark. A tag of either kind above a `ScenarioGroup` is ignored and said so —
+tag the scenarios in the group, or the `Specification` line if you mean the
+whole file.
 
 > **Tags must sit immediately above their block.** A blank line between the tag
 > and the block discards it. This is deliberate — it is what stops a stray tag

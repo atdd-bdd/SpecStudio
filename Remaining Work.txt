@@ -32,47 +32,29 @@ Altered so that it is separated into Issues and Future Features
 
 ## Future Enhancements:
 
-### A $tag on a ScenarioGroup should tag the whole group; an @tag on one is
-  ignored with a warning.
+### Maybe someday: a $tag on a ScenarioGroup could tag every scenario in it.
 
-  Ken's decision, 2026-10-17. Not implemented -- held deliberately.
+  Superseded decision, 2026-10-17. What was done instead, the same day: a tag
+  of either kind above a ScenarioGroup is dropped and reported, because a
+  group is generated into nothing and so has no test for a tag to mark. Before
+  that the tag passed over the group line and attached to the group's FIRST
+  scenario -- one scenario of several, chosen by position, silently.
 
-  Today it tags the group's FIRST SCENARIO only, which is an accident of how
-  tags are held rather than a rule anyone chose: a pending tag is cleared by a
-  blank line and consumed by the next block that takes tags, and the
-  ScenarioGroup line takes none (SpectableParser, the isBlockStartKeyword
-  branch, leaves pendingTags/pendingGeneratorTags alone). Verified by
-  generating: $GroupTag above "ScenarioGroup Checkout" generated
-  Scenario_First_In_Group and not the second scenario. Documented as it stands
-  in "spectable syntax v3.3a.md" section 2.8, which this change will replace.
+  Ken: "Maybe will switch this someday, but not for now."
 
-  Settled when the decision was made (2026-10-17):
+  What is settled if it is ever picked up:
 
-  - A ScenarioGroup is JUST AN ORGANIZING MECHANISM. It
-    ends at the end of the file, or where the next ScenarioGroup is declared.
-    Nothing else closes one. The extent still has to be represented: a group is
-    recorded as { name, line } only (SpectableModel.h) and no Scenario records
-    which group it is in, so every scenario after the group line and before the
-    next one belongs to it.
-  - An @tag on a ScenarioGroup is IGNORED, with a warning. Nothing is
-    generated for a scenario group, so there is no test to put an @tag on.
-    (Today it is not ignored and says nothing: it lands on the first
-    scenario's test -- verified, @Tag("groupwide") appeared on
-    Scenario_First_In_Group alone.)
-  - Nothing is generated for a group, so the group's tags show nowhere in the
-    output; they only widen each scenario's effective set.
-
-  Still open:
-
-  - Whether a scenario's own tag adds to the group's or replaces it. Adding is
-    the obvious reading, and is what the Specification-line tags already do:
-    effective tags are file-level + block-level, so a group makes three levels
-    -- file + group + scenario.
-
-  Scope when it goes ahead: the parser has to give a Scenario its group (or the
-  group its scenarios), and all nine generators have to fold the group's tags
-  into the effective set the way they already fold the file's -- every
-  generator has the line "file.generatorTags + sc.generatorTags".
+  - A ScenarioGroup is just an organizing mechanism. It ends at the end of the
+    file, or where the next ScenarioGroup is declared. Nothing else closes one.
+  - A group's extent exists nowhere in the model: it is recorded as
+    { name, line } only (SpectableModel.h) and no Scenario records its group.
+    That representation is the first piece of work.
+  - Nothing is generated for a group, so its tags would show nowhere in the
+    output; they would only widen each scenario's effective set. Folding them
+    in goes where every generator already has
+    "file.generatorTags + sc.generatorTags".
+  - Open: whether a scenario's own tag would add to the group's or replace it.
+    Adding matches what the Specification line already does.
 
 ### A step naming a DataType should hand the glue that DataType, not raw text.
 

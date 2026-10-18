@@ -1230,6 +1230,27 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
                 QString name = trimmed.mid(firstWord.length()).trimmed();
                 if (name.startsWith(':')) name = name.mid(1).trimmed();
                 if (!name.isEmpty()) result.scenarioGroups.push_back({ name, lineNum });
+
+                // A ScenarioGroup organises scenarios and is generated into
+                // nothing, so a tag on one has no test to land on. Tags above
+                // it used to pass over and attach to the group's first
+                // scenario -- one scenario of several, chosen by position,
+                // with nothing said about it. They are dropped here instead,
+                // and said.
+                if (!pendingTags.isEmpty() || !pendingGeneratorTags.isEmpty()) {
+                    QStringList shown;
+                    for (const QString& t : pendingTags)          shown << "@" + t;
+                    for (const QString& t : pendingGeneratorTags) shown << "$" + t;
+                    emitMsg(lineNum,
+                            QString("%1 on a ScenarioGroup is ignored -- a ScenarioGroup "
+                                    "generates no test, so there is nothing for a tag to "
+                                    "mark. Tag the scenarios in the group instead.")
+                                .arg(shown.join(" ")),
+                            true);
+                    pendingTags.clear();
+                    pendingGeneratorTags.clear();
+                    pendingGeneratorTagLine = 0;
+                }
             }
             continue;
         }

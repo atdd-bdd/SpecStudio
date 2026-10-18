@@ -263,25 +263,31 @@ Given item collection is : OrderItemCollection
   stacked. Both kinds may share a line.
 * Tags apply to the **next block**: a `Scenario`, a `BusinessRule`, a
   `Calculation`, a `DataType`, or the `Specification` line, where they apply to
-  every block in the file.
+  every block in the file -- every scenario, every rule, every calculation.
+* **A `ScenarioGroup` takes no tags.** A group organises scenarios and is
+  generated into nothing, so a tag on one has no test to mark. A tag of either
+  kind written above a `ScenarioGroup` line is dropped and reported:
+
+  > `@wide $alsowide on a ScenarioGroup is ignored -- a ScenarioGroup generates
+  > no test, so there is nothing for a tag to mark. Tag the scenarios in the
+  > group instead.`
+
+  Tag the scenarios in the group, or the `Specification` line if the tag is
+  meant for the whole file.
 * **A tag must sit immediately above its block.** A blank line between them
   clears the tag -- that is the rule that makes a tag belong to the block below
   it rather than to the next one that happens to follow. A `$tag` cleared this
   way is reported where it was written (section 4.7); an `@tag` is not.
 * A tag line is not a comment line: `#` still starts a comment, and a tag
   inside comment text is text.
-* **Only a blank line clears a tag; a declaration does not.** A tag is held
-  until the next block that takes one, so a tag written above an `Entity`,
-  `Attributes`, `Collection`, `Define`, `DomainTerm` or `ScenarioGroup` line
-  passes over it and lands on the `Scenario` or rule that follows. Two
-  consequences worth knowing:
-  * A tag of either kind above a `ScenarioGroup` applies to the **first
-    scenario in the group**, not the group.
-  * `$wip` above an `Attributes` block, with no blank line between that block
-    and the scenario after it, tags **that scenario**.
-
+* **Only a blank line clears a tag; a declaration does not.** Apart from a
+  `ScenarioGroup`, which drops it, a tag is held until the next block that
+  takes one -- so a tag written above an `Entity`, `Attributes`, `Collection`,
+  `Define` or `DomainTerm` line passes over it and lands on the `Scenario` or
+  rule that follows. `$wip` above an `Attributes` block, with no blank line
+  between that block and the scenario after it, tags **that scenario**.
   Writing the tag directly above the block it means, which is the rule above,
-  avoids both.
+  avoids it.
 
 ## 3. Formal Grammar (v3.3.a)
 
@@ -292,6 +298,7 @@ TagLine            ::= (TestTag | GeneratorTag)+        # any order, any mix
 TestTag            ::= "@" Identifier                   # emitted into the test
 GeneratorTag       ::= "$" Identifier                   # filtering only
 TaggableBlock      ::= TagLine* (Scenario | BusinessRule | Calculation | DataType)
+ScenarioGroup      ::= "ScenarioGroup" Identifier        # takes no TagLine
 
 Entity             ::= "Entity" Identifier Uses? EntityTable
 EntityTable        ::= Table(AttributeRow+)
@@ -504,6 +511,9 @@ It is a warning, not an error: generation continues. The same is said for a
 `$tag` at the end of a file with no block after it. An `@tag` cleared the same
 way is not reported -- it costs a category on a test, not a test.
 
+A tag on a `ScenarioGroup` is reported whichever kind it is, because neither
+kind can mean anything there (section 2.8).
+
 ## 5. Full Example (v3.3.a)
 
 ### 5.1 Entities
@@ -604,8 +614,14 @@ Removed in v3.3. Collections replace all multiplicity semantics.
   line now. No specification in the test repositories mixed them, so nothing
   already written changes.
 * Also stated, having been found by trying it rather than by reading the
-  parser: only a blank line clears a tag, so a tag above a declaration or a
-  `ScenarioGroup` passes over it onto the next scenario or rule (section 2.8).
+  parser: only a blank line clears a tag, so a tag above a declaration passes
+  over it onto the next scenario or rule (section 2.8).
+* **A `ScenarioGroup` now takes no tags.** Either kind above one used to pass
+  over and attach to the group's first scenario -- one scenario of several,
+  chosen by position, with nothing said about it. A group is generated into
+  nothing, so there is no test for a tag to mark: the tags are dropped and
+  reported. Tagging a group so that every scenario in it is tagged was
+  considered and deliberately left for another day.
 
 ### v3.3.a Enhancements
 * Added **Uses** named comment block
