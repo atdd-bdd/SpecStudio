@@ -979,7 +979,7 @@ end up in `.git/config` or in the output panel.
 |---|---|
 | **General** | Automatically reload files changed outside the editor |
 | **Editors** | External program per file extension — blank means the built-in editor |
-| **FeatureX** | Implicit `Data` import across folders; unique Scenario names; unique Step names; step suggestion scope |
+| **FeatureX** | Unique Scenario names; unique Step names |
 | **Appearance** | Dark theme |
 | **Fonts** | Editor font |
 

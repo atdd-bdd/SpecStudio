@@ -5,7 +5,6 @@
 
 #include <QApplication>
 #include <QCheckBox>
-#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFont>
@@ -153,19 +152,16 @@ void SettingsDialog::buildFeaturexTab(QTabWidget* tabs)
     auto* widget = new QWidget(tabs);
     auto* form   = new QFormLayout(widget);
 
-    m_implicitImport = new QCheckBox(tr("Implicitly import Data from other folders"), widget);
+    // Only the two checks below are read by anything. "Implicitly import Data
+    // from other folders" and "Step autocomplete scope:" were here too and
+    // controlled nothing: no code read either setting. Step suggestions come
+    // from the file being edited -- each Specification has its own steps -- so
+    // there is no scope to choose.
     m_uniqueScenario = new QCheckBox(tr("Require unique Scenario names across project"), widget);
     m_uniqueStep     = new QCheckBox(tr("Require unique Step names across project"), widget);
 
-    m_stepScope = new QComboBox(widget);
-    m_stepScope->addItem(tr("Same file"),   static_cast<int>(StepScope::File));
-    m_stepScope->addItem(tr("Same folder"), static_cast<int>(StepScope::Folder));
-    m_stepScope->addItem(tr("Entire project"), static_cast<int>(StepScope::Project));
-
-    form->addRow(m_implicitImport);
     form->addRow(m_uniqueScenario);
     form->addRow(m_uniqueStep);
-    form->addRow(tr("Step autocomplete scope:"), m_stepScope);
 
     if (!m_project)
         widget->setEnabled(false);
@@ -248,17 +244,8 @@ void SettingsDialog::loadValues()
 
     const QString& root = m_project->rootPath();
 
-    m_implicitImport->setChecked(m_settings->implicitFolderImport(root));
     m_uniqueScenario->setChecked(m_settings->uniqueScenarioNames(root));
     m_uniqueStep->setChecked(m_settings->uniqueStepNames(root));
-
-    StepScope scope = m_settings->stepSuggestionScope(root);
-    for (int i = 0; i < m_stepScope->count(); ++i) {
-        if (m_stepScope->itemData(i).toInt() == static_cast<int>(scope)) {
-            m_stepScope->setCurrentIndex(i);
-            break;
-        }
-    }
 }
 
 void SettingsDialog::saveValues()
@@ -300,11 +287,6 @@ void SettingsDialog::saveValues()
     if (!m_project) return;
     const QString& root = m_project->rootPath();
 
-    m_settings->setImplicitFolderImport(root, m_implicitImport->isChecked());
-    m_settings->setUniqueScenarioNames(root,  m_uniqueScenario->isChecked());
-    m_settings->setUniqueStepNames(root,      m_uniqueStep->isChecked());
-
-    StepScope scope = static_cast<StepScope>(
-        m_stepScope->currentData().toInt());
-    m_settings->setStepSuggestionScope(root, scope);
+    m_settings->setUniqueScenarioNames(root, m_uniqueScenario->isChecked());
+    m_settings->setUniqueStepNames(root,     m_uniqueStep->isChecked());
 }

@@ -4,8 +4,6 @@
 #include <QSettings>
 #include <QString>
 
-enum class StepScope { File, Folder, Project };
-
 class AppSettings
 {
 public:
@@ -47,18 +45,12 @@ public:
     QString lastGitHubHost() const;
     void    setLastGitHubHost(const QString& host);
 
-    // FeatureX options (per-project)
-    bool       implicitFolderImport(const QString& projectRoot) const;
-    void       setImplicitFolderImport(const QString& projectRoot, bool value);
-
+    // FeatureX options (per-project). Both are read by FeatureXAnalyzer.
     bool       uniqueScenarioNames(const QString& projectRoot) const;
     void       setUniqueScenarioNames(const QString& projectRoot, bool value);
 
     bool       uniqueStepNames(const QString& projectRoot) const;
     void       setUniqueStepNames(const QString& projectRoot, bool value);
-
-    StepScope  stepSuggestionScope(const QString& projectRoot) const;
-    void       setStepSuggestionScope(const QString& projectRoot, StepScope scope);
 
     // Window state
     QByteArray mainWindowGeometry() const;

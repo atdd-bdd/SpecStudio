@@ -82,8 +82,7 @@ tools/           analyze_cli, spell_cli, diff_cli, cursor_cli, complete_cli -- r
 [Window]          geometry, state
 [Editors]         extension/.<ext> = "" (built-in) or program path
 [Projects/<hash>] gitRemoteUrl, gitBranch, gitUser, gitPassword
-[Projects/<hash>/Featurex] implicitFolderImport, uniqueScenarioNames,
-                            uniqueStepNames, stepSuggestionScope
+[Projects/<hash>/Featurex] uniqueScenarioNames, uniqueStepNames
 [RecentSolutions] array of path values
 ```
 
@@ -104,6 +103,5 @@ The file list is never persisted — `Project::scanFiles()` re-scans with `QDirI
 ## .featurex Semantics
 
 - `Data` statements are project-wide; names must be unique across the project.
-- Implicit folder import (whether Data from other folders is auto-included) is configurable per-project.
-- Scenario/Step name uniqueness and step autocomplete scope are all configurable in Settings → FeatureX.
+- Scenario and Step name uniqueness are configurable in Settings → FeatureX. Those two are the whole tab: an implicit-folder-import checkbox and a step-autocomplete-scope combo were removed in 2026-10, having never been read by anything.
 - `import "xxx"` adds steps from the named file to autocomplete suggestions.

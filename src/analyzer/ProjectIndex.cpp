@@ -4,7 +4,6 @@
 #include "../model/FileType.h"
 
 #include <QFile>
-#include <QFileInfo>
 #include <QRegularExpression>
 #include <QTextStream>
 
@@ -57,30 +56,4 @@ void ProjectIndex::parseFile(const QString& absolutePath)
         while (it.hasNext())
             m_tags.insert("@" + it.next().captured(1));
     }
-}
-
-QStringList ProjectIndex::stepCompletions(const QString& prefix,
-                                           StepScope      scope,
-                                           const QString& currentFile,
-                                           const QString& currentFolder) const
-{
-    QStringList results;
-    for (auto it = m_stepNames.constBegin(); it != m_stepNames.constEnd(); ++it) {
-        if (!it.key().startsWith(prefix, Qt::CaseInsensitive)) continue;
-
-        switch (scope) {
-        case StepScope::File:
-            if (it.value() != currentFile) continue;
-            break;
-        case StepScope::Folder:
-            if (QFileInfo(it.value()).absolutePath() != currentFolder) continue;
-            break;
-        case StepScope::Project:
-            break;
-        }
-
-        if (!results.contains(it.key()))
-            results.append(it.key());
-    }
-    return results;
 }

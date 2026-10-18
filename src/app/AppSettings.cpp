@@ -183,16 +183,6 @@ void AppSettings::setLastGitHubHost(const QString& host)
 
 // ---- FeatureX options ----
 
-bool AppSettings::implicitFolderImport(const QString& projectRoot) const
-{
-    return m_settings.value(projectKey(projectRoot) + "/Featurex/implicitFolderImport", true).toBool();
-}
-
-void AppSettings::setImplicitFolderImport(const QString& projectRoot, bool value)
-{
-    m_settings.setValue(projectKey(projectRoot) + "/Featurex/implicitFolderImport", value);
-}
-
 bool AppSettings::uniqueScenarioNames(const QString& projectRoot) const
 {
     return m_settings.value(projectKey(projectRoot) + "/Featurex/uniqueScenarioNames", false).toBool();
@@ -211,26 +201,6 @@ bool AppSettings::uniqueStepNames(const QString& projectRoot) const
 void AppSettings::setUniqueStepNames(const QString& projectRoot, bool value)
 {
     m_settings.setValue(projectKey(projectRoot) + "/Featurex/uniqueStepNames", value);
-}
-
-StepScope AppSettings::stepSuggestionScope(const QString& projectRoot) const
-{
-    QString val = m_settings.value(projectKey(projectRoot) + "/Featurex/stepSuggestionScope",
-                                   "folder").toString();
-    if (val == "file")    return StepScope::File;
-    if (val == "project") return StepScope::Project;
-    return StepScope::Folder;
-}
-
-void AppSettings::setStepSuggestionScope(const QString& projectRoot, StepScope scope)
-{
-    QString val;
-    switch (scope) {
-    case StepScope::File:    val = "file";    break;
-    case StepScope::Project: val = "project"; break;
-    default:                 val = "folder";  break;
-    }
-    m_settings.setValue(projectKey(projectRoot) + "/Featurex/stepSuggestionScope", val);
 }
 
 // ---- Window state ----

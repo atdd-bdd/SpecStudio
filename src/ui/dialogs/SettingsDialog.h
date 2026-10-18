@@ -5,7 +5,6 @@
 class AppSettings;
 class Project;
 class QCheckBox;
-class QComboBox;
 class QFontComboBox;
 class QLabel;
 class QLineEdit;
@@ -35,10 +34,8 @@ private:
     Project*      m_project        = nullptr;
 
     // FeatureX fields
-    QCheckBox*    m_implicitImport = nullptr;
     QCheckBox*    m_uniqueScenario = nullptr;
     QCheckBox*    m_uniqueStep     = nullptr;
-    QComboBox*    m_stepScope      = nullptr;
 
     // General
     QLineEdit*    m_defaultLocEdit   = nullptr;

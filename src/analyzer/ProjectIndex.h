@@ -3,7 +3,6 @@
 #include <QMultiMap>
 #include <QSet>
 #include <QStringList>
-#include "../app/AppSettings.h"
 
 class Project;
 
@@ -11,12 +10,6 @@ class ProjectIndex
 {
 public:
     void rebuild(Project* project);
-
-    // Returns step text suggestions filtered by scope
-    QStringList stepCompletions(const QString& prefix,
-                                StepScope      scope,
-                                const QString& currentFile,
-                                const QString& currentFolder) const;
 
     const QMultiMap<QString, QString>& dataNames()     const { return m_dataNames; }
     const QMultiMap<QString, QString>& scenarioNames() const { return m_scenarioNames; }
