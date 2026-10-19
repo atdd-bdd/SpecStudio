@@ -89,6 +89,39 @@ A real one, from `AlignThreeVariousTests/TestProject/A Java Config.specconfig`:
 | `stepNameAttrSetOnCollision` | `false` | Where that appending applies: `true` only where two steps would otherwise share one method. New Project writes `true`. |
 | `externalSpectables` | `[]` | Specifications from elsewhere whose types are visible here — see below. |
 
+Each default applies to that key **on its own**: the loader reads only the keys
+the file actually contains, so a `.specconfig` written before an option existed
+picks up its default rather than needing to be rewritten. A file that is
+missing, unreadable or not valid JSON gives the whole set — the Build output
+says *No `.specconfig` found — using defaults*, which means C# with MSTest into
+`generated`.
+
+### What New Project writes
+
+File ▸ New Project does not write those defaults. It writes
+`<project>\Java.specconfig`, laid out where a Maven or Gradle build already
+looks:
+
+| Key | Value |
+|---|---|
+| `language` / `framework` | `Java` / `JUnit` |
+| `namespace` | `spectable` |
+| `outputDirectory` | `src/test/java/spectable` |
+| `createProductionClasses` | `true` |
+| `productionClassesDir` | `src/main/java/production` |
+| `productionClassesPackage` | `production` |
+| `stepNameIncludesAttrSet` | `true` |
+| `stepNameAttrSetOnCollision` | `true` |
+
+Every other key is left out and so takes its default: `copySpectable` off,
+`failEveryTest` on, `overwriteGlue` off, a single row flattened to a list and a
+single cell not.
+
+The two step-name keys are `true` here and `false` everywhere else for one
+reason: switching an existing project to them renames glue methods that already
+hold implementations, and a project with no glue yet is the only moment it costs
+nothing. See *Naming a glue method after the table it takes*.
+
 ### The shape a DataType table arrives in
 
 A step naming a DataType or a built-in hands the glue the declared type rather
@@ -346,22 +379,46 @@ SpecTableConverter --language Java --framework JUnit \
                    ../Java/App/src/test/java/spectable
 ```
 
-The last two arguments are input and output. Useful flags:
+The last two arguments are input and output. Every option, what you get when you
+leave it out, and the `.specconfig` key it corresponds to:
 
-| Flag | Config field |
-|---|---|
-| `--language`, `--framework`, `--namespace` | `language`, `framework`, `namespace` |
-| `--prod-dir`, `--prod-package` | `productionClassesDir`, `productionClassesPackage` |
-| `--context <file>` | `externalSpectables[].file` |
-| `--import <statement>` | `imports`, `externalSpectables[].codeImports` |
-| `--tag-filter <expr>` | `tagFilter` |
-| `--overwrite-glue` | `overwriteGlue` |
-| `--no-copy-spectable` | `copySpectable: false` |
-| `--no-fail-every-test` | `failEveryTest: false` |
-| `--step-name-attrset` | `stepNameIncludesAttrSet` |
-| `--step-name-attrset-on-collision` | `stepNameAttrSetOnCollision` |
+| Flag | Omitted | Config key |
+|---|---|---|
+| `input` *(1st positional)* | **required** | — the `.spectable` to convert |
+| `output` *(2nd positional)* | **required** | `outputDirectory`, resolved against the config file |
+| `-l`, `--language <lang>` | `CSharp` | `language` |
+| `-f`, `--framework <fw>` | `JUnit` for Java, `MSTest` for C# | `framework` |
+| `-n`, `--namespace <prefix>` | no prefix | `namespace` |
+| `--overwrite-glue` | off — an existing glue file is left alone | `overwriteGlue: true` |
+| `--no-copy-spectable` | **not passed, so the `.spectable` is copied** | `copySpectable: false` |
+| `--context <file>` | none; repeatable | `externalSpectables[].file`, and the project's other specifications |
+| `--source-root <dir>` | empty | *no key* — the IDE passes the project root |
+| `--import <statement>` | none; repeatable | `imports`, `externalSpectables[].codeImports` |
+| `--tag-filter <expr>` | empty — every block is generated | `tagFilter` |
+| `--no-flatten-single-row` | not passed, so one row or one column flattens to a list | `flattenSingleRowToList: false` |
+| `--flatten-single-cell` | off — one cell arrives as a list of one | `flattenSingleCellToScalar: true` |
+| `--prod-dir <dir>` | empty, and nothing is written unless it is set | `createProductionClasses` **and** `productionClassesDir`, both |
+| `--prod-package <package>` | empty | `productionClassesPackage` |
+| `--fail-every-test` | accepted and does nothing — failing stubs are the default | — |
+| `--no-fail-every-test` | not passed, so every stub ends in a failure | `failEveryTest: false` |
+| `--step-name-attrset` | off | `stepNameIncludesAttrSet` |
+| `--step-name-attrset-on-collision` | off, and ignored without the flag above | `stepNameAttrSetOnCollision` |
+| `-h`, `--help`, `--help-all`, `-v`, `--version` | — | — |
 
-`--fail-every-test` is accepted and does nothing; failing stubs are the default.
+Two keys never become flags: `converterPath` says which executable to run, and
+`version` is the file format.
+
+Three flags are negatives of their key, so the file states the positive and the
+command line the negative: `--no-copy-spectable`, `--no-flatten-single-row` and
+`--no-fail-every-test`. **One of those three defaults differently on each side**
+— the converter copies the `.spectable` unless told not to, while a
+`.specconfig` does not copy unless asked. Running the converter by hand
+therefore leaves a copy beside the generated tests where a Build would not.
+
+Two more things the flags do not say. `--framework` is read **only for Java**,
+where it chooses JUnit or TestNG; C# always generates MSTest, every other
+language has a single framework, and the value is otherwise accepted and
+ignored. An unrecognised `--language` is not an error either — it generates C#.
 
 Exit code 0 means generated. Diagnostics go to standard output as
 `ERROR:<line>:<message>`, `WARNING:<line>:<message>` and `INFO:<line>:<message>`,
