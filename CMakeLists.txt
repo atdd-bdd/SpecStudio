@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+# Visual Studio picks up vcpkg's user-wide MSBuild integration (vcpkg
+# integrate install), which runs applocal.ps1 after every link to copy the
+# vcpkg DLLs a target needs beside it. Nothing here comes from vcpkg -- Qt and
+# the vendored Hunspell are the dependencies -- so the step copies nothing, and
+# on a machine without PowerShell 7 it prints "'pwsh.exe' is not recognized"
+# before falling back to Windows PowerShell and succeeding. Off per target, so
+# the build log says only what happened and the global vcpkg install is left
+# alone. Must be set before the targets are created.
+set(CMAKE_VS_GLOBALS "VcpkgApplocalDeps=false")
+
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui PrintSupport Network)
 
 add_subdirectory(third_party/hunspell)
