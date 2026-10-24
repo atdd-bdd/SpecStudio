@@ -317,6 +317,7 @@ Scenario           ::= (GivenStep WhenStep ThenStep)+
 GivenStep          ::= "Given" Identifier ":" Type Modifier* Uses? (Table | Reference)
 WhenStep           ::= "When" Action ":" Type Modifier* Uses? (Table | Reference)
 ThenStep           ::= "Then" Identifier "is" ":" Type Modifier* Uses? (Table | Reference)
+AndStep            ::= "And" <rest of the step>    # the keyword of the step above
 
 Modifier           ::= "Vertical" | "CompareOnly" | "EveryCell"
 
@@ -449,6 +450,29 @@ Reference          ::= "=" Identifier
 * Given establishes initial state.
 * When applies transformations.
 * Then asserts final state.
+* `And` continues the run above it: it takes the keyword of the step above, so
+
+  ```
+  Given the chart of accounts is : ChartOfAccounts
+  | ... |
+  And payee rules are : PayeeRules
+  | ... |
+  ```
+
+  is the same specification as two `Given` steps, and the generated test is
+  identical. It works after `When` and after `Then` in the same way, and in a
+  `Background` or a `Cleanup` as well as a `Scenario`.
+* **An `And` with no step above it in its block is read as a `Given`, and
+  reported.** There is nothing to continue, so the keyword is a guess:
+
+  ```
+  'And' continues the step above it, and this is the first step of the Scenario
+  -- it is read as a Given. Write the keyword you mean.
+  ```
+
+* **`But` is not a keyword.** A line beginning with it is an unrecognized
+  keyword, like any other word the language does not define. `And` is the only
+  continuation.
 * `Uses` may describe:
   * rules applied
   * supporting calculations
@@ -600,6 +624,20 @@ Uses Final cart state
 Removed in v3.3. Collections replace all multiplicity semantics.
 
 ## 7. Version Notes
+
+### Document revision 2026-10-23
+
+* **`And` was in the language and in no version of this document.** The parser
+  has always taken it as the keyword of the step above, and the User Guide lists
+  it among the step keywords, but section 4 named only `Given`, `When` and
+  `Then`, so a reader of this document had no way to know a run of steps could
+  be written the way it reads. Section 4.6 and the grammar now carry it.
+* **An `And` with no step above it in its block is reported.** It used to be
+  read as a `Given` in silence -- a keyword chosen by the parser, not by the
+  file.
+* **`But` is not a keyword and never was.** Only a comment in the parser ever
+  said otherwise. Stated in 4.6, because a reader coming from Gherkin will
+  reach for it, and a line starting with it ends the block it is in.
 
 ### Document revision 2026-10-17
 

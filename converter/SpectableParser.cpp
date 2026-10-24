@@ -1386,7 +1386,9 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
             continue;
         }
 
-        // Steps (Given / When / Then / And / But)
+        // Steps (Given / When / Then / And / WhenThen). "But" is not a keyword
+        // and never was -- this comment used to list it, which is the only place
+        // it has ever appeared.
         if (state == State::InScenario || state == State::InBackground
                                        || state == State::InCleanup) {
             QString kw, text, attrSet, badModifier;
@@ -1412,6 +1414,22 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
                                     "is a %1 -- arranging or acting belongs in a Scenario")
                                 .arg(kw),
                             false);
+                }
+
+                // And continues the run above it, so there has to be one. First
+                // in its block there is nothing to continue: normalizeKeyword
+                // reads it as a Given, which is a choice the file never made.
+                // Say so, rather than letting it read as though it had.
+                if (kw.compare("And", Qt::CaseInsensitive) == 0 && lastKw.isEmpty()) {
+                    const QString blockName =
+                        state == State::InBackground ? QStringLiteral("Background")
+                      : state == State::InCleanup    ? QStringLiteral("Cleanup")
+                                                     : QStringLiteral("Scenario");
+                    emitMsg(lineNum,
+                            QString("'And' continues the step above it, and this is the "
+                                    "first step of the %1 -- it is read as a Given. Write "
+                                    "the keyword you mean.").arg(blockName),
+                            true);
                 }
 
                 lastKw = normalizeKeyword(kw, lastKw);

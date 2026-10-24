@@ -2090,8 +2090,7 @@ static QString genDataTypeStringHeaderCpp(const NamedBlock& nb)
     s << "// signature while behaving like the text it is. It converts to and from a\n";
     s << "// string implicitly, so glue written against the text keeps working and a\n";
     s << "// cell can be compared, streamed or handed to the production class directly.\n";
-    s << "// No operator== of its own, deliberately: one would make `cell == \"x\"`\n";
-    s << "// ambiguous against the string comparison the conversion already allows.\n\n";
+    s << "// Comparison and empty() are its own, for the reason given above them.\n\n";
     s << "#include <cctype>\n";
     s << "#include <ostream>\n";
     s << "#include <string>\n";
@@ -2107,7 +2106,37 @@ static QString genDataTypeStringHeaderCpp(const NamedBlock& nb)
     s << "    static " << typeName << " from_text(const std::string& text) { return "
       << typeName << "(text); }\n";
     s << "    std::string to_string() const { return value; }\n";
+    s << "    bool empty() const { return value.empty(); }\n";
     s << "};\n\n";
+    // Comparison needs its own operators for the same reason streaming does,
+    // below: std::string's operator== is a template, and template argument
+    // deduction does not apply a user-defined conversion, so `cell == expected`
+    // finds no candidate at all through the implicit conversion. Both operand
+    // orders, because a glue line writes either, and the const char* pair as
+    // well -- it is what keeps `cell == "x"` an exact match instead of a choice
+    // between converting the literal to std::string and converting it to this
+    // type, which is the ambiguity that used to be the argument for having none
+    // of these.
+    s << "inline bool operator==(const " << typeName << "& a, const " << typeName
+      << "& b) { return a.value == b.value; }\n";
+    s << "inline bool operator!=(const " << typeName << "& a, const " << typeName
+      << "& b) { return !(a == b); }\n";
+    s << "inline bool operator==(const " << typeName
+      << "& a, const std::string& b) { return a.value == b; }\n";
+    s << "inline bool operator!=(const " << typeName
+      << "& a, const std::string& b) { return !(a == b); }\n";
+    s << "inline bool operator==(const std::string& a, const " << typeName
+      << "& b) { return a == b.value; }\n";
+    s << "inline bool operator!=(const std::string& a, const " << typeName
+      << "& b) { return !(a == b); }\n";
+    s << "inline bool operator==(const " << typeName
+      << "& a, const char* b) { return a.value == (b ? b : \"\"); }\n";
+    s << "inline bool operator!=(const " << typeName
+      << "& a, const char* b) { return !(a == b); }\n";
+    s << "inline bool operator==(const char* a, const " << typeName
+      << "& b) { return (a ? a : \"\") == b.value; }\n";
+    s << "inline bool operator!=(const char* a, const " << typeName
+      << "& b) { return !(a == b); }\n";
     // Streaming needs its own operator: the one for std::string is a template,
     // and template argument deduction does not apply a user-defined conversion,
     // so `message << cell` would not find it. A glue line that puts a cell into

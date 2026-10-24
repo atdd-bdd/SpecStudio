@@ -493,6 +493,33 @@ Altered so that it is separated into Issues and Future Features
 
 ## --- Done ---
 
+[x] A C++ cell can be compared again (external finding 11, 2026-10-23). The
+    <DataType>String wrapper had no operator==, operator!= or empty(), on the
+    written grounds that an operator would make `cell == "x"` ambiguous. It
+    would not: std::string's operator== is a template and template argument
+    deduction does not apply a user-defined conversion, which is what the same
+    file says eight lines below about operator<<. That cost an outside project
+    214 compiler errors on the 0.9.1 -> 0.9.2 upgrade. The wrapper now emits
+    empty() and ==/!= against its own type, std::string and const char*, in
+    both operand orders -- C++17 synthesises no reversed candidate, and the
+    const char* pair is what keeps `cell == "x"` an exact match rather than a
+    choice between two conversions. A GoogleTest probe over every shape in
+    their error table compiles and passes; regeneration touched only the
+    eleven common/*_string.h files. C++ was the only one of the nine with the
+    gap -- TS/JS cells are plain strings, Go's is a named string, C#'s struct
+    converts implicitly both ways and overrides Equals, Swift's is Equatable,
+    Rust's newtype has PartialEq and derefs to str, Java has no operators.
+
+[x] And is documented, a leading And is reported, and But is not a keyword
+    (Ken, 2026-10-23). And always took the keyword of the step above it and was
+    in the User Guide's keyword list, but section 4 of the syntax document named
+    only Given, When and Then, so a reader had no way to know a run could be
+    written the way it reads; 4.6 and the grammar carry it now. First in its
+    block it used to become a Given in silence -- it still does, with a warning,
+    because the keyword is the parser's guess and not the file's. But was never
+    a keyword: only a comment in the parser said so, and the comment is
+    corrected. A But line is an unrecognized keyword and ends its block.
+
 [x] The converter fails on an unrecognized --language (Ken, 2026-10-20).
     main.cpp carries a table of the nine canonical names and their aliases
     (C# for CSharp, C++ for Cpp, JS, TS; case-insensitive) and resolves the
