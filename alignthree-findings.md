@@ -1,8 +1,8 @@
 # AlignThree findings from a real project
 
 Written while specifying and starting to implement SimpleAccount (a Quicken
-replacement) with AlignThree 0.9.1. Twelve `.spectable` files, ~9,900 lines,
-365 generated C++ tests, GoogleTest, MSVC 2022.
+replacement) with AlignThree 0.9.1 and then 0.9.2. Fourteen `.spectable`
+files, ~16,400 lines, 496 generated C++ tests, GoogleTest, MSVC 2022.
 
 Ready to drop in the AlignThree repository. Everything below was observed, not
 guessed; each item says how to reproduce it.
@@ -22,52 +22,153 @@ cases below, so that "0 diagnostics" means "will compile".
 
 ## 1. `EveryCell` on a bare DataType generates uncompilable glue
 
-**DONE 2026-10-15, in all nine languages**, and refined on 2026-10-16. A step
-whose table names a DataType or a built-in no longer hands the glue a grid of
-raw strings. A built-in arrives converted, by the generated test. A DataType
-arrives as `<Name>String` -- the cell's text, with the type in its name -- and
-the glue reads the DataType from it, because a test body must not throw and a
-specification may state a value the type refuses on purpose. The
-`<Name>String` / `<Name>Typed` pair is always generated, so `EveryCell` on a
-bare DataType compiles. `EveryCell` itself is required only for an Entity or
-Attributes block. Two options control the shape: `flattenSingleRowToList`
-(default true) and `flattenSingleCellToScalar` (default false).
+**Confirmed bug, and the costliest one.**
+
+The syntax document (v3.3.a, §2.4.1) says of `EveryCell`:
+
+> The type may be an Entity, an Attributes block, or a DataType.
+
+The C++ generator emits the `…Typed` / `…String` structs for an `Attributes` or
+`Entity` block only. So a step written against a DataType generates glue that
+references a struct nobody wrote:
+
+```
+When transaction deleted : TransactionRef EveryCell
+| T1 |
+```
+
+generates
+
+```cpp
+void when_transaction_deleted(const std::vector<TransactionRefString>& values) {
+    const TransactionRefTyped t = TransactionRefTyped::from_string_struct(values[0]);
+```
+
+and `TransactionRefTyped` / `TransactionRefString` do not exist.
+
+```
+error C2065: 'TransactionRefTyped': undeclared identifier
+error C2653: 'TransactionRefString': is not a class or namespace name
+error C3861: 'from_string_struct': identifier not found
+```
+
+It hit 21 steps across 5 files, on 7 distinct DataTypes (`AccountPath`,
+`TransactionRef`, `SearchText`, `SortColumn`, `ProfileName`, `PayeeName` and one
+local one). `analyze_cli`: 0 diagnostics throughout.
+
+**Repro:** declare `DataType Thing` with an `Examples: ValidValues` table, write a
+step `When thing chosen : Thing EveryCell` with a one-cell table, generate for
+C++, compile.
+
+**Possible fixes, in preference order:**
+
+1. Generate a one-field `…Typed`/`…String` pair for a DataType used with
+   `EveryCell`, so the documented language works.
+2. Failing that, have the analyzer reject `EveryCell` on a DataType for targets
+   whose generator cannot support it, and say so in the message.
+3. Failing that, correct §2.4.1 to say Entity or Attributes only.
+
+**Workaround used:** a one-attribute `Attributes` block per DataType
+(`AccountSelect` wrapping `AccountPath`, and so on) and an ordinary table. It
+works but adds eleven blocks that exist only to satisfy the generator, and it
+makes the specification slightly less direct to read.
 
 ---
 
 ## 2. The IDE build warns about step-name collisions; the CLI converter does not
 
-**The CLI half is DONE.** `collectGlueSigs` returns the conflicts and
-`converter/main.cpp` prints them, so all nine generators -- and `analyze_cli`
--- now emit the same warning the IDE emitted.
+**Confirmed inconsistency.** The IDE is right and the CLI is the one to fix.
 
-**The rest is DONE 2026-10-17.** Where the attribute set is appended is now a
-choice, because both answers are reasonable: `stepNameAttrSetOnCollision`
-appends it only to the methods that would otherwise share one name, and leaves
-`when_account_added` alone. New Project writes it on. The set of phrases that
-need qualifying is worked out in `SpectableParser`
-(`stepPhrasesNeedingAttrSet`), so the nine generators cannot disagree about
-which methods got the suffix, and the test's call sites match the glue by
-construction. `--step-name-attrset-on-collision` is the CLI half; the editor
-offers two radio buttons under the existing checkbox, and warns before either
-change, since renaming a method leaves the old one behind holding its code.
+Two steps whose text reads alike but take different tables collapse into one glue
+method with one signature:
+
+```
+When account added : Account Vertical
+When account added : AccountWithOpeningBalance Vertical
+```
+
+```
+error C2664: cannot convert argument 1 from
+  'std::vector<AccountWithOpeningBalanceString>' to
+  'const std::vector<AccountString> &'
+```
+
+Building the project in the IDE produced exactly the right message, and it is a
+good one:
+
+> WARNING:369:Step 'When_account_added' expects a AccountWithOpeningBalance table
+> here, but the same glue method elsewhere in this project expects a Account
+> table — rename one of the steps, or switch this project to naming glue methods
+> after the table they take
+
+`SpecTableConverter.exe` generating the same files emitted nothing, and
+`analyze_cli` reported nothing. Three collisions in this project, found only by
+compiling, then explained by the IDE afterwards.
+
+**Repro:** two steps with identical text and different attribute sets. Generate
+with the CLI — silent. Build in the IDE — warned.
+
+**Fix:** emit that warning from the converter and/or the analyzer. The message
+needs no improvement, only to reach the person using the command line.
+
+A note on the two fixes it offers: `--step-name-attrset` appends the attribute set
+to *every* method name (`when_account_added_account`), not only the colliding
+ones, which makes all the other names worse. Renaming the step was the better
+choice here. Appending only where there is an actual collision would make the
+flag much more usable.
 
 ---
 
 ## 3. `analyze_cli` reports a file as a duplicate of itself
 
-**DONE.** The folder is canonicalised to an absolute path before indexing, so a
-symbol is never reported as a duplicate of itself, and generated output is
-skipped unless `--include-generated` is given.
+**Confirmed bug.**
+
+The IDE writes generated output into `<project>/generated/`, and the converter
+copies the `.spectable` source there too by default. Pointing `analyze_cli` at the
+project folder then finds both copies and reports every symbol in the project as
+duplicated — including, read literally, each file duplicating itself:
+
+```
+Transactions.spectable:35: warning: Collection 'Postings' is also declared in
+  spec/Transactions.spectable:35 -- only the first declaration is generated
+-- 496 diagnostic(s) over 24 file(s)
+```
+
+24 files from 12. The same line number and the same file name on both sides of
+"is also declared in" is the giveaway.
+
+**Repro:** build a project in the IDE, then run `analyze_cli <project folder>`.
+
+**Two things worth fixing separately:**
+
+- A symbol should never be reported as a duplicate of itself. Comparing
+  canonicalised absolute paths would catch it; the comment in
+  `tools/analyze_cli/main.cpp` says the index already means to do this.
+- Generated output living inside the folder that is analysed is the underlying
+  problem. Either skip a `generated/` subfolder when walking, or default the
+  IDE's output folder to a sibling of the project rather than a child.
+
+**Workaround used:** `--no-copy-spectable`, plus keeping generated output out of
+the spec folder.
 
 ---
 
 ## 4. The tilde-for-space convention is not in the syntax document
 
-**DONE.** `spectable syntax v3.3a.md` section 2.3.1 documents it, with
-`~Checking` and `!Type:Bank~` as the examples, and states that every generator
-does the replacement so the rule holds in all nine languages. The User Guide
-says so too.
+**Documentation gap, not a defect.**
+
+A table cell is trimmed, so a value whose leading or trailing blank matters cannot
+be written literally. Every generator handles this -- each one does
+`s.replace('~', ' ')` on a cell -- so `~Checking` and `!Type:Bank~` work exactly
+as wanted.
+
+Nothing in `spectable syntax v3.3a.md` says so. Searching it for "tilde" or "~"
+finds nothing, so the only way to learn the convention is to read the generators
+or be told. Two real rules here were written with a quoting convention invented
+to work around a problem that did not exist, and the quotes then arrived as part
+of the value.
+
+**Suggested fix:** one paragraph in the syntax document, in the section on tables.
 
 ---
 
@@ -266,6 +367,268 @@ unwritten and is also undocumented.
 
 ---
 
+## 10. A named comment has no continuation, and a stray word takes a block's Examples with it
+
+**Feature request, with a defect behind it.**
+
+A named comment is written one keyword per line:
+
+```
+Description The most specific rule, which is taken to be the one with the
+Description longest pattern. Length is a crude measure, and it is used because
+Description it needs no explaining.
+```
+
+Three lines of prose, three repetitions of the keyword. In a specification with
+real prose in it -- this one has about 2,000 such lines -- the keyword is most
+of what a reader's eye meets, and rewrapping a paragraph means retyping the
+keyword on every line that moved. The obvious thing to reach for is a trailing
+backslash:
+
+```
+Description The most specific rule, which is taken to be the one with the \
+longest pattern. Length is a crude measure, and it is used because it \
+needs no explaining.
+```
+
+That is not supported, which is fair enough -- it is in neither the grammar
+(§3, `NamedComment ::= ("Description" | "Details" | ...) CommentText Table?`)
+nor the prose. **What is worth fixing is what happens instead.** Each continued
+line is read as a new block, and the first word of it is reported as a keyword:
+
+```
+Payees.spectable:67: warning: Unrecognized keyword 'pattern.'
+Payees.spectable:68: warning: Unrecognized keyword 'explaining:'
+```
+
+and then, from the same three lines:
+
+```
+Payees.spectable:65: warning: BusinessRule 'Which rule wins when several match'
+                              has no Examples: section
+```
+
+The stray lines ended the `BusinessRule`, so the `Examples:` table below them
+was no longer part of it. **A rule that was being checked stops being checked,
+and the message that says so is the third of three warnings rather than an
+error.** On a 16,000-line specification with a scroll of output, that is a test
+quietly leaving the suite.
+
+Two things would help, independently:
+
+1. **A continuation marked at the start of the line, not the end of the one
+   before it.** A leading `\` or `/` in the first column:
+
+   ```
+   Description The most specific rule, which is taken to be the one with the
+   \ longest pattern. Length is a crude measure, and it is used because it
+   \ needs no explaining.
+   ```
+
+   The failure above is the argument for putting the marker there. With a
+   trailing `\` the parser cannot classify a line until it has looked at the
+   line before it and remembered what it ended with, which is precisely how
+   these continuation lines became stray keywords and took the `Examples:`
+   table with them. A leading marker is decidable at the first character:
+   a line that starts with it continues the named comment above, and a line
+   that does not is still a line the analyzer can report. An unmarked stray
+   sentence stays an error instead of becoming invisible.
+
+   It also keeps the text **inside the model**. Commenting the continuation
+   lines out with `#` works today -- 0 diagnostics over this whole folder, and
+   the generated tests come out byte-identical -- but only the first line is
+   then part of the `Description`, so anything that ever renders a named
+   comment shows one line of a three-line paragraph. A continuation marker
+   appends to the comment; a comment character discards it.
+2. **An unrecognised keyword inside a block should not silently end it.** A line
+   that is not a keyword, inside a `BusinessRule` or `Scenario`, is far more
+   likely to be prose somebody wrapped than the start of something new. Either
+   treat it as a continuation of the comment above it, or make it an error
+   rather than a warning -- but a block losing its `Examples:` because of a
+   wrapped sentence should not be survivable.
+
+To reproduce: take any `BusinessRule` with a multi-line `Description` and an
+`Examples:` table, join the comment lines with a trailing backslash, and run
+`analyze_cli` on the folder. 4 diagnostics, all warnings, and one of them is the
+rule going dark.
+
+**Resolved in 0.9.2, and the leading marker is the one that shipped.** Syntax
+v3.3a §4.1.1 defines a line whose first character is `\` as a continuation of
+the named comment above it, which is request 1 as asked for. The interim `#`
+form had grown to 2,851 lines across the fourteen files; they were converted
+to `\` in one pass, and the result is 0 diagnostics with the generated tests
+byte-identical -- as expected, since nothing is generated from a named comment
+today. The text is now inside the model instead of being discarded, which was
+the point.
+
+Two notes from the conversion:
+
+- **A paragraph break has no marker, and a bare `\` is what we used.** The
+  continuation joins with a single space, so a paragraph of two cannot be
+  written as one `Description`. A line holding `\` and nothing else analyzes
+  clean and does not break the chain, so that is the stand-in here; it is
+  worth either documenting or giving a marker of its own, because today it
+  joins as a single space like any other continuation and a reader of the
+  rendered comment will not see the break.
+- **Request 2 is still open.** An unrecognised keyword inside a block still
+  ends it silently -- the leading marker removes the reason a wrapped sentence
+  arrives there, but not the consequence if one does.
+
+## 11. 0.9.2 makes a cell a struct, and the glue that compared one stops compiling
+
+**Defect, or a release note that is missing.**
+
+Upgrading the converter from 0.9.1 to 0.9.2 -- the same spec, the same command
+line -- turned a clean build into **214 compiler errors across twelve glue
+files.** Nothing in the specification changed. What changed is the generated
+cell type. In 0.9.1 a `DataType`'s cell arrived as a `std::string`. In 0.9.2 it
+arrives as a wrapper:
+
+```cpp
+struct ClearedStatusString {
+    std::string value;
+    ClearedStatusString(const char* text) : value(text ? text : "") {}
+    ClearedStatusString(std::string text) : value(std::move(text)) {}
+    operator const std::string&() const { return value; }
+    static ClearedStatusString from_text(const std::string& text) { ... }
+    std::string to_string() const { return value; }
+};
+```
+
+The header says, in its own comment, that this is source-compatible:
+
+> It converts to and from a string implicitly, so glue written against the text
+> keeps working and a cell can be compared, streamed or handed to the
+> production class directly.
+
+**Handed to, yes. Compared, no.** The implicit conversion works for a
+parameter, which is why most glue still compiles, but `std::string`'s
+`operator==` and `operator!=` are templates on `charT`, `traits` and `Alloc`,
+and template argument deduction does not consider user-defined conversions.
+So the one thing the comment promises is the one thing that fails:
+
+```cpp
+if (value.cleared != DNCString && !value.cleared.empty())   // both errors
+```
+
+`DNCString` is the converter's own constant, declared `const std::string` eight
+lines above the struct in the same generated header.
+
+The 214 errors are five shapes:
+
+| count | written as | error |
+|------:|------------|-------|
+| ~100 | `cell != expected`, `cell == expected` | C2678, no operator found |
+| 26 | `cell.empty()` | C2039, not a member |
+| 15 | `EXPECT_EQ(cell, x)` | C2660 / C2737, downstream of the above |
+| 10 | `std::stod(cell)` | C2665, no overload converts |
+| 11 | `Money(cell)`, `account_type_from_string(cell)` on a `...Typed` | C2440 / C2664 |
+
+The last row is a second type with a second accessor: a `...Typed` holds its
+text in `.text` where a `...String` holds it in `.value`, so glue that touches
+both is edited two ways.
+
+**The comment's reasoning is worth a second look**, because the cost above
+bought nothing:
+
+> No operator== of its own, deliberately: one would make `cell == "x"`
+> ambiguous against the string comparison the conversion already allows.
+
+There is no such ambiguity to avoid. `cell == "x"` cannot reach
+`std::string`'s templated `operator==` at all -- deduction fails before
+conversions are considered -- so there is no competing candidate for a member
+`operator==` to be ambiguous with. Omitting it does not prevent an ambiguity;
+it removes the only comparison that would have worked.
+
+Suggested, in order of how much they would have helped here:
+
+1. **Give the wrapper `operator==` and `operator!=` against `std::string`,
+   `const char*` and its own type, and an `empty()`.** Five lines each, and the
+   214 errors become none. `dnc_equal(cell, other)` already works today,
+   because a parameter takes the conversion -- so the wrapper is one step from
+   behaving as its comment says it does.
+2. **If the break is intended, say so in the release.** `0.9.1 -> 0.9.2` reads
+   as a patch release. A line in the notes naming the two accessors, `.value`
+   and `.text`, would have turned an afternoon of compiler errors into a
+   scripted edit.
+3. **A `--cells-as-strings` flag** for a project mid-migration. There is no
+   option to ask for the old shape: the full `--help` has nothing between
+   `--no-flatten-single-row` and `--prod-dir` that touches it.
+
+To reproduce: take a project whose glue compares a cell to an expected value --
+any `Then` that checks a table -- generate it with 0.9.1, confirm it builds,
+then generate the same spec with 0.9.2 and build again.
+
+### 11a. What the migration took, for whoever does it next
+
+Driven by the compiler's log it is guesswork, because the log names a line and
+not which of its two operands is the cell. In
+`EXPECT_EQ(want.cleared, types::to_string(got.cleared))` the left side is a
+`ClearedStatusString` and the right an enum of the production code, and a
+greedy pass that appends `.value` to both compiles neither.
+
+The generated struct says it exactly, so the migration is mechanical after
+all: a field declared `XTyped` reads through `.text`, one declared `XString`
+through `.value`, and a field the generator left as `std::string`, `bool` or
+`double` is the value itself and takes no accessor. Note that one row struct
+now mixes the three -- `QifDateParseTyped` has a plain `std::string text` and
+a `bool valid` beside a `DateOrderTyped dateorder` -- so the rule has to be
+read per field, not per struct.
+
+`tools/accessors.py` in this project is that pass: it reads
+`generated/common/*.h`, resolves each glue variable's type from its
+declaration, and rewrites only what the structs account for. An expression
+whose root is not a known cell variable is left alone, which is what keeps
+`got.cleared`, `blank_.payee` and the two plain doubles of `AveragedHolding`
+out of it.
+
+Two things cost rounds rather than minutes. The compiler reports one template
+instantiation failure per translation unit and suppresses the rest of a
+cascading line, so each repair exposes the next site: 214 sites came out as
+163, then 45, 45, 14, 8, 2, 2 over seven builds. And it attributes a
+multi-line statement to the line it starts on, so a site carries the rest of
+its statement with it -- `Money(t.knownamount)` two lines below the
+`EXPECT_EQ(` that was named.
+
+**Why it was upgraded here.** Not for this; for finding 10. The continuation
+marker arrived in 0.9.2 and the spec's 2,851 continuation lines were converted
+to it, which makes 0.9.2 the only converter that reads this spec correctly --
+0.9.1 reports each `\` as an unrecognized keyword and generates 24 tests for
+`Payees.spectable` where it has 29. So the two findings arrive together: the
+fix in 10 cannot be taken without the break in 11.
+
+---
+
+---
+
+
+## 12. `And` works and is in no document
+
+The converter accepts `And` for the second and later steps of a run, so
+
+```
+Given the chart of accounts is : ChartOfAccounts
+| ... |
+And payee rules are : PayeeRules
+| ... |
+```
+
+is the same as repeating `Given`, and the same holds after `When` and after
+`Then`. Checked on 0.9.2 against a copy of this project's `spec/`: two Givens
+turned into `And` in `Payees.spectable` and one Then in
+`AcceptanceAgainstQuicken.spectable` analyze at 0 diagnostics and generate
+`test_*.cpp` **byte-identical** to the versions generated from the keyword
+spelled out -- 51 tests either way for Payees.
+
+The word does not appear in `spectable syntax v3.3a.md`. Section 4 lists
+`Given`, `When` and `Then` and says nothing about continuing a run, so a reader
+of the document has no way to know `And` is allowed, and this project wrote
+every step with its own keyword for two months for that reason. It is a
+one-line addition to §4 and it changes how every scenario in a specification
+reads.
+
+---
+
 ## What was not AlignThree's fault
 
 Recorded so the list above is not read as longer than it is.
@@ -282,7 +645,7 @@ Recorded so the list above is not read as longer than it is.
 
 ## Context
 
-The specification this came from: 12 files, 9,900 lines, 365 tests, covering
+The specification this came from: 14 files, 16,400 lines, 449 tests, covering
 double-entry transactions, QIF migration of a 43,000-record 20-year export,
 OFX/QFX and CSV import, payees, reporting, and acceptance comparison against
 Quicken's own PDF reports. Two of those acceptance comparisons now agree with
