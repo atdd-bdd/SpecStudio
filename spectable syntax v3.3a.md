@@ -375,6 +375,22 @@ Reference          ::= "=" Identifier
 * A backslash line that follows anything other than a named comment continues
   nothing. It is still treated as a comment and discarded, but it is **reported
   as a warning**, because the writer meant it to attach to something.
+* **A wrapped line written without the backslash is an error.** A line whose
+  first word is no keyword of the language is read as neither a keyword nor a
+  continuation, and nothing can be done with it:
+
+  ```
+  ERROR:10:'longest' is not a keyword -- a misspelled one, or a wrapped line
+  that needs a leading '\' to carry on the comment above it. The line is
+  dropped, and nothing it was part of ends here.
+  ```
+
+  It used to be a warning, and it closed whatever block it was written inside,
+  which is the part that cost: a `BusinessRule` whose `Description` was wrapped
+  this way ended at the stray line, its `Examples:` table then belonged to no
+  rule, the rule generated no test, and the message that said so was the third
+  of three warnings. The block stays open now, so the one message is about the
+  one mistake, and the file is refused until it is fixed.
 * It is documentation only. Nothing is generated from it today, though the
   whole of a `Description` may later be used.
 
@@ -417,6 +433,43 @@ Reference          ::= "=" Identifier
 
 * Attributes must match declared types.
 * `Uses` may clarify primitive types or rule dependencies.
+
+### 4.2.1 Headings and Attribute Names
+
+A table that names an attribute set -- a step table, or an `Examples:` table --
+is matched to that set by its headings.
+
+* A heading must name an attribute of the set. Case does not matter and a
+  vertical table's first column answers for the header row, but nothing else
+  about the spelling is forgiven: `Cust omer` is not `Customer`.
+* A heading that names no attribute is ignored, with a warning. Its values
+  reach nothing, which is worth saying out loud, because the column looks like
+  data and is not.
+* An attribute with no column and no default value is one the generator cannot
+  fill, and the file is refused for it. An attribute with a default is filled
+  from the default, which is what declaring one is for.
+* `CompareOnly` names only the attributes it asserts, so an attribute with no
+  column is the point there rather than a mistake (section 2.4).
+* **One misspelled heading is both of the first two at once, and is reported
+  once.** A column nobody recognises beside an attribute nobody filled is one
+  mistake, and the message names both spellings:
+
+  ```
+  ERROR:63:Examples table for 'Order' has column 'Custmer' where attribute
+  'Customer' is expected -- a heading must match the attribute name exactly, so
+  the column is ignored and 'Customer' is left with no value
+  ```
+
+  That covers the attribute's own name written differently -- a space, a
+  capital, a hyphen -- and a heading a typo away from it. Three cases keep the
+  two separate messages instead, because there the pairing would be a guess: a
+  heading that is a different word (`Remarks` is not `Notes`); one equally close
+  to two attributes, which names neither (`Addend3` where `Addend1` and
+  `Addend2` are both unfilled); and one that differs from an attribute only in
+  its digits, since a number in a name says which one and not how it is spelled
+  (`Day2` is not `Day1` misspelled). A name of three letters or fewer must
+  match exactly, for the same reason: at that length one edit reaches a word
+  nobody meant.
 
 ### 4.3 Collection Semantics
 
@@ -624,6 +677,23 @@ Uses Final cart state
 Removed in v3.3. Collections replace all multiplicity semantics.
 
 ## 7. Version Notes
+
+### Document revision 2026-10-24
+
+* **What a table heading must say was in no version of this document.** The
+  rule itself has not changed -- a heading names an attribute, case aside, and
+  is matched no other way -- but a reader had only the diagnostics to learn it
+  from. Section 4.2.1 now states it, with what happens to a heading that names
+  nothing, to an attribute with no column, and to the one mistake that is both.
+* **A heading a typo away from an attribute is now that one mistake too.** The
+  same word written differently has been paired since 2026-10-11; a misspelling
+  of it still drew a warning and an error for one cause. Both are paired now,
+  and 4.2.1 says where the pairing stops.
+* **A line that is no keyword at all is an error, and ends nothing.** It was a
+  warning, and it closed the block it was written in -- so a wrapped sentence
+  could take a `BusinessRule`'s `Examples:` table out of the rule and leave the
+  rule generating no test. Stated in 4.1.1, where the marker that does continue
+  a comment is defined.
 
 ### Document revision 2026-10-23
 

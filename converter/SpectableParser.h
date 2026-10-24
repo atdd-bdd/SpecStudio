@@ -159,4 +159,7 @@ private:
     static bool        isContinuation(const QString& line);
     static bool        isNamedComment(const QString& firstWord);
     static bool        isSkipKeyword(const QString& firstWord);
+    // Every keyword the dispatch can act on, so a line that is no keyword at
+    // all can be reported before a block is closed for it.
+    static bool        isKnownKeyword(const QString& firstWord);
 };

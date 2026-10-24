@@ -175,6 +175,37 @@ static bool isBlockStartKeyword(const QString& firstWord)
     return false;
 }
 
+// Every first word the dispatch in parseLines can act on.
+//
+// It exists for the line that is none of them. Such a line used to be reported
+// after an open BusinessRule had already been closed for it, so a sentence
+// somebody wrapped ended the rule, the Examples: table below it belonged to no
+// rule, and the rule generated no test -- three warnings, the last of which was
+// the only one about the damage. Asking this first means the block stays open,
+// and the one message is about the line nobody can read.
+//
+// This must stay in step with the branches below; the predicates above cover
+// the keywords handled before a block would be closed.
+bool SpectableParser::isKnownKeyword(const QString& firstWord)
+{
+    QString w = firstWord;
+    if (w.endsWith(':')) w.chop(1);        // Scenario: Background: Cleanup:
+    static const QStringList words = {
+        "Specification", "BusinessRule", "Calculation", "DataType",
+        "Attributes", "Entity", "Collection", "Define",
+        "Background", "Cleanup", "Scenario",
+        "Given", "When", "Then", "And", "WhenThen"
+    };
+    for (const QString& k : words)
+        if (w.compare(k, Qt::CaseInsensitive) == 0) return true;
+
+    return isNamedComment(firstWord)
+        || isSkipKeyword(firstWord)
+        || isBlockStartKeyword(firstWord)
+        || firstWord.compare("Import", Qt::CaseInsensitive) == 0
+        || firstWord.startsWith("Examples", Qt::CaseInsensitive);
+}
+
 // ---------------------------------------------------------------------------
 // CSV/TSV → pipe-table conversion
 // ---------------------------------------------------------------------------
@@ -1161,6 +1192,27 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
             continue;
         }
 
+        // ── A line whose first word is no keyword at all ──────────────────
+        //
+        // Asked before a named block would be closed for it, and an error
+        // rather than a warning: a line nobody can classify is not something to
+        // carry on past. A wrapped sentence inside a BusinessRule used to end
+        // the rule and leave its Examples: table belonging to nothing, which
+        // generated no test and said so only in the third of three warnings.
+        // Prose that carries on the comment above it starts with a backslash
+        // (syntax 4.1.1); this line does not, so it is read as neither.
+        if (!isKnownKeyword(firstWord)) {
+            pendingTags.clear();
+            dropGeneratorTags();
+            emitMsg(lineNum,
+                    QString("'%1' is not a keyword -- a misspelled one, or a wrapped line "
+                            "that needs a leading '\\' to carry on the comment above it. "
+                            "The line is dropped, and nothing it was part of ends here.")
+                        .arg(firstWord),
+                    false);
+            continue;
+        }
+
         // ── End InNamedBlock / InExamplesTable on any other non-skip keyword ──
         if (state == State::InNamedBlock || state == State::InExamplesTable) {
             if (state == State::InExamplesTable && curNamedBlock
@@ -1465,9 +1517,24 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
             }
         }
 
+        // A keyword in a position where it cannot be used. A first word that is
+        // no keyword at all was dealt with further up, so what reaches here is a
+        // step with nothing open to put it in, or a keyword with nothing after
+        // it.
         pendingTags.clear();
         dropGeneratorTags();
-        emitMsg(lineNum, QString("Unrecognized keyword '%1'").arg(firstWord), true);
+        {
+            QString kw2, text2, attrSet2, badMod2;
+            bool v2 = false, c2 = false, e2 = false;
+            const bool isStep = isStepLine(trimmed, kw2, text2, attrSet2,
+                                           v2, c2, e2, badMod2);
+            emitMsg(lineNum,
+                    isStep ? QString("'%1' is a step, and no Scenario, Background or "
+                                     "Cleanup is open for it to belong to").arg(firstWord)
+                           : QString("'%1' is a keyword with nothing after it")
+                                 .arg(firstWord),
+                    false);
+        }
     }
 
     // A $tag at the end of the file, with no block after it.
@@ -1604,19 +1671,106 @@ QVector<ParseMessage> validateFieldTypes(const SpectableFile& file)
 }
 
 // ---------------------------------------------------------------------------
-// One value against the built-in type its column declares
+// One misspelled heading, said once
+// ---------------------------------------------------------------------------
+//
 // One misspelled heading produces two complaints about one mistake: a column
 // nobody recognises, and an attribute nobody filled. When the two are the same
 // word written differently -- a space, a capital, a hyphen -- they are one
 // finding, and saying it once while naming both spellings is the whole fix the
-// reader needs. Anything that is not plainly the same word keeps its own
-// message, because then they really are two problems.
+// reader needs. A typo is the same mistake as well: AssumedHere typed as
+// "Asumed Hree" is this column misspelled and not a column of its own, so it
+// is paired too, by how far apart the two spellings are. Anything further off
+// than that keeps its own message, because then they really are two problems.
 static QString spellingKey(const QString& s)
 {
     QString out;
     for (const QChar& c : s)
         if (c.isLetterOrNumber()) out += c.toLower();
     return out;
+}
+
+// How far apart two spellings are, counted in single-character edits
+// (Levenshtein, two rows of it). The names are short and this runs only for a
+// heading that matched no attribute at all, so the shape of it does not matter.
+static int spellingDistance(const QString& a, const QString& b)
+{
+    const int n = int(a.size()), m = int(b.size());
+    if (n == 0) return m;
+    if (m == 0) return n;
+    QVector<int> prev(m + 1), cur(m + 1);
+    for (int j = 0; j <= m; ++j) prev[j] = j;
+    for (int i = 1; i <= n; ++i) {
+        cur[0] = i;
+        for (int j = 1; j <= m; ++j) {
+            const int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            cur[j] = qMin(qMin(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+        }
+        prev = cur;
+    }
+    return prev[m];
+}
+
+// Pairs each unrecognised heading with the attribute it misspells, reports the
+// pair once, and takes both out of the lists, so the caller's own messages are
+// left with the headings and attributes that really are on their own.
+//
+// A pair is allowed when the two spelling keys are equal -- the same word
+// written differently -- or when they are within a budget that grows with the
+// name: one edit at four letters, three at eleven. That pairs "Asumed Hree"
+// with AssumedHere and leaves "Notes" and "Amount" apart, which matters,
+// because a budget generous enough to join those would turn one clear
+// complaint into a confident wrong one.
+//
+// Three cases are left as two messages on purpose. A name of three letters or
+// fewer must match exactly, because at that length one edit reaches a word that
+// was never meant. A heading equally close to two attributes names neither:
+// nothing here knows which was meant, and two plain messages say more than a
+// guess would. And a heading that differs from an attribute only in its digits
+// is a different attribute -- Addend3 where Addend1 was declared is not
+// Addend1 misspelled, because a number in a name says which one, not how it is
+// spelled.
+static bool differsOnlyInDigits(const QString& a, const QString& b)
+{
+    QString letters[2], digits[2];
+    const QString* in[2] = { &a, &b };
+    for (int i = 0; i < 2; ++i)
+        for (const QChar& c : *in[i])
+            (c.isDigit() ? digits[i] : letters[i]) += c;
+    return digits[0] != digits[1] && letters[0] == letters[1]
+        && !digits[0].isEmpty() && !digits[1].isEmpty();
+}
+
+static void pairMisspelledHeadings(const QString& tableWord, const QString& setName,
+                                   int line, QStringList& unknownCols,
+                                   QStringList& unfilled, QVector<ParseMessage>& msgs)
+{
+    for (int c = 0; c < unknownCols.size();) {
+        const QString colKey = spellingKey(unknownCols[c]);
+        int best = -1, bestDist = 0, tied = 0;
+        for (int f = 0; f < unfilled.size(); ++f) {
+            const QString fieldKey = spellingKey(unfilled[f]);
+            const int dist   = spellingDistance(colKey, fieldKey);
+            const int longer = int(qMax(colKey.size(), fieldKey.size()));
+            const int budget = longer < 4 ? 0 : 1 + longer / 4;
+            if (dist > budget) continue;
+            if (dist > 0 && differsOnlyInDigits(colKey, fieldKey)) continue;
+            if (best < 0 || dist < bestDist) { best = f; bestDist = dist; tied = 1; }
+            else if (dist == bestDist)       { ++tied; }
+        }
+        if (best < 0 || (tied > 1 && bestDist > 0)) { ++c; continue; }
+
+        ParseMessage m;
+        m.line    = line;
+        m.warning = false;
+        m.text    = QString("%1 for '%2' has column '%3' where attribute '%4' is expected "
+                            "-- a heading must match the attribute name exactly, so the column "
+                            "is ignored and '%4' is left with no value")
+                        .arg(tableWord, setName, unknownCols[c], unfilled[best]);
+        msgs.push_back(m);
+        unknownCols.removeAt(c);
+        unfilled.removeAt(best);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1802,24 +1956,9 @@ QVector<ParseMessage> validateStepTables(const SpectableFile& file)
             if (!known) unknownCols << n;
         }
 
-        // The same word written two ways is one mistake, said once.
-        for (int i = unfilled.size() - 1; i >= 0; --i) {
-            const QString key = spellingKey(unfilled[i]);
-            int col = -1;
-            for (int j = 0; j < unknownCols.size(); ++j)
-                if (spellingKey(unknownCols[j]) == key) { col = j; break; }
-            if (col < 0) continue;
-            ParseMessage m;
-            m.line    = step.line;
-            m.warning = false;
-            m.text    = QString("Table for '%1' has column '%2' where attribute '%3' is expected "
-                                "-- a heading must match the attribute name exactly, so the column "
-                                "is ignored and '%3' is left with no value")
-                            .arg(as->name, unknownCols[col], unfilled[i]);
-            msgs.push_back(m);
-            unknownCols.removeAt(col);
-            unfilled.removeAt(i);
-        }
+        // One misspelled heading is one mistake, said once.
+        pairMisspelledHeadings(QStringLiteral("Table"), as->name, step.line,
+                               unknownCols, unfilled, msgs);
 
         for (const QString& f : unfilled) {
             ParseMessage m;
@@ -2070,24 +2209,9 @@ QVector<ParseMessage> validateExamplesTables(const SpectableFile& file)
             unfilled << f.name;
         }
 
-        // The same word written two ways is one mistake, said once.
-        for (int i = unfilled.size() - 1; i >= 0; --i) {
-            const QString key = spellingKey(unfilled[i]);
-            int col = -1;
-            for (int j = 0; j < unknownCols.size(); ++j)
-                if (spellingKey(unknownCols[j]) == key) { col = j; break; }
-            if (col < 0) continue;
-            ParseMessage m;
-            m.line    = exLine;
-            m.warning = false;
-            m.text    = QString("Examples table for '%1' has column '%2' where attribute '%3' is "
-                                "expected -- a heading must match the attribute name exactly, so "
-                                "the column is ignored and '%3' is left with no value")
-                            .arg(ex.attrSetName, unknownCols[col], unfilled[i]);
-            msgs.push_back(m);
-            unknownCols.removeAt(col);
-            unfilled.removeAt(i);
-        }
+        // One misspelled heading is one mistake, said once.
+        pairMisspelledHeadings(QStringLiteral("Examples table"), ex.attrSetName, exLine,
+                               unknownCols, unfilled, msgs);
 
         for (const QString& c : unknownCols) {
             ParseMessage m;

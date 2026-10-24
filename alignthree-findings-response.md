@@ -21,9 +21,9 @@ say it is, for exactly the reason you give.
 | 5 | `as previous` silently produces an empty table | **Not a feature of the language** |
 | 6 | A table with a heading and no rows is dropped | **Fixed, as you proposed** |
 | 7 | Stub appending works well and deserves documentation | **Documented** |
-| 8 | Examples heading mismatch gives two messages | **Open** |
+| 8 | Examples heading mismatch gives two messages | **Fixed** — bullet 1; see below |
 | 9 | `$tag` filtering is excellent and undocumented | **Fixed**, both halves |
-| 10 | Named comment continuation; a stray word ends a block | Request 1 **shipped**; request 2 **open** |
+| 10 | Named comment continuation; a stray word ends a block | Both **shipped** |
 | 11 | 0.9.2 makes a cell a struct and comparisons stop compiling | **Fixed** — see below |
 | 12 | `And` works and is in no document | **Fixed**, with two rulings |
 
@@ -213,23 +213,6 @@ impl and derefs to `str`; Java has no operators to overload and the field is
 `value`. The C++ wrapper was the one place where naming the type in a signature
 cost the behaviour of the text.
 
-## Open
-
-**#10, request 2 — an unrecognised keyword inside a block still ends it
-silently.** The parser warns about the stray word and closes the block, so a
-`BusinessRule` can lose its `Examples:` and the message that says so is the
-third warning rather than an error. The leading `\` marker you asked for removed
-the common cause but not the consequence. Open, and your framing of it is the
-one we will work from.
-
-**#9's paragraph break.** A line holding only `\` is the stand-in you found, and
-it is undocumented. Either a marker of its own or a documented rule, not left as
-folklore.
-
-**#8, first bullet.** A mismatched `Examples:` column heading still produces a
-warning and an error for one cause. One message naming both spellings is the
-fix.
-
 **#12 — `And`. Done.** You are right that it worked and was undocumented:
 `normalizeKeyword` maps `and` to the keyword of the step above it and the step
 pattern accepts it, which is why your converted scenarios generate
@@ -258,6 +241,91 @@ the grammar production, and two rulings came with it:
 
   `And` is the only continuation. The document says so now, because a reader
   coming from Gherkin will reach for `But`.
+
+**#10, request 2 — a stray line is an error now, and ends nothing.** You asked
+for one of two repairs, and this is the second: the line is an error rather than
+a warning. Your repro, run here before the change, was three messages and a
+rule that generated nothing while the converter exited 0. Now:
+
+```
+ERROR:10:'longest' is not a keyword -- a misspelled one, or a wrapped line that needs a leading '\' to carry on the comment above it. The line is dropped, and nothing it was part of ends here.
+ERROR:11:'needs' is not a keyword -- a misspelled one, or a wrapped line that needs a leading '\' to carry on the comment above it. The line is dropped, and nothing it was part of ends here.
+```
+
+exit 1, and no files written. Your shape is in the `AnalyzeErrors` corpus now,
+so it stays fixed.
+
+The cause was ordering, not severity. `parseLines` closed an open named block
+on *any* line it had not already handled, and only afterwards, having run out
+of branches, said the first word was not a keyword -- so the block was gone
+before anyone asked whether the line was a keyword at all. The question is
+asked first now (`isKnownKeyword`), which is why the third of your three
+warnings has disappeared: the `BusinessRule` keeps its `Examples:` table, so
+Analyze no longer reports it as having none. Two messages, both about the two
+lines that are actually wrong.
+
+We did not take your other option -- reading the stray line as a continuation --
+because it guesses. It would swallow a misspelled keyword into prose, and the
+leading `\` exists precisely so that continuation is declared rather than
+inferred. The error message names both causes for the same reason.
+
+One more message changed while we were in there. A line whose first word *is* a
+keyword, in a place where it cannot be used, used to be reported as
+"Unrecognized keyword 'Given'", which is not true of `Given`. It now says which
+of the two things it is: a step with no `Scenario`, `Background` or `Cleanup`
+open for it, or a keyword with nothing after it.
+
+**#8, first bullet — one heading, one message.** Your own case was already
+fixed before you wrote, and the version you were on says which: the pairing
+landed on 2026-10-11, so 0.9.1 gave you the warning and the error, and 0.9.2
+gives one message. The quoted texts are the giveaway — *column 'Assumed here'
+… will be ignored* is the 0.9.1 wording.
+
+What was still two messages is a heading that is not the same letters: a typo.
+Run here before the change, on an `Examples:` table whose attribute is
+`AssumedHere`:
+
+```
+WARNING:16:Examples table has column 'Asumed Hree', which is not an attribute of 'Withdrawal' -- its values are ignored
+ERROR:16:Examples table for 'Withdrawal' has no column 'AssumedHere', and 'AssumedHere' has no default value
+```
+
+and after it:
+
+```
+ERROR:16:Examples table for 'Withdrawal' has column 'Asumed Hree' where attribute 'AssumedHere' is expected -- a heading must match the attribute name exactly, so the column is ignored and 'AssumedHere' is left with no value
+```
+
+Both halves of the check now go through one function, where they were two
+copies of it before -- identical, and unlikely to have stayed so. A heading
+pairs with
+an attribute when the two are the same word written differently — a space, a
+capital, a hyphen — or when they are within a budget of single-character edits
+that grows with the name: one for a short name, three for a name of eleven
+letters. Beyond that the two messages stay, because then they really are two
+problems, and so they do for the three cases where pairing would be a guess: a
+heading equally close to two attributes names neither of them (`Addend3`, where
+`Addend1` and `Addend2` are both unfilled); a heading differing from an
+attribute only in its digits is a different attribute, since a number in a name
+says which one and not how it is spelled (`Day2` is not `Day1` misspelled); and
+a name of three letters or fewer must match exactly, because at that length one
+edit reaches a word nobody meant (`Foe` is not `Fee`). Each of those keeps the
+warning and the error it had, which say only what was seen.
+
+Section 4.2.1 of the syntax document now states the rule the finding called
+right but undocumented — what a heading must say, what happens to one that
+names nothing, to an attribute with no column, and to the one mistake that is
+both. Two cases went into the `AnalyzeErrors` corpus, which had none; with the
+one added for #10 below, its count is 67 where you had 64.
+
+Your other two bullets need nothing: the empty-`Scenario` message stays as it
+is, and `--fail-every-test` stays the default.
+
+## Open
+
+**#9's paragraph break.** A line holding only `\` is the stand-in you found, and
+it is undocumented. Either a marker of its own or a documented rule, not left as
+folklore.
 
 ## And the one thing that was not a finding
 

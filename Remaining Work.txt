@@ -493,6 +493,48 @@ Altered so that it is separated into Issues and Future Features
 
 ## --- Done ---
 
+[x] A line that is no keyword is an error, and ends nothing (external finding
+    10, request 2, 2026-10-24). A wrapped sentence inside a BusinessRule used to
+    close the block before anyone had asked whether the line was a keyword at
+    all: the Examples: table below it then belonged to no rule, the rule
+    generated no test, and all of that was three warnings -- two about the stray
+    words and one, last, about the rule going dark. parseLines now asks
+    isKnownKeyword first, so the block stays open, and the one message is an
+    error naming both causes ("a misspelled one, or a wrapped line that needs a
+    leading '\'"). The file is refused until it is fixed, which is the point: a
+    rule that was being checked cannot stop being checked and still generate.
+    The fallthrough below it now says which of the two things it is -- a step
+    with no Scenario, Background or Cleanup open, or a keyword with nothing
+    after it -- instead of calling a real keyword unrecognized. Corpora: one
+    line changed across all four, Declarations.spectable:51 from warning to
+    error. A case for it went into Declarations.spectable, which takes
+    AnalyzeErrors to 67 (2 / 8 / 0 unchanged): the finding's own shape, which
+    drops from three messages to one, with no "has no Examples: section" left,
+    because the rule keeps its table.
+
+
+[x] A misspelled table heading is one message, whichever way it is misspelled
+    (external finding 8, bullet 1, 2026-10-24). A heading that matched no
+    attribute used to be reported twice when the attribute it meant was left
+    unfilled -- a column nobody recognises, and an attribute nobody filled --
+    and the pairing added on 2026-10-11 caught only the same letters written
+    differently ("Assumed here" for AssumedHere). A typo did not pair:
+    "Asumed Hree" still produced a warning and an error for one mistake. Both
+    validators now call one pairMisspelledHeadings, which pairs on the spelling
+    key or on a Levenshtein distance within a budget that grows with the name --
+    one edit at four letters, three at eleven. Three cases keep their two
+    messages, because pairing them would be a guess: a different word (Remarks
+    for Notes); a heading equally close to two attributes, which names neither
+    (Addend3 against Addend1 and Addend2); and one differing from an attribute
+    only in its digits, since a number in a name says which one and not how it
+    is spelled (Day2 is not Day1 misspelled). A name of three letters or fewer
+    must match exactly, since at that length one edit reaches a word nobody
+    meant. Section 4.2.1 of the syntax
+    document now states what a heading must say, which was written down nowhere.
+    Two cases went into AnalyzeErrors, which exercised none: its count is 66,
+    and the other three corpora are byte-identical at 2 / 8 / 0.
+
+
 [x] A C++ cell can be compared again (external finding 11, 2026-10-23). The
     <DataType>String wrapper had no operator==, operator!= or empty(), on the
     written grounds that an operator would make `cell == "x"` ambiguous. It
