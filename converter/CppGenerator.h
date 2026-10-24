@@ -11,7 +11,7 @@ public:
         QString     outputDir;
         QString     sourceRoot;     // project root; used to mirror the .spectable's subfolder in output
         bool        overwriteGlue          = false;
-        bool        copySpectable          = true;
+        bool        copySpectable          = false;  // off unless asked for, as in a .specconfig
         QStringList extraIncludes;          // extra #include lines injected into generated files
         QString     tagFilter;
         bool        createProductionClasses = false;

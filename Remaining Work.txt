@@ -493,6 +493,26 @@ Altered so that it is separated into Issues and Future Features
 
 ## --- Done ---
 
+[x] The converter fails on an unrecognized --language (Ken, 2026-10-20).
+    main.cpp carries a table of the nine canonical names and their aliases
+    (C# for CSharp, C++ for Cpp, JS, TS; case-insensitive) and resolves the
+    value before it parses anything; no match prints
+    ERROR:0:Unknown language "X". Use one of: ... and exits 1. The dispatch
+    compares the canonical name, so C# is the last branch because it is the
+    only name left, not a fallback. CPlusPlus where Cpp was meant used to fill
+    the C++ output folder with C#.
+
+[x] Every converter flag defaults the way its .specconfig key does (Ken,
+    2026-10-20). copySpectable was the only one that did not: the CLI copied
+    the .spectable unless told not to, a config has not copied since
+    2026-10-11. --copy-spectable is now the positive flag, the nine
+    generators' Options default to false, AppController passes the positive at
+    both build sites, and --no-copy-spectable is kept as an accepted no-op the
+    way --fail-every-test is. TestProject/regenerate.py passes the key through,
+    so the eight VariousTests and seven ExampleTests configs that ask for a
+    copy still get one; Java's does not ask, so the 18 copies under its output
+    folder are leftovers nothing refreshes.
+
 [x] The editor asks the parse tree what a line is (2026-09-18). Seventy
     regular expressions in SpecTableEditor, one per question -- is this a
     step, which set does it name, is it an Examples: line, an Attributes

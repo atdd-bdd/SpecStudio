@@ -14,7 +14,7 @@ public:
         QString     outputDir;
         QString     sourceRoot;     // project root for computing package from subfolder path
         bool        overwriteGlue = false;
-        bool        copySpectable = true;
+        bool        copySpectable = false;  // off unless asked for, as in a .specconfig
         QString     framework     = "JUnit";  // "JUnit", "TestNG"
         QStringList extraImports;             // injected after auto-imports in every generated file
         QString     tagFilter;               // boolean tag expression; empty = generate all

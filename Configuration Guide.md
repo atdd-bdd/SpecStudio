@@ -210,6 +210,11 @@ This default changed on 2026-10-11. A `.specconfig` written before then that
 does not mention `copySpectable` will stop copying; add `"copySpectable": true`
 to keep the old behaviour. Every config saved from now on states it explicitly.
 
+The converter's own default followed on 2026-10-20: it is `--copy-spectable` to
+ask for the copy, where it used to be `--no-copy-spectable` to refuse one. A
+command line that passes neither now behaves like a `.specconfig` that says
+nothing. `--no-copy-spectable` is still accepted and does nothing.
+
 **`overwriteGlue` deserves care.** Glue files are yours: `appendMissingStubs`
 adds a stub for each new step and never removes or rewrites what is there.
 Setting `overwriteGlue` to `true` discards your implementations. Leave it `false`
@@ -390,7 +395,8 @@ leave it out, and the `.specconfig` key it corresponds to:
 | `-f`, `--framework <fw>` | `JUnit` for Java, `MSTest` for C# | `framework` |
 | `-n`, `--namespace <prefix>` | no prefix | `namespace` |
 | `--overwrite-glue` | off — an existing glue file is left alone | `overwriteGlue: true` |
-| `--no-copy-spectable` | **not passed, so the `.spectable` is copied** | `copySpectable: false` |
+| `--copy-spectable` | off — no copy of the source beside the generated tests | `copySpectable: true` |
+| `--no-copy-spectable` | accepted and does nothing — not copying is the default | — |
 | `--context <file>` | none; repeatable | `externalSpectables[].file`, and the project's other specifications |
 | `--source-root <dir>` | empty | *no key* — the IDE passes the project root |
 | `--import <statement>` | none; repeatable | `imports`, `externalSpectables[].codeImports` |
@@ -408,17 +414,35 @@ leave it out, and the `.specconfig` key it corresponds to:
 Two keys never become flags: `converterPath` says which executable to run, and
 `version` is the file format.
 
-Three flags are negatives of their key, so the file states the positive and the
-command line the negative: `--no-copy-spectable`, `--no-flatten-single-row` and
-`--no-fail-every-test`. **One of those three defaults differently on each side**
-— the converter copies the `.spectable` unless told not to, while a
-`.specconfig` does not copy unless asked. Running the converter by hand
-therefore leaves a copy beside the generated tests where a Build would not.
+Two flags are negatives of their key, so the file states the positive and the
+command line the negative: `--no-flatten-single-row` and `--no-fail-every-test`.
+Every flag defaults the way its key does, so the converter run by hand and the
+same specification built in the IDE with no `.specconfig` produce the same
+files. `--copy-spectable` was the exception until 2026-10-20 — the converter
+copied the `.spectable` unless told not to, while a `.specconfig` did not copy
+unless asked, so a hand run left a copy where a Build would not. The flag is
+now the positive one, and `--no-copy-spectable` is kept, doing nothing, so
+scripts that pass it still run. `--fail-every-test` is kept the same way.
 
-Two more things the flags do not say. `--framework` is read **only for Java**,
+One more thing the flags do not say. `--framework` is read **only for Java**,
 where it chooses JUnit or TestNG; C# always generates MSTest, every other
 language has a single framework, and the value is otherwise accepted and
-ignored. An unrecognised `--language` is not an error either — it generates C#.
+ignored.
+
+A `--language` that names none of the nine targets is an error — the converter
+says so and generates nothing:
+
+```
+ERROR:0:Unknown language "CPlusPlus". Use one of: CSharp, Java, Rust, Python, Cpp, JavaScript, TypeScript, Go, Swift
+```
+
+Until 2026-10-20 it fell through to the C# generator, so `CPlusPlus` where `Cpp`
+was meant, or any typo, quietly filled the output folder with the wrong
+language. Besides the nine names, `C#`, `C++`, `JS` and `TS` are accepted for
+`CSharp`, `Cpp`, `JavaScript` and `TypeScript`; case does not matter anywhere. A
+hand-edited `"language"` in a `.specconfig` goes through the same check, because
+the IDE passes the value straight to the converter — the error appears in the
+Build output and nothing is written.
 
 Exit code 0 means generated. Diagnostics go to standard output as
 `ERROR:<line>:<message>`, `WARNING:<line>:<message>` and `INFO:<line>:<message>`,

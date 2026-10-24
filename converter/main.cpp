@@ -16,6 +16,42 @@
 #include <QTextStream>
 #include <iostream>
 
+// The nine targets, each with every spelling the CLI accepts for it. The first
+// spelling is the canonical name -- the one a .specconfig writes and the one
+// the dispatch below compares against.
+//
+// An unrecognised name used to fall through to the C# generator, so a
+// misspelling, or "CPlusPlus" where "Cpp" was meant, quietly filled the output
+// folder with the wrong language. It is an error now.
+static const struct { const char* canonical; const char* aliases; } kLanguages[] = {
+    { "CSharp",     "CSharp C# CS"     },
+    { "Java",       "Java"             },
+    { "Rust",       "Rust"             },
+    { "Python",     "Python"           },
+    { "Cpp",        "Cpp C++"          },
+    { "JavaScript", "JavaScript JS"    },
+    { "TypeScript", "TypeScript TS"    },
+    { "Go",         "Go"               },
+    { "Swift",      "Swift"            },
+};
+
+// The canonical name for what the user wrote, or empty if it names no target.
+static QString canonicalLanguage(const QString& given)
+{
+    for (const auto& lang : kLanguages)
+        for (const QString& alias : QString(lang.aliases).split(' '))
+            if (given.compare(alias, Qt::CaseInsensitive) == 0)
+                return QString::fromLatin1(lang.canonical);
+    return QString();
+}
+
+static QString languageList()
+{
+    QStringList names;
+    for (const auto& lang : kLanguages) names << QString::fromLatin1(lang.canonical);
+    return names.join(", ");
+}
+
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
@@ -32,7 +68,8 @@ int main(int argc, char* argv[])
     cli.addPositionalArgument("output", "Output directory for generated files");
 
     QCommandLineOption langOpt({ "l", "language" },
-        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, TypeScript, Go, Swift", "language", "CSharp");
+        "Target language: CSharp (default), Java, Rust, Python, Cpp, JavaScript, "
+        "TypeScript, Go, Swift. Anything else is an error.", "language", "CSharp");
     cli.addOption(langOpt);
 
     QCommandLineOption fwOpt({ "f", "framework" },
@@ -48,8 +85,19 @@ int main(int argc, char* argv[])
         "Overwrite the glue file even if it exists");
     cli.addOption(overwriteGlueOpt);
 
+    // Off unless asked for, which is what a .specconfig that does not mention
+    // copySpectable also gets. The copy is a second declaration of every symbol
+    // in the folder people analyse, and Analyze then reports the whole project
+    // as duplicated. --no-copy-spectable is kept as an explicit no-op so
+    // existing scripts keep working.
+    QCommandLineOption copyOpt("copy-spectable",
+        "Copy the .spectable source file to the output directory, so the output "
+        "tree stands on its own.");
+    cli.addOption(copyOpt);
+
     QCommandLineOption noCopyOpt("no-copy-spectable",
-        "Do not copy the .spectable source file to the output directory");
+        "Do not copy the .spectable source file to the output directory. This is "
+        "the default.");
     cli.addOption(noCopyOpt);
 
     QCommandLineOption ctxOpt("context",
@@ -138,8 +186,18 @@ int main(int argc, char* argv[])
 
     const QString inputPath = pos[0];
     const QString outputDir = pos[1];
-    const QString language  = cli.value(langOpt).trimmed();
+    QString language        = cli.value(langOpt).trimmed();
     QString framework       = cli.value(fwOpt).trimmed();
+
+    // An explicitly empty --language means "not given", so it takes the default.
+    if (language.isEmpty()) language = "CSharp";
+
+    const QString target = canonicalLanguage(language);
+    if (target.isEmpty()) {
+        std::cerr << "ERROR:0:Unknown language \"" << language.toStdString()
+                  << "\". Use one of: " << languageList().toStdString() << "\n";
+        return 1;
+    }
 
     if (!QFileInfo::exists(inputPath)) {
         std::cerr << "ERROR:0:Input file not found: " << inputPath.toStdString() << "\n";
@@ -256,14 +314,14 @@ int main(int argc, char* argv[])
     // Generate
     QStringList genMsgs;
 
-    if (language.compare("Java", Qt::CaseInsensitive) == 0) {
+    if (target == "Java") {
         if (framework.isEmpty()) framework = "JUnit";
         JavaGenerator::Options opts;
         opts.packagePrefix = cli.value(nsOpt);
         opts.outputDir     = outputDir;
         opts.sourceRoot    = cli.value(srcRootOpt);
         opts.overwriteGlue = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable = !cli.isSet(noCopyOpt);
+        opts.copySpectable = cli.isSet(copyOpt);
         opts.framework     = framework;
         opts.extraImports  = cli.values(importOpt);
         opts.tagFilter     = cli.value(tagFilterOpt);
@@ -277,13 +335,13 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         JavaGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("Rust", Qt::CaseInsensitive) == 0) {
+    } else if (target == "Rust") {
         RustGenerator::Options opts;
         opts.cratePrefix              = cli.value(nsOpt);
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraUses                = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -295,13 +353,13 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         RustGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("Python", Qt::CaseInsensitive) == 0) {
+    } else if (target == "Python") {
         PythonGenerator::Options opts;
         opts.packagePrefix            = cli.value(nsOpt);
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraImports             = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -314,13 +372,12 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         PythonGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("Cpp", Qt::CaseInsensitive) == 0
-            || language.compare("C++", Qt::CaseInsensitive) == 0) {
+    } else if (target == "Cpp") {
         CppGenerator::Options opts;
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraIncludes            = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -332,13 +389,12 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         CppGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("JavaScript", Qt::CaseInsensitive) == 0
-            || language.compare("JS", Qt::CaseInsensitive) == 0) {
+    } else if (target == "JavaScript") {
         JavaScriptGenerator::Options opts;
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraImports             = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -350,13 +406,12 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         JavaScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("TypeScript", Qt::CaseInsensitive) == 0
-            || language.compare("TS", Qt::CaseInsensitive) == 0) {
+    } else if (target == "TypeScript") {
         TypeScriptGenerator::Options opts;
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraImports             = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -368,12 +423,12 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         TypeScriptGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("Go", Qt::CaseInsensitive) == 0) {
+    } else if (target == "Go") {
         GoGenerator::Options opts;
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraImports             = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -386,12 +441,12 @@ int main(int argc, char* argv[])
         opts.flattenSingleCellToScalar = cli.isSet(flattenCellOpt);
         GoGenerator gen;
         genMsgs = gen.generate(file, opts);
-    } else if (language.compare("Swift", Qt::CaseInsensitive) == 0) {
+    } else if (target == "Swift") {
         SwiftGenerator::Options opts;
         opts.outputDir                = outputDir;
         opts.sourceRoot                = cli.value(srcRootOpt);
         opts.overwriteGlue            = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable            = !cli.isSet(noCopyOpt);
+        opts.copySpectable            = cli.isSet(copyOpt);
         opts.extraImports             = cli.values(importOpt);
         opts.tagFilter                = cli.value(tagFilterOpt);
         opts.productionClassesDir     = cli.value(prodDirOpt);
@@ -404,14 +459,15 @@ int main(int argc, char* argv[])
         SwiftGenerator gen;
         genMsgs = gen.generate(file, opts);
     } else {
-        // Default: C#
+        // CSharp -- the only name left, because an unrecognised one was
+        // refused before anything was parsed.
         if (framework.isEmpty()) framework = "MSTest";
         CSharpGenerator::Options opts;
         opts.nsPrefix                    = cli.value(nsOpt);
         opts.outputDir                   = outputDir;
         opts.sourceRoot                  = cli.value(srcRootOpt);
         opts.overwriteGlue               = cli.isSet(overwriteGlueOpt);
-        opts.copySpectable               = !cli.isSet(noCopyOpt);
+        opts.copySpectable               = cli.isSet(copyOpt);
         opts.extraImports                = cli.values(importOpt);
         opts.tagFilter                   = cli.value(tagFilterOpt);
         opts.productionClassesDir        = cli.value(prodDirOpt);
