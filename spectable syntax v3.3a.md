@@ -225,6 +225,10 @@ Uses <Comment>?
 Then <Name> is : <Type>
 Uses <Comment>?
 <Step Table or Reference>
+
+WhenThen <Action> : <Type>
+Uses <Comment>?
+<Step Table or Vertical>
 ```
 
 #### Rules
@@ -233,6 +237,9 @@ Uses <Comment>?
   step with an empty table.
 * A step with no `: <Type>` takes no table; it may carry a docstring, or
   nothing at all.
+* `WhenThen` is a step like any other and stands where a `When` or a `Then`
+  would. It is written when one table holds both halves of the step -- the
+  input columns and the expected ones. See 4.6.
 * `Uses` may describe:
   * business rules applied
   * referenced Define blocks
@@ -312,11 +319,12 @@ DefineText         ::= "Define" Identifier "=" DocString
 DefineTable        ::= "Define" Identifier Uses? Table(Row+)
 DefineList         ::= "Define" Table(DefineRow+)           # header has Name and Value
 
-Scenario           ::= (GivenStep WhenStep ThenStep)+
+Scenario           ::= (GivenStep WhenStep ThenStep)+    # or a WhenThenStep for the last two
 
 GivenStep          ::= "Given" Identifier ":" Type Modifier* Uses? (Table | Reference)
 WhenStep           ::= "When" Action ":" Type Modifier* Uses? (Table | Reference)
 ThenStep           ::= "Then" Identifier "is" ":" Type Modifier* Uses? (Table | Reference)
+WhenThenStep       ::= "WhenThen" Action ":" Type Modifier* Uses? (Table | Reference)
 AndStep            ::= "And" <rest of the step>    # the keyword of the step above
 
 Modifier           ::= "Vertical" | "CompareOnly" | "EveryCell"
@@ -531,6 +539,42 @@ is matched to that set by its headings.
 * Given establishes initial state.
 * When applies transformations.
 * Then asserts final state.
+* **`WhenThen` acts and asserts in one step.** It works just like a `When` or a
+  `Then` -- same call generated, same stub -- and is written when one table
+  holds both halves. A scenario may have its `Given` and then put the table
+  under the `WhenThen` because part of the table is When data and part of it is
+  Then data:
+
+  ```
+  Attributes Conversion
+  | Attribute  | Type    | Default | Notes            | In-Out |
+  | Fahrenheit | Integer | 0       | the temperature  | In     |
+  | Celsius    | Integer | 0       | what it converts | Out    |
+
+  Scenario Convert a temperature
+  Given a thermometer
+  WhenThen the temperature converts : Conversion
+  | Fahrenheit | Celsius |
+  | 212        | 100     |
+  | 32         | 0       |
+  ```
+
+  The table reaches the glue whole, in one call, rows and all:
+
+  ```java
+  glue.WhenThen_the_temperature_converts(objectList1);
+  ```
+
+  so the step method reads `Fahrenheit` from each row, does the work, and
+  compares `Celsius`. The same specification written as a `When` and a `Then`
+  needs two steps and two tables, naming the same rows twice. All nine
+  languages generate the step, the keyword appearing in the name as that
+  language writes it -- `WhenThen_the_temperature_converts`,
+  `whenthen_the_temperature_converts`, `whenthenTheTemperatureConverts`,
+  `WhenThenTheTemperatureConverts`.
+* Because `WhenThen` is an ordinary keyword, two things follow: an `And` under
+  it continues as a `WhenThen`, and a `WhenThen` in a `Cleanup` block is an
+  error, exactly as a `Given` or a `When` is -- acting belongs in a Scenario.
 * `And` continues the run above it: it takes the keyword of the step above, so
 
   ```
@@ -705,6 +749,21 @@ Uses Final cart state
 Removed in v3.3. Collections replace all multiplicity semantics.
 
 ## 7. Version Notes
+
+### Document revision 2026-10-25
+
+* **`WhenThen` was in the language, in the editor and in no version of this
+  document.** The parser has accepted it for as long as it has accepted
+  `Given`; the highlighter colours it, autocomplete offers it, and a reader of
+  this document had no way to know it existed. It is in 2.7, in the grammar and
+  in 4.6 now, with what it is for: one table whose columns are part When data
+  and part Then data, under one step, instead of the same rows written out
+  twice. What it generates was read off a run in all nine languages rather than
+  inferred -- an ordinary step call taking the whole table, with the keyword in
+  the method name.
+* **An `And` under a `WhenThen`, and a `WhenThen` in a `Cleanup`.** Both follow
+  from the keyword being ordinary, and both are stated in 4.6: the `And`
+  continues as a `WhenThen`, and the `Cleanup` is an error.
 
 ### Document revision 2026-10-24
 

@@ -2181,11 +2181,56 @@ static QString genRustProductionEnum(const NamedBlock& nb)
     const QString name = RustGenerator::toTypeName(nb.name);
     QString out;
     QTextStream s(&out);
-    s << "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n";
+
+    // The generated Typed structs convert a cell with Type::from(String), in
+    // from_str_struct and in from_json_value, and a From cannot fail. So the
+    // enum needs a value to land on when the text names no variant, and the
+    // first declared one is it -- marked #[default] so the choice is visible in
+    // the enum rather than buried in a match arm. (Ken, 2026-10-25: "fall back
+    // to a default variant".) A project that would rather refuse the value
+    // changes this file: production code is written once and never regenerated.
+    //
+    // Display is here for the same reason as From: the generators write
+    // self.<field>.to_string() for a DataType field.
+    if (variants.isEmpty()) {
+        // Nothing to default to, and nothing can construct it either.
+        s << "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n";
+        s << "pub enum " << name << " {\n}\n";
+        return out;
+    }
+
+    s << "/// " << nb.name << " is one of the values its specification lists.\n";
+    s << "///\n";
+    s << "/// From falls back to the #[default] variant, because a From cannot fail.\n";
+    s << "/// So From cannot tell you that a value names no variant: a step that has to\n";
+    s << "/// tell a valid value from an invalid one needs its own fallible reader --\n";
+    s << "///\n";
+    s << "///     pub fn parse(value: &str) -> Result<Self, String>\n";
+    s << "///\n";
+    s << "/// This file is written once and never regenerated, so change either freely.\n";
+    s << "#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]\n";
     s << "pub enum " << name << " {\n";
+    for (int i = 0; i < variants.size(); ++i) {
+        if (i == 0) s << "    #[default]\n";
+        s << "    " << variants[i] << ",\n";
+    }
+    s << "}\n\n";
+
+    s << "impl From<&str> for " << name << " {\n";
+    s << "    fn from(value: &str) -> Self {\n";
+    s << "        match value {\n";
     for (const QString& v : variants)
-        s << "    " << v << ",\n";
-    s << "}\n";
+        s << "            \"" << v << "\" => " << name << "::" << v << ",\n";
+    s << "            _ => " << name << "::default(),\n";
+    s << "        }\n    }\n}\n\n";
+
+    s << "impl From<String> for " << name << " {\n";
+    s << "    fn from(value: String) -> Self { " << name << "::from(value.as_str()) }\n";
+    s << "}\n\n";
+
+    s << "impl std::fmt::Display for " << name << " {\n";
+    s << "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n";
+    s << "        write!(f, \"{self:?}\")\n    }\n}\n";
     return out;
 }
 

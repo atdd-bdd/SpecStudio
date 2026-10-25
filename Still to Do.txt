@@ -1,0 +1,147 @@
+Still to Do — AlignThree / SpecTable
+====================================
+
+A survey of everything open as of 2026-10-25, gathered from every source there
+is: "Remaining Work.txt", "More to do.txt", "bug to fix.txt", "more bugs to
+work on.txt", "Manual and Auto Things To Do.txt", the external findings report
+("alignthree-findings.md" and its response), and what came out of the last few
+working sessions. "Remaining Work.txt" stays the detailed log with its own Done
+section; this file is the one-page answer to "what is left?".
+
+Each item says where it came from and what state it is in. Nothing here is a
+new idea of mine.
+
+
+## Waiting on someone else — no work to do
+
+[ ] Microsoft Store certification. The 0.9.2 MSIX was submitted on 2026-10-24
+    and is in certification. Nothing to do until it comes back.
+
+[ ] The Store's reserved name is "aLIGNtHREE". The package identity is
+    Partner Center's and is copied verbatim (KenPughInc.aLIGNtHREE, publisher
+    CN=625DD10D-...); the name a person sees shipped as "AlignThree", which
+    passed validation. If the Store later insists on the reserved spelling,
+    it is one rebuild:
+      .\scripts\package_msix.ps1 -Version 0.9.2.0 -StoreIdentity @{ ...
+          DisplayName = 'aLIGNtHREE' }
+    See "Building Distributions.md", "MSIX, for the Store and for
+    self-hosting".
+
+[ ] alignthree.com rebuild and FTP deploy, once the 0.9.2 artefacts are final.
+    build.py copies the newest installer out of dist/ into public/ (unlinked),
+    so the site picks up whatever is there when it is run.
+
+
+## Open defects
+
+[ ] An indented step keyword is silently dropped. Found 2026-10-25 while
+    checking a documented example. SpectableParser.cpp:691 skips any line
+    starting with whitespace that is not a pipe row, as a named-comment
+    continuation, before the keyword dispatch -- so
+
+        Scenario S
+        Given a thermometer
+          When it converts
+          Then it is right
+
+    analyzes with 0 diagnostics and generates a test holding only the Given.
+    The two steps are gone, and nothing says so. The skip is deliberate and
+    the continuation behaviour it serves is documented, so the fix is a
+    decision, not a one-liner: either read an indented line that begins with
+    a keyword as that keyword, or report it. Reporting is the smaller change
+    and loses nothing, because an indented step is a mistake either way.
+    Whichever is chosen, a step disappearing without a word is the worst of
+    the three outcomes.
+
+[ ] Stale output survives the removal of a specification. Deleting a .spectable
+    leaves its generated test behind, and the shared files keep its entries:
+    SourceScan::dropEntriesForMissingFiles is not applied to Java's
+    TableHelper/ProductionHelper, Rust's lib.rs, the TypeScript/JavaScript
+    production/index, or a stale dist/. A removed specification should take
+    its generated code with it.
+
+[ ] A docstring marker is highlighted for only its first two characters. The
+    three quote marks that open or close a docstring get colour on two of
+    them. Cosmetic, in the editor's highlighter.
+
+[ ] ExampleTests: the shared-helper merge was last recorded as not having
+    reached that repository (see the TableHelper note), and the
+    AddressCorrection half of "bug to fix.txt" is the piece of that file still
+    open. Checked today, so that neither is assumed: every one of the nine
+    languages does have committed AddressCorrection output, and Go's
+    production constructor takes lowercase parameters while its fields are
+    correctly cased, which is ordinary Go. Regenerate and run before believing
+    anything about this item in either direction -- including this paragraph.
+
+
+## Finished since the last survey — recorded here so the list is not re-read
+
+[x] The stale Java .spectable copies are deleted. Nineteen of them under
+    Java/SpecTableVariousTests/src/test/java/spectable/, every one with an
+    authoritative original in TestProject/ and nothing reading them at
+    runtime. mvn clean test afterwards: 58 tests, 0 failures.
+
+[x] Rust falls back to a default variant. genRustProductionEnum now derives
+    Default with #[default] on the first variant and emits From<&str>,
+    From<String> and Display, with the unrecognised value falling back to
+    default() because a From cannot fail. Generated, cargo built, and run
+    (3/3). Honest footnote: the premise in "More to do.txt" does not hold
+    today -- a DataType field crosses into Rust as <Name>Typed text, so no
+    generated Rust calls EnumName::from, and the old bare enum compiled fine.
+    The fallback is there for production code that does call it, and the
+    generated comment points at a fallible parse for the case where the
+    unrecognised value matters.
+
+[x] WhenThen is documented. It works just like a When or a Then, and is for
+    one table whose columns are part When data and part Then data: the
+    scenario has its Given, and the table goes under the WhenThen. In the
+    syntax document at 2.7, in the grammar, and at 4.6; in the User Guide
+    beside the step keywords. What it generates was read off a run in all
+    nine languages -- an ordinary step call handed the whole table, keyword in
+    the method name. Two consequences are stated too: an And under a WhenThen
+    continues as a WhenThen, and a WhenThen in a Cleanup block is an error.
+
+[x] The external findings report is closed. Every item is fixed, documented,
+    or ruled on; the last of them was the most-vexing-parse note, now in the
+    User Guide under "Checking that a value is refused".
+
+
+## Decided against — kept so they are not proposed again
+
+[ ] Copy named comments into regenerated files.
+[ ] Diff since generation.
+[ ] Tab / untab in the editor.
+[ ] Spell checking inside .featurex and .feature, and dictionaries other than
+    en_US.
+[ ] An internal Markdown editor.
+[ ] Import at the Project or Solution root.
+[ ] Clearing common/ at the start of a project build.
+[ ] A configuration option for to/from JSON on production classes.
+
+
+## Held — wanted, not now
+
+[ ] // as a comment marker.
+[ ] A true Decimal for C++, Go, JavaScript and Rust. The four tell Decimal and
+    Scientific apart correctly; what they lack is a fixed-precision runtime
+    type, which needs a design decision first. C# and Python have the real
+    thing.
+[ ] A $tag on a ScenarioGroup tagging every scenario in it. Superseded for now
+    by the 2026-10-17 decision: a tag above a group is dropped and reported.
+[ ] A list in one cell initialising a Collection of a DataType.
+[ ] Richer error recovery in Share Changes.
+[ ] The GherkinExecutor migration exercise: build a project out of its feature
+    files and try it.
+
+
+## Not software
+
+[ ] Install runs on Linux and macOS. Neither can be built on this machine.
+[ ] The contact list.
+[ ] The Tricentis example.
+
+
+## Two notes that keep coming up
+
+  - "bug to fix.txt" is finished apart from the AddressCorrection half.
+  - "More to do.txt" asks for a Decimal type. Decimal is already a built-in.

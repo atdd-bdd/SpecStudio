@@ -215,6 +215,28 @@ Then item collection is : OrderItemCollection
 
 Step keywords: `Given`, `When`, `Then`, `And`, `WhenThen`.
 
+`And` takes the keyword of the step above it, so a run of `Given` steps can be
+written once and continued.
+
+`WhenThen` works just like a `When` or a `Then`, and is for the table that is
+both. Give the scenario its `Given`, then put one table under the `WhenThen`
+when part of the table is When data and part of it is Then data:
+
+```
+Scenario Convert a temperature
+Given a thermometer
+WhenThen the temperature converts : Conversion
+| Fahrenheit | Celsius |
+| 212        | 100     |
+| 32         | 0       |
+```
+
+The step method is handed the whole table, so it reads the input columns, does
+the work and compares the expected ones -- one step where a `When` and a `Then`
+would name the same rows twice. It is an ordinary keyword in every other
+respect: an `And` under it continues as a `WhenThen`, and like `Given` and
+`When` it is not allowed in a `Cleanup` block.
+
 The text after `:` names the attribute set describing the table's shape, and may
 be followed by any number of modifiers, in any order.
 
