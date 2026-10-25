@@ -28,6 +28,25 @@
 #                          Publisher = 'CN=ABCD1234-...'
 #                          PublisherDisplayName = 'Ken Pugh, Inc.' }
 #
+# A Store package is written as dist\AlignThree-<version>-x64-store.msix, so it
+# cannot overwrite the signed one you host yourself.
+#
+# ---- the name a person sees --------------------------------------------------
+#
+# The package's visible name -- Properties/DisplayName, the tile's DisplayName
+# and its ShortName -- is AlignThree, and that is also the brand. The Store adds
+# one rule to it: the name in the package must be one of the names reserved for
+# the product in Partner Center, or the upload is rejected with "The name found
+# in the package is not one of your reserved app names". It is not required to
+# be the FIRST name reserved, so reserving AlignThree under Product management
+# is what keeps the brand. Where that is not possible, a DisplayName key in
+# -StoreIdentity overrides it for the Store package only:
+#
+#   -StoreIdentity @{ Name = ...; Publisher = ...; DisplayName = 'aLIGNtHREE' }
+#
+# Identity/Name is a separate matter and is never a choice: copy it from Partner
+# Center exactly as shown, whatever its capitalisation. Nobody sees it.
+#
 # ---- package identity --------------------------------------------------------
 #
 # Identity Name plus Publisher is the identity of the application, so changing
@@ -103,6 +122,7 @@ Write-Host "  from $Stage"
 
 $publisherDisplayName = 'Ken Pugh, Inc.'
 $identityName = 'KenPughInc.AlignThree'
+$displayName  = 'AlignThree'
 
 if ($StoreIdentity) {
     foreach ($key in @('Name', 'Publisher')) {
@@ -115,7 +135,12 @@ if ($StoreIdentity) {
     if ($StoreIdentity.ContainsKey('PublisherDisplayName')) {
         $publisherDisplayName = $StoreIdentity.PublisherDisplayName
     }
+    # Only for a Store package, and only when the brand name is not reserved.
+    if ($StoreIdentity.ContainsKey('DisplayName')) {
+        $displayName = $StoreIdentity.DisplayName
+    }
     Write-Host "  identity from Partner Center: $identityName"
+    Write-Host "  name a person sees:           $displayName"
     if (-not $SkipSigning) {
         Write-Host 'A Store package is uploaded unsigned -- the Store signs it. Pass -SkipSigning.' -ForegroundColor Yellow
     }
@@ -167,19 +192,27 @@ foreach ($base in @('Square44x44Logo', 'Square150x150Logo', 'StoreLogo')) {
 }
 
 $manifestTemplate = Need-Path (Join-Path $PSScriptRoot 'AppxManifest.xml') 'AppxManifest.xml'
+$escapedDisplayName = [Security.SecurityElement]::Escape($displayName)
 $manifest = (Get-Content -Raw $manifestTemplate).
                 Replace('{VERSION}', $msixVersion).
                 Replace('{PUBLISHER}', [Security.SecurityElement]::Escape($publisher)).
                 Replace('Name="KenPughInc.AlignThree"', "Name=""$identityName""").
                 Replace('<PublisherDisplayName>Ken Pugh, Inc.</PublisherDisplayName>',
-                        "<PublisherDisplayName>$([Security.SecurityElement]::Escape($publisherDisplayName))</PublisherDisplayName>")
+                        "<PublisherDisplayName>$([Security.SecurityElement]::Escape($publisherDisplayName))</PublisherDisplayName>").
+                Replace('<DisplayName>AlignThree</DisplayName>',
+                        "<DisplayName>$escapedDisplayName</DisplayName>").
+                Replace('DisplayName="AlignThree"', "DisplayName=""$escapedDisplayName""").
+                Replace('ShortName="AlignThree"', "ShortName=""$escapedDisplayName""")
 Set-Content (Join-Path $work 'AppxManifest.xml') $manifest -Encoding UTF8
 
 # ---- pack --------------------------------------------------------------------
 
 $makeappx = Find-MakeAppx
 $outDir = Join-Path $repo 'dist'
-$msix = Join-Path $outDir "AlignThree-$Version-x64.msix"
+# A Store package and a self-hosted one differ in identity and signature, so
+# they are two files. Writing both to one name would destroy the signed one.
+$suffix = if ($StoreIdentity) { '-store' } else { '' }
+$msix = Join-Path $outDir "AlignThree-$Version-x64$suffix.msix"
 if (Test-Path $msix) { Remove-Item $msix -Force }
 
 Write-Host 'Packing...'

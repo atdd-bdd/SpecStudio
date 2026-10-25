@@ -18,6 +18,12 @@
   (Product identity: Package/Identity/Name, Package/Identity/Publisher and
   Publisher display name), and the package is uploaded unsigned — the Store
   signs it with Microsoft's own certificate.
+
+  DisplayName below is the name a person sees, and it is the brand. The Store
+  requires it to be one of the names reserved for the product in Partner
+  Center — not necessarily the first one reserved — so the brand is kept by
+  reserving it there. package_msix.ps1 overrides this and the tile's names only
+  when -StoreIdentity carries a DisplayName key, and only in that package.
 -->
 <Package
     xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"

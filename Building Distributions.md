@@ -385,15 +385,78 @@ name — `AlignThree (Current user)` — which fails the same comparison that
 the entry reads `AlignThree` whichever way it was installed.
 
 If this still does not satisfy the checks, the route Microsoft itself points at
-is **MSIX**: repackage with the MSIX Packaging Tool and the store signs it. That
-is a larger change and has not been attempted.
+is **MSIX**, and that route is built: see below.
 
-What the submission form wants, and where to get it: `scriptserify_install.ps1
+What the submission form wants, and where to get it: `scripts\verify_install.ps1
 -PerUser` prints all of it — the silent command, the success exit code (0), the
 ARP name, publisher and version, the file count, and the signing certificate.
 `-PerUser` is the mode to quote, since it is the install the checks perform. The
 publisher must match the Partner Center publisher ID exactly, as it must match
 the certificate CN: `Ken Pugh, Inc.`
+
+### MSIX, for the Store and for self-hosting
+
+`scripts\package_msix.ps1` packs the same staged folder the zip and the
+installer come from, so all three ship identical binaries. It produces two
+different packages, and which one you want decides every identity value in it.
+
+**The one you host yourself** is signed with the Sectigo certificate, and the
+manifest's `Publisher` must equal that certificate's subject exactly. The
+script reads the subject off the certificate rather than trusting a copy of it,
+because a manifest that disagrees by one character fails to sign and the error
+does not say which character:
+
+```powershell
+.\scripts\package_msix.ps1          # dist\AlignThree-<version>-x64.msix, signed
+```
+
+**The one for the Store** is uploaded unsigned -- the Store signs it with
+Microsoft's certificate -- and its identity is assigned by Partner Center under
+*Product management -> Product identity*, not chosen here:
+
+```powershell
+.\scripts\package_msix.ps1 -SkipSigning -StoreIdentity @{
+    Name                 = 'KenPughInc.aLIGNtHREE'
+    Publisher            = 'CN=625DD10D-AEF6-4686-AB9A-A0D1B7FC5425'
+    PublisherDisplayName = 'Ken Pugh, Inc.'
+}
+# dist\AlignThree-<version>-x64-store.msix, unsigned
+```
+
+Those are the real 0.9.2 values. The `-store` suffix exists so a Store build
+cannot overwrite the signed package you host, which it silently did before.
+
+**Copy `Identity/Name` exactly as Partner Center shows it**, whatever its
+capitalisation -- `aLIGNtHREE` above is a caps-lock accident in the reserved
+name, and retyping it prettier would be a different application. `Identity`
+plus `Publisher` *is* the application's identity: nobody sees the string, but
+Windows upgrades in place only while it stays the same.
+
+**The name a person sees is separate.** `Properties/DisplayName`, the tile's
+`DisplayName` and its `ShortName` are all `AlignThree`, and the Store adds one
+rule to them: the name in the package must be one of the names reserved for the
+product in Partner Center, or the upload is rejected with *"The name found in
+the package is not one of your reserved app names"*. It need not be the first
+name reserved, so reserving `AlignThree` under *Manage app name reservations*
+is what keeps the brand correct. Only if that is impossible, override it for
+the Store package alone:
+
+```powershell
+-StoreIdentity @{ Name = '...'; Publisher = '...'; DisplayName = 'aLIGNtHREE' }
+```
+
+One consequence of a Store identity that differs from the self-hosted one:
+they are two applications as far as Windows is concerned. Anyone who installed
+the self-hosted MSIX and then installs from the Store ends up with both, side
+by side, and neither upgrades the other.
+
+What the packed Store package was checked to contain, by unpacking it rather
+than by reading the log: identity `KenPughInc.aLIGNtHREE`, publisher
+`CN=625DD10D-...`, `PublisherDisplayName` *Ken Pugh, Inc.*, version `0.9.2.0`
+(MSIX wants four parts and the script appends the `.0`), `DisplayName`
+*AlignThree* in all three places, every one of the 38 staged files present, the
+28 logo assets beside them, and all three `.exe` still `Valid` on the signing
+certificate -- the binaries are signed even though the package is not.
 
 ### Windows — Sectigo token
 
@@ -579,7 +642,7 @@ post-sign verification passed both. Inno's `$f` placeholder was checked to be
 **self-quoting**: wrapping it in `$q…$q` yields a doubly quoted path signtool
 cannot open.
 
-`scriptserify_install.ps1` does this whole check in one run — installs
+`scripts\verify_install.ps1` does this whole check in one run — installs
 silently into a temporary folder, reports the Add or Remove Programs values and
 every signature, runs the converter with Qt off `PATH`, then uninstalls and
 confirms nothing is left. It needs two elevation prompts from an ordinary shell,
