@@ -43,3 +43,8 @@ website/
 
 # Scratch notes kept beside the project but not part of it.
 event storming -.txt
+
+# Microsoft Store listing screenshots, captured from the running IDE. They
+# belong to a submission rather than to the product, and they are large; the
+# ones that were uploaded are in Partner Center.
+screenshot*
