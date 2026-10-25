@@ -342,6 +342,25 @@ grammar now allows a continuation with no text, which it did not.
 
 The most-vexing-parse line — `T(cell);` inside a `try` declaring a variable
 instead of calling a constructor, so every "this value is invalid" row passed
-vacuously — is going into the glue documentation. You are right that the
-generated stub shape invites it, which makes it ours to warn about even though
-the generator had nothing to do with the bug.
+vacuously — is in the glue documentation now: *User Guide*, "Checking that a
+value is refused", at the end of the section on how a column reaches the glue.
+You are right that the generated stub shape invites it, which makes it ours to
+warn about even though the generator had nothing to do with the bug.
+
+Writing it from a run rather than from the rule turned up something we would
+have got wrong. The parse is half of it. The other half is the step's no-throw
+path: a refusal step whose `catch` is its whole assertion passes whatever
+happens — including a value the production class accepts — and that is what lets
+the parse hide. Put `ADD_FAILURE()` after the construction and the parse
+mistake fails loudly the first time it runs. The section says both, in that
+order, because the second one is the defect that outlives this particular typo.
+
+The rest is what the three compilers to hand actually do: MSVC 19.44 `/W4`,
+g++ 15.2 and clang++ 21.1 all compile `T(cell);` and all three report it
+refusing nothing, while `T{cell};` and `const T parsed(cell);` throw. The
+warning is in every one of them and an error in none (`-Wvexing-parse`,
+`-Wparentheses`, C4457 — the last only at `/W4`, and only because the name
+shadows a parameter), and the line compiles only when the type is
+default-constructible: without that it fails with *no matching function for call
+to `T::T()`*, an error about a no-argument constructor on a line that appears
+to pass one.

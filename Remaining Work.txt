@@ -493,6 +493,35 @@ Altered so that it is separated into Issues and Future Features
 
 ## --- Done ---
 
+[x] The most-vexing-parse trap is in the glue documentation (external finding
+    9's "not AlignThree's fault" list, 2026-10-24). A DataType cell reaches the
+    glue as text so a value the specification says is invalid can be refused
+    where a test can report it, and the shape that invites is: try the
+    conversion, expect it to throw. The User Guide gains "Checking that a value
+    is refused" at the end of the glue section, and it says two things because
+    running the shapes showed one was not enough:
+
+    - assert the refusal. A step whose catch is its whole assertion passes
+      whatever happens, including a value the production class accepts, which
+      is the one thing the row exists to catch. Run here: shape A (no failure
+      path) reports 0 failures for an invalid value, for a valid value, and for
+      the broken parse alike; shape B (ADD_FAILURE after the construction)
+      fails on the parse mistake and on a wrongly accepted value.
+    - build with braces. 'T(cell);' declares a variable named cell rather than
+      calling the constructor, so nothing is built and nothing throws.
+      'T{cell};', '(void)T(cell);' and 'const T parsed(cell);' all build it.
+
+    Run, not recalled: MSVC 19.44, g++ 15.2 and clang++ 21.1 all compile
+    'T(cell);' and all three report it refusing nothing. The warning exists in
+    every compiler and is an error in none (clang -Wvexing-parse, g++
+    -Wparentheses, MSVC C4457 at /W4 only, and only because the name shadows a
+    parameter), and it compiles only against a default-constructible type,
+    failing otherwise with "no matching function for call to T::T()" -- an
+    error about a no-argument constructor on a line that appears to pass one.
+    No tool change: the generator had nothing to do with the bug, which is why
+    it is documentation. This closes the external findings report.
+
+
 [x] The bare-backslash paragraph break is documented (external finding 9's
     second note, 2026-10-24). A continuation line holding only '\' adds no
     text and keeps the chain, which is how a two-paragraph comment is written

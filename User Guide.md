@@ -792,6 +792,64 @@ enumeration, and hold the value otherwise.
 compare results. If a total needs calculating, the production class calculates
 it. Glue that does arithmetic is testing itself.
 
+### Checking that a value is refused
+
+A specification may state a value its DataType rejects on purpose. The check
+belongs in glue, because the rule is the project's own: build the value from
+the cell's text and say what happened. Two things about that step: the first
+applies in every language, the second is C++ only.
+
+**Assert the refusal.** The shape that reads naturally does not test anything:
+
+```cpp
+void then_the_amount_is_invalid(const AmountString& cell) {
+    try {
+        Amount{cell};
+    } catch (const std::exception&) {
+        // refused, as the row says it should be
+    }
+}
+```
+
+That step passes whatever happens — including a value the production class
+accepts, which is the one thing the row exists to catch. The no-throw path has
+to fail:
+
+```cpp
+try {
+    Amount{cell};
+    ADD_FAILURE() << "the value was accepted";
+} catch (const std::exception&) {
+    // refused, as the row says it should be
+}
+```
+
+**Build the value with braces.** `Amount(cell);` is not a constructor call.
+C++ reads it as a declaration of a variable named `cell` of type `Amount` — the
+most vexing parse — so nothing is built from the cell and nothing throws.
+`Amount{cell};`, `(void)Amount(cell);` or `const Amount parsed(cell);` all
+build it.
+
+Each mistake covers for the other, which is how this stays hidden: a step with
+no failure in its no-throw path passes either way, so the parse has nothing to
+reveal it, and with the failure line in place the parse mistake fails loudly
+the first time it runs.
+
+The compilers all behave the same way: MSVC 19.44 at `/W4`, g++ 15.2 and
+clang++ 21.1 each compile `Amount(cell);` and each report that it refused
+nothing. The warning exists in all three and is an error in none — clang
+`-Wvexing-parse` and g++ `-Wparentheses`, both inside `-Wall`; MSVC needs
+`/W4`, and warns only because the name shadows a parameter (C4457). It compiles
+at all only because the type has a default constructor: against a type without
+one the same line fails with *no matching function for call to
+`Amount::Amount()`*, an error naming a no-argument constructor on a line that
+appears to pass one, which is the clue to what has happened.
+
+Nothing here is AlignThree's doing, and no other language has the parse. It is
+written down because the shape the stub invites — try a conversion, expect it to
+throw — has that trap in it in C++, and it cost a real project every
+invalid-value row in a 449-test suite while the suite stayed green.
+
 ---
 
 ## Testing an API
