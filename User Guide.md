@@ -320,6 +320,22 @@ line in between breaks the chain. A backslash line that follows anything other
 than a named comment has nothing to continue: it is still treated as a comment,
 but Analyze reports a warning, because you meant it to attach to something.
 
+A line holding only a backslash is a **paragraph break**. It adds no text and
+does not break the chain, so a comment of two paragraphs is still one comment:
+
+```
+BusinessRule Which label wins
+Description The most specific label wins,
+\ which is taken to be the one with the longest text.
+\
+\ A tie is impossible, because two labels of the same length
+\ cannot both be most specific.
+```
+
+The break is for whoever reads the specification. The text itself is still
+joined with a single space, so nothing that reads the comment sees a blank
+line.
+
 A rule is often clearer as a grid than as a sentence. Any named comment --
 `Description`, `Details`, `Notes`, `Constraint`, `Uses` -- may be followed
 directly by a table, and the table is part of the comment:

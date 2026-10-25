@@ -326,7 +326,8 @@ TransposedRow      ::= "|" AttributeName ("|" Value)+ "|"
 Uses               ::= "Uses" CommentText Table?
 NamedComment       ::= ("Description" | "Details" | "Notes" | "Constraint" | "Uses")
                        CommentText Continuation* Table?
-Continuation       ::= "\" CommentText                 # first character of the next line
+Continuation       ::= "\" CommentText?                # first character of the next line;
+                                                       # "\" alone is a paragraph break
 
 Reference          ::= "=" Identifier
 ```
@@ -370,6 +371,33 @@ Reference          ::= "=" Identifier
   breaks the chain.
 * A continuation may follow another continuation, so a comment can run to any
   length.
+* **A continuation that holds only `\` is a paragraph break.** It adds no text
+  and it does not break the chain, so a comment of two paragraphs is still one
+  named comment:
+
+  ```
+  BusinessRule Which label wins
+  Description The most specific label wins,
+  \ which is taken to be the one with the longest text.
+  \
+  \ A tie is impossible, because two labels of the same length
+  \ cannot both be most specific.
+  ```
+
+  Two of them in a row, one straight after the keyword line, and one as the
+  last line of the comment are all accepted and silent. Whitespace after the
+  backslash is the same as none.
+
+  What it is **not** is a break the text carries. The pieces are still joined
+  with a single space, so the comment's text is the two paragraphs run
+  together, and the blank line is there for whoever reads the specification
+  itself. Nothing is generated from a named comment today, so that costs
+  nothing; if a rendered form of one is ever wanted, this is the line that will
+  have to mean something there.
+
+  It is still a continuation, so it must follow a named comment like any other.
+  A line holding only `\` after anything else has nothing to continue, and is
+  reported the same way as a continuation with words on it.
 * Like the comment it continues, it does **not** end a table: a continuation
   between a step and its table leaves the table attached to that step.
 * A backslash line that follows anything other than a named comment continues
@@ -689,6 +717,13 @@ Removed in v3.3. Collections replace all multiplicity semantics.
   same word written differently has been paired since 2026-10-11; a misspelling
   of it still drew a warning and an error for one cause. Both are paired now,
   and 4.2.1 says where the pairing stops.
+* **A continuation holding only `\` is a paragraph break.** It always behaved
+  as one -- no text added, the chain unbroken -- and that was written down
+  nowhere, so every specification that uses it was relying on folklore. 4.1.1
+  states it now, with what it does not do: the text is still joined with a
+  single space, so the break is for a reader of the specification and not
+  something the comment carries. The grammar allows a continuation with no text
+  for the same reason.
 * **A line that is no keyword at all is an error, and ends nothing.** It was a
   warning, and it closed the block it was written in -- so a wrapped sentence
   could take a `BusinessRule`'s `Examples:` table out of the rule and leave the

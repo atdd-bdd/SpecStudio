@@ -22,7 +22,7 @@ say it is, for exactly the reason you give.
 | 6 | A table with a heading and no rows is dropped | **Fixed, as you proposed** |
 | 7 | Stub appending works well and deserves documentation | **Documented** |
 | 8 | Examples heading mismatch gives two messages | **Fixed** — bullet 1; see below |
-| 9 | `$tag` filtering is excellent and undocumented | **Fixed**, both halves |
+| 9 | `$tag` filtering is excellent and undocumented | **Fixed**, both halves; its bare-`\` note **documented** |
 | 10 | Named comment continuation; a stray word ends a block | Both **shipped** |
 | 11 | 0.9.2 makes a cell a struct and comparisons stop compiling | **Fixed** — see below |
 | 12 | `And` works and is in no document | **Fixed**, with two rulings |
@@ -321,11 +321,22 @@ one added for #10 below, its count is 67 where you had 64.
 Your other two bullets need nothing: the empty-`Scenario` message stays as it
 is, and `--fail-every-test` stays the default.
 
-## Open
+**#9's paragraph break — documented, and not given a marker of its own.** A
+line holding only `\` is the stand-in you found, and you are right that it was
+folklore: it works, and nothing said so. Syntax 4.1.1 and the User Guide state
+it now. The shapes were run before they were written down -- two in a row, one
+straight after the keyword line, one as the last line of a comment, and one
+between a step and its table -- and all of them are silent, with the table
+still attached to its step.
 
-**#9's paragraph break.** A line holding only `\` is the stand-in you found, and
-it is undocumented. Either a marker of its own or a documented rule, not left as
-folklore.
+We did not give it a marker of its own. It already reads as what it is, every
+specification that has one keeps working, and a second marker is one more thing
+to misspell. What 4.1.1 adds instead is what it is *not*: the pieces are still
+joined with a single space, so the break is for a reader of the specification
+and not something the comment's text carries. That is free today, because
+nothing is generated from a named comment -- and if a rendered form of one is
+ever wanted, this is the line that will have to mean something there. The
+grammar now allows a continuation with no text, which it did not.
 
 ## And the one thing that was not a finding
 

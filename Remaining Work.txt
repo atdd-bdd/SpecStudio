@@ -493,6 +493,22 @@ Altered so that it is separated into Issues and Future Features
 
 ## --- Done ---
 
+[x] The bare-backslash paragraph break is documented (external finding 9's
+    second note, 2026-10-24). A continuation line holding only '\' adds no
+    text and keeps the chain, which is how a two-paragraph comment is written
+    in the fourteen converted files -- and no document said so. Syntax 4.1.1,
+    the formal grammar (CommentText is optional now) and the User Guide state
+    it, including what it is not: the pieces are still joined with a single
+    space, so the break is for a reader of the specification and not something
+    the comment's text carries. No code changed. The shapes were run first and
+    all are silent -- two in a row, one straight after the keyword line, one as
+    the last line of a comment, one between a step and its table, with the
+    generated test showing the table still attached to that step -- and a line
+    holding only '\' after anything other than a named comment draws the same
+    "nothing for it to continue" warning as any other continuation. A marker of
+    its own was declined: it reads as what it is, and a second marker is one
+    more thing to misspell.
+
 [x] A line that is no keyword is an error, and ends nothing (external finding
     10, request 2, 2026-10-24). A wrapped sentence inside a BusinessRule used to
     close the block before anyone had asked whether the line was a keyword at
