@@ -45,36 +45,31 @@ new idea of mine.
     three quote marks that open or close a docstring get colour on two of
     them. Cosmetic, in the editor's highlighter.
 
-[ ] ExampleTests is stale, and 2026-10-25 established exactly how. A full
-    regeneration in all nine languages produces, beyond the specification
-    copies:
+[ ] The AddressCorrection half of "bug to fix.txt" is the piece of that file
+    still open. Two things checked on 2026-10-25 so they are not assumed
+    again: every one of the nine languages does have committed
+    AddressCorrection output, and Go's production constructor takes lowercase
+    parameters while its fields are correctly cased, which is ordinary Go.
 
-    - RecordFilterExample in every language loses one example row and gains a
-      spelling fix in a Description. The source specification was edited and
-      the language folders were never regenerated, so the committed tests
-      assert a row the specification no longer has.
-    - the six C++ cell wrappers under CPlusPlus/ExampleTests/common/ gain
-      their comparison operators and empty(), which is the fix made for the
-      external findings report. The other eight languages' shared files are
-      current.
-
-    That regeneration was done and then reverted, deliberately: verifying it
-    means running nine suites, and the run was stopped part-way when the
-    machine ran short of memory. Java was the one language that did run, on
-    the regenerated files: 39 tests, 0 failures, and the regenerated
-    Record_Filter_Example_Test passed 5/5. AddressCorrection errored twice on
-    the network (SSL handshake to the Census geocoder), which is the live
-    service and not a defect. So: regenerate all nine and run all nine in one
-    deliberate pass, with the network up.
-
-    Two things checked the same day so they are not assumed again: every one
-    of the nine languages does have committed AddressCorrection output, and
-    Go's production constructor takes lowercase parameters while its fields
-    are correctly cased, which is ordinary Go. The AddressCorrection half of
-    "bug to fix.txt" is still the open piece of that file.
+[ ] AddressCorrection reaches the live Census geocoder, so a suite can go red
+    on the network rather than on the code -- a TLS handshake refused, in
+    Java and Swift on 2026-10-25, passing minutes later on the same files.
+    Worth deciding whether that example should record a response and replay
+    it, so a full run is repeatable offline. Until then, a failure naming
+    geocoding.geo.census.gov is the service.
 
 
 ## Finished since the last survey — recorded here so the list is not re-read
+
+[x] ExampleTests regenerated in all nine languages and verified by running all
+    nine, 2026-10-25 (SpecStudioExampleTests 05e9f07). The staleness this list
+    described is gone: Record Filter Example no longer asserts the example row
+    its specification dropped, its Description spelling is fixed, and the six
+    C++ cell wrappers carry the comparison operators and empty() from the
+    external findings report. Each suite ran on its own -- 39 tests, no
+    failures, in Java, Python, Go, Rust, C#, JavaScript, TypeScript, Swift and
+    C++. Serially on purpose: two toolchains at once is what ran the box out of
+    memory the first time this was attempted.
 
 [x] Leading whitespace is ignored. Ken's ruling, 2026-10-25: people may wish
     to indent for their own purposes. The parser used to discard any indented
