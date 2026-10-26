@@ -34,25 +34,6 @@ new idea of mine.
 
 ## Open defects
 
-[ ] An indented step keyword is silently dropped. Found 2026-10-25 while
-    checking a documented example. SpectableParser.cpp:691 skips any line
-    starting with whitespace that is not a pipe row, as a named-comment
-    continuation, before the keyword dispatch -- so
-
-        Scenario S
-        Given a thermometer
-          When it converts
-          Then it is right
-
-    analyzes with 0 diagnostics and generates a test holding only the Given.
-    The two steps are gone, and nothing says so. The skip is deliberate and
-    the continuation behaviour it serves is documented, so the fix is a
-    decision, not a one-liner: either read an indented line that begins with
-    a keyword as that keyword, or report it. Reporting is the smaller change
-    and loses nothing, because an indented step is a mistake either way.
-    Whichever is chosen, a step disappearing without a word is the worst of
-    the three outcomes.
-
 [ ] Stale output survives the removal of a specification. Deleting a .spectable
     leaves its generated test behind, and the shared files keep its entries:
     SourceScan::dropEntriesForMissingFiles is not applied to Java's
@@ -64,17 +45,50 @@ new idea of mine.
     three quote marks that open or close a docstring get colour on two of
     them. Cosmetic, in the editor's highlighter.
 
-[ ] ExampleTests: the shared-helper merge was last recorded as not having
-    reached that repository (see the TableHelper note), and the
-    AddressCorrection half of "bug to fix.txt" is the piece of that file still
-    open. Checked today, so that neither is assumed: every one of the nine
-    languages does have committed AddressCorrection output, and Go's
-    production constructor takes lowercase parameters while its fields are
-    correctly cased, which is ordinary Go. Regenerate and run before believing
-    anything about this item in either direction -- including this paragraph.
+[ ] ExampleTests is stale, and 2026-10-25 established exactly how. A full
+    regeneration in all nine languages produces, beyond the specification
+    copies:
+
+    - RecordFilterExample in every language loses one example row and gains a
+      spelling fix in a Description. The source specification was edited and
+      the language folders were never regenerated, so the committed tests
+      assert a row the specification no longer has.
+    - the six C++ cell wrappers under CPlusPlus/ExampleTests/common/ gain
+      their comparison operators and empty(), which is the fix made for the
+      external findings report. The other eight languages' shared files are
+      current.
+
+    That regeneration was done and then reverted, deliberately: verifying it
+    means running nine suites, and the run was stopped part-way when the
+    machine ran short of memory. Java was the one language that did run, on
+    the regenerated files: 39 tests, 0 failures, and the regenerated
+    Record_Filter_Example_Test passed 5/5. AddressCorrection errored twice on
+    the network (SSL handshake to the Census geocoder), which is the live
+    service and not a defect. So: regenerate all nine and run all nine in one
+    deliberate pass, with the network up.
+
+    Two things checked the same day so they are not assumed again: every one
+    of the nine languages does have committed AddressCorrection output, and
+    Go's production constructor takes lowercase parameters while its fields
+    are correctly cased, which is ordinary Go. The AddressCorrection half of
+    "bug to fix.txt" is still the open piece of that file.
 
 
 ## Finished since the last survey — recorded here so the list is not re-read
+
+[x] Leading whitespace is ignored. Ken's ruling, 2026-10-25: people may wish
+    to indent for their own purposes. The parser used to discard any indented
+    line that was not a pipe row -- it served named-comment continuation, and
+    served it by dropping the text -- which also swallowed an indented step:
+    a scenario with an indented When and Then analyzed clean and generated a
+    test holding only the Given. The skip is gone, so every line is read for
+    what it says at any column. Four specifications were relying on the
+    discard for wrapped prose (Common Types, Types and Formatted Dollar in
+    VariousTests, Types in ExampleTests) and now carry the leading backslash
+    the syntax document has always asked for, which also means their text
+    reaches the comment it was written under for the first time. Documented in
+    syntax section 2 and 4.1.1 and in the User Guide; the four corpora are
+    back at 67 / 2 / 8 / 0.
 
 [x] The stale Java .spectable copies are deleted. Nineteen of them under
     Java/SpecTableVariousTests/src/test/java/spectable/, every one with an

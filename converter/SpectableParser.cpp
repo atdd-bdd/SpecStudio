@@ -569,12 +569,13 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
         const QString trimmed = raw.trimmed();
 
         // A named comment's table has to follow it directly: a blank line or
-        // any other line ends the chance. Its own indented continuations and
-        // its rows keep it open. (The comment line itself sets it again below.)
+        // any other line ends the chance, and its own rows keep it open. (The
+        // comment line itself sets it again below.) Indentation used to keep it
+        // open as well, back when an indented line was read as continuation
+        // text; a line is now judged by what it says, so an indented line ends
+        // the chance exactly as the same line at column 0 does.
         if (state != State::InDocString && state != State::InDefineDocString) {
-            const bool continuation = (raw.startsWith(' ') || raw.startsWith('\t'))
-                                      && !isPipeRow(trimmed) && !trimmed.isEmpty();
-            if (!isPipeRow(trimmed) && !continuation) openComment = nullptr;
+            if (!isPipeRow(trimmed)) openComment = nullptr;
         }
 
         // ── DocString accumulation ────────────────────────────────────────────
@@ -685,11 +686,22 @@ SpectableFile SpectableParser::parseLines(const QString& text, const QString& fi
             continue;
         }
 
-        // ── Continuation / indented text ─────────────────────────────────────
-        // Lines starting with whitespace that are not pipe rows are continuations
-        // of Description/Details/etc. — always skip them.
-        if ((raw.startsWith(' ') || raw.startsWith('\t')) && !isPipeRow(trimmed))
-            continue;
+        // ── Leading whitespace means nothing ─────────────────────────────────
+        // Every test below reads `trimmed`, so a keyword, a pipe row, a tag, a
+        // continuation and a docstring marker are all read at any indentation:
+        // people indent to show structure, and a specification should look
+        // however its author wants it to look.
+        //
+        // Until 2026-10-25 an indented line that was not a pipe row was skipped
+        // here as continuation text for the named comment above it, and skipped
+        // means dropped -- the text was kept nowhere. The cost was not the
+        // dropped prose but what else it swallowed: an indented step vanished
+        // from its scenario, with nothing reported, and the generated test held
+        // the steps that happened to start at column 0. A line is now judged by
+        // what it says and not by where it starts, so prose continuing the
+        // comment above it needs the leading backslash that the syntax document
+        // has always asked for (4.1.1), indented or not, and an indented line
+        // that is no keyword is reported like any other.
 
         // ── Pipe rows ─────────────────────────────────────────────────────────
         if (isPipeRow(trimmed)) {

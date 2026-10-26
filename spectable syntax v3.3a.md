@@ -18,6 +18,16 @@ Version **3.3.a** introduces:
 
 ## 2. Core Language Elements
 
+**Leading whitespace is ignored.** A line means the same wherever it starts, so
+a specification may be indented however its author wants: steps under their
+scenario, rows under their step, a continuation under the comment it carries
+on. A keyword, a pipe row, a tag, a `\` continuation and a `"""` docstring
+marker are each read at any column. Indentation ends nothing and continues
+nothing -- what a line says is all that is read. The one place indentation is
+kept is inside a `"""` docstring, where the text is the value: the opening
+`"""` sets the column stripped from every line of the body, and whatever is
+indented beyond it stays.
+
 ### 2.1 Specification Header
 
 ```
@@ -334,7 +344,8 @@ TransposedRow      ::= "|" AttributeName ("|" Value)+ "|"
 Uses               ::= "Uses" CommentText Table?
 NamedComment       ::= ("Description" | "Details" | "Notes" | "Constraint" | "Uses")
                        CommentText Continuation* Table?
-Continuation       ::= "\" CommentText?                # first character of the next line;
+Continuation       ::= "\" CommentText?                # first character of the next line,
+                                                       # leading whitespace aside;
                                                        # "\" alone is a paragraph break
 
 Reference          ::= "=" Identifier
@@ -379,6 +390,20 @@ Reference          ::= "=" Identifier
   breaks the chain.
 * A continuation may follow another continuation, so a comment can run to any
   length.
+* **The backslash may be indented.** Leading whitespace is ignored (section 2),
+  so a continuation can sit under the keyword it carries on -- the one place
+  where indenting shows a reader what the parser already knows:
+
+  ```
+  DataType AccountType
+  Description Allowed account categories.
+  Details
+    \ These are the only valid account types in this system.
+  ```
+
+  The `Details` here is one named comment whose whole text is written on the
+  next line, which is a `Details` with no text of its own followed by a
+  continuation.
 * **A continuation that holds only `\` is a paragraph break.** It adds no text
   and it does not break the chain, so a comment of two paragraphs is still one
   named comment:
@@ -408,6 +433,14 @@ Reference          ::= "=" Identifier
   reported the same way as a continuation with words on it.
 * Like the comment it continues, it does **not** end a table: a continuation
   between a step and its table leaves the table attached to that step.
+* **Indentation is not a continuation marker, and never was.** Until
+  2026-10-25 an indented line that was not a pipe row was discarded by the
+  parser, which made indented prose look as though it carried on the comment
+  above it while its text was kept nowhere. A line is now read for what it
+  says, at any column, so prose that carries on a comment needs the backslash
+  whether it is indented or not. What the discarding cost was not the prose: an
+  indented step vanished from its scenario with nothing reported, and the
+  generated test held only the steps that happened to start at column one.
 * A backslash line that follows anything other than a named comment continues
   nothing. It is still treated as a comment and discarded, but it is **reported
   as a warning**, because the writer meant it to attach to something.
@@ -752,6 +785,14 @@ Removed in v3.3. Collections replace all multiplicity semantics.
 
 ### Document revision 2026-10-25
 
+* **Leading whitespace is ignored.** People indent for their own purposes, and
+  a line now means the same wherever it starts; section 2 says so, and 4.1.1
+  says it of the continuation marker. The parser used to discard any indented
+  line that was not a pipe row, as continuation text it then kept nowhere --
+  so an indented step disappeared from its scenario without a word, and the
+  generated test held the steps that began at column one. Four specifications
+  in the test repositories were relying on the discard for wrapped prose and
+  now carry the backslash the document has always asked for.
 * **`WhenThen` was in the language, in the editor and in no version of this
   document.** The parser has accepted it for as long as it has accepted
   `Given`; the highlighter colours it, autocomplete offers it, and a reader of

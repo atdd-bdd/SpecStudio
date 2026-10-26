@@ -99,8 +99,13 @@ Other view controls:
 
 ## Writing a specification
 
-A `.spectable` file is plain text. Blocks start at column one with a keyword;
-tables are pipe-delimited rows; `#` starts a comment.
+A `.spectable` file is plain text. A block starts with its keyword, tables are
+pipe-delimited rows, and `#` starts a comment.
+
+Leading whitespace is ignored, so indent whatever you like: a line means the
+same at any column. Indentation ends nothing and continues nothing -- it is
+there for whoever reads the file. The one place it is kept is inside a `"""`
+docstring, where the text is the value -- see **Docstrings** below.
 
 Cells are trimmed, so a value whose leading or trailing space matters needs
 `~`, which stands for a space: `| ~Checking |` is `" Checking"` and
@@ -1155,9 +1160,10 @@ header line through the block's last non-blank line and includes the line break,
 so `Ctrl+X` lifts the block out cleanly and `Ctrl+V` puts it back as whole lines.
 Blank lines between blocks are left where they are, as separators.
 
-A block ends at the next block keyword, not by indentation — specifications are
-normally written flush left, so the steps and tables under a `Scenario` share its
-column. Text inside a `"""` docstring is part of the block that owns it even when
+A block ends at the next block keyword, not by indentation — indentation is
+ignored, so a `Scenario` whose steps are indented under it is the same
+specification as one written flush left, and the selection takes the block
+either way. Text inside a `"""` docstring is part of the block that owns it even when
 it contains something that looks like a keyword, which is what makes
 `Insert "file.txt"` inside a docstring safe to select across.
 
