@@ -193,17 +193,17 @@ void MainWindow::setupMenuBar()
     // ---- Edit ----
     auto* editMenu = menuBar()->addMenu(tr("&Edit"));
 
-    auto* actUndo      = editMenu->addAction(tr("Undo"),       QKeySequence::Undo);
-    auto* actRedo      = editMenu->addAction(tr("Redo"),       QKeySequence::Redo);
+    auto* actUndo      = editMenu->addAction(tr("&Undo"),       QKeySequence::Undo);
+    auto* actRedo      = editMenu->addAction(tr("&Redo"),       QKeySequence::Redo);
     editMenu->addSeparator();
-    auto* actCut       = editMenu->addAction(tr("Cut"),        QKeySequence::Cut);
-    auto* actCopy      = editMenu->addAction(tr("Copy"),       QKeySequence::Copy);
-    auto* actPaste     = editMenu->addAction(tr("Paste"),      QKeySequence::Paste);
-    auto* actSelectAll = editMenu->addAction(tr("Select All"), QKeySequence::SelectAll);
+    auto* actCut       = editMenu->addAction(tr("Cu&t"),        QKeySequence::Cut);
+    auto* actCopy      = editMenu->addAction(tr("&Copy"),       QKeySequence::Copy);
+    auto* actPaste     = editMenu->addAction(tr("&Paste"),      QKeySequence::Paste);
+    auto* actSelectAll = editMenu->addAction(tr("Select &All"), QKeySequence::SelectAll);
     editMenu->addSeparator();
-    auto* actGoToLine = editMenu->addAction(tr("Go to Line..."), QKeySequence(Qt::CTRL | Qt::Key_G));
-    auto* actFind     = editMenu->addAction(tr("Find..."),       QKeySequence::Find);
-    auto* actReplace  = editMenu->addAction(tr("Replace..."),    QKeySequence(Qt::CTRL | Qt::Key_H));
+    auto* actGoToLine = editMenu->addAction(tr("&Go to Line..."), QKeySequence(Qt::CTRL | Qt::Key_G));
+    auto* actFind     = editMenu->addAction(tr("&Find..."),       QKeySequence::Find);
+    auto* actReplace  = editMenu->addAction(tr("Rep&lace..."),    QKeySequence(Qt::CTRL | Qt::Key_H));
 
     connect(actUndo,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->undo(); });
     connect(actRedo,      &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->redo(); });
@@ -212,10 +212,10 @@ void MainWindow::setupMenuBar()
     connect(actPaste,     &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->paste(); });
     connect(actSelectAll, &QAction::triggered, this, [this] { if (auto* ed = m_editorTabs->currentEditor()) ed->selectAll(); });
     editMenu->addSeparator();
-    auto* actFindUsages = editMenu->addAction(tr("Find All Usages..."), QKeySequence(Qt::SHIFT | Qt::Key_F12));
-    auto* actRename     = editMenu->addAction(tr("Rename Step..."),     QKeySequence(Qt::Key_F2));
+    auto* actFindUsages = editMenu->addAction(tr("Fin&d All Usages..."), QKeySequence(Qt::SHIFT | Qt::Key_F12));
+    auto* actRename     = editMenu->addAction(tr("Re&name Step..."),     QKeySequence(Qt::Key_F2));
     editMenu->addSeparator();
-    auto* actSpelling = editMenu->addAction(tr("Check Spelling"));
+    auto* actSpelling = editMenu->addAction(tr("Check &Spelling"));
     actSpelling->setCheckable(true);
     actSpelling->setChecked(SpellChecker::instance()->isEnabled());
     connect(actSpelling, &QAction::toggled, this,
@@ -248,30 +248,30 @@ void MainWindow::setupMenuBar()
     connect(actFindUsages, &QAction::triggered, m_controller, &AppController::onFindAllUsages);
     connect(actRename,     &QAction::triggered, m_controller, &AppController::onRenameStep);
     editMenu->addSeparator();
-    auto* actFormatTable = editMenu->addAction(tr("Format Table"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F));
+    auto* actFormatTable = editMenu->addAction(tr("Format Ta&ble"), QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_F));
     connect(actFormatTable, &QAction::triggered, this, [this] { if (auto* ed = currentEditor()) ed->formatTable(); });
-    auto* actEditTable  = editMenu->addAction(tr("Edit Table..."),  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
-    auto* actEditString = editMenu->addAction(tr("Edit String..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Q));
+    auto* actEditTable  = editMenu->addAction(tr("&Edit Table..."),  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
+    auto* actEditString = editMenu->addAction(tr("Edit Str&ing..."), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Q));
     connect(actEditTable,  &QAction::triggered, this, [this] { if (auto* ed = currentEditor()) ed->editTable(); });
     connect(actEditString, &QAction::triggered, this, [this] { if (auto* ed = currentEditor()) ed->editString(); });
 
     // ---- View ----
     auto* viewMenu = menuBar()->addMenu(tr("&View"));
 
-    auto* actShowSolution  = viewMenu->addAction(tr("Solution Explorer"));
-    auto* actShowSymTree   = viewMenu->addAction(tr("Symbol Tree"));
-    auto* actShowAttrInsp  = viewMenu->addAction(tr("Attribute Inspector"));
-    auto* actShowFiles     = viewMenu->addAction(tr("Files"));
-    auto* actShowOutput    = viewMenu->addAction(tr("Output"));
+    auto* actShowSolution  = viewMenu->addAction(tr("&Solution Explorer"));
+    auto* actShowSymTree   = viewMenu->addAction(tr("S&ymbol Tree"));
+    auto* actShowAttrInsp  = viewMenu->addAction(tr("&Attribute Inspector"));
+    auto* actShowFiles     = viewMenu->addAction(tr("&Files"));
+    auto* actShowOutput    = viewMenu->addAction(tr("&Output"));
     viewMenu->addSeparator();
-    auto* actRefresh     = viewMenu->addAction(tr("Refresh"),              QKeySequence(Qt::Key_F5));
+    auto* actRefresh     = viewMenu->addAction(tr("&Refresh"),              QKeySequence(Qt::Key_F5));
     viewMenu->addSeparator();
-    auto* actShowAllFiles = viewMenu->addAction(tr("Show All Files"));
+    auto* actShowAllFiles = viewMenu->addAction(tr("Show A&ll Files"));
     actShowAllFiles->setCheckable(true);
     { AppSettings settings; actShowAllFiles->setChecked(settings.showAllFiles()); }
     viewMenu->addSeparator();
-    auto* actSplitRight  = viewMenu->addAction(tr("Split Editor Right"), QKeySequence(Qt::CTRL | Qt::Key_Backslash));
-    auto* actCloseSplit  = viewMenu->addAction(tr("Close Split"),         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Backslash));
+    auto* actSplitRight  = viewMenu->addAction(tr("S&plit Editor Right"), QKeySequence(Qt::CTRL | Qt::Key_Backslash));
+    auto* actCloseSplit  = viewMenu->addAction(tr("&Close Split"),         QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Backslash));
 
     connect(actShowSolution,  &QAction::triggered, m_solutionExplorer, &QDockWidget::show);
     connect(actShowSymTree,   &QAction::triggered, m_entityTree,        &QDockWidget::show);
@@ -298,7 +298,7 @@ void MainWindow::setupMenuBar()
 
     // Carries the Ctrl+D shortcut app-wide regardless of which Git-menu
     // variant is currently showing.
-    m_actDiffCurrentFile = new QAction(tr("Against Previous Version"), this);
+    m_actDiffCurrentFile = new QAction(tr("Against &Previous Version"), this);
     m_actDiffCurrentFile->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
     addAction(m_actDiffCurrentFile);
     connect(m_actDiffCurrentFile, &QAction::triggered, m_controller, &AppController::onDiffCurrentFile);
@@ -306,11 +306,11 @@ void MainWindow::setupMenuBar()
     // ---- Build ----
     auto* buildMenu = menuBar()->addMenu(tr("&Build"));
 
-    auto* actBuildFile     = buildMenu->addAction(tr("Current File"),  QKeySequence(Qt::Key_F6));
-    auto* actBuildProject  = buildMenu->addAction(tr("Project"),       QKeySequence(Qt::SHIFT | Qt::Key_F6));
-    auto* actBuildSolution = buildMenu->addAction(tr("Solution"),      QKeySequence(Qt::CTRL | Qt::Key_F6));
+    auto* actBuildFile     = buildMenu->addAction(tr("&Current File"),  QKeySequence(Qt::Key_F6));
+    auto* actBuildProject  = buildMenu->addAction(tr("&Project"),       QKeySequence(Qt::SHIFT | Qt::Key_F6));
+    auto* actBuildSolution = buildMenu->addAction(tr("&Solution"),      QKeySequence(Qt::CTRL | Qt::Key_F6));
     buildMenu->addSeparator();
-    m_configMenu = buildMenu->addMenu(tr("Configuration"));
+    m_configMenu = buildMenu->addMenu(tr("Configura&tion"));
     connect(m_configMenu, &QMenu::aboutToShow, this, &MainWindow::populateConfigMenu);
 
     connect(actBuildFile,     &QAction::triggered, m_controller, &AppController::onBuildCurrentFile);
@@ -320,17 +320,17 @@ void MainWindow::setupMenuBar()
     // ---- Analyze ----
     auto* analyzeMenu = menuBar()->addMenu(tr("&Analyze"));
 
-    m_analyzeProjectMenu = analyzeMenu->addMenu(tr("Project"));
+    m_analyzeProjectMenu = analyzeMenu->addMenu(tr("&Project"));
     connect(m_analyzeProjectMenu, &QMenu::aboutToShow, this, &MainWindow::populateAnalyzeMenu);
-    auto* actAnalyzeSolution = analyzeMenu->addAction(tr("Solution"), QKeySequence(Qt::SHIFT | Qt::Key_F7));
+    auto* actAnalyzeSolution = analyzeMenu->addAction(tr("&Solution"), QKeySequence(Qt::SHIFT | Qt::Key_F7));
 
     connect(actAnalyzeSolution, &QAction::triggered, m_controller, &AppController::onAnalyzeSolution);
 
     // ---- Help ----
     auto* helpMenu = menuBar()->addMenu(tr("&Help"));
-    auto* actHelp  = helpMenu->addAction(tr("Help"), QKeySequence::HelpContents);
+    auto* actHelp  = helpMenu->addAction(tr("&Help"), QKeySequence::HelpContents);
     helpMenu->addSeparator();
-    auto* actAbout = helpMenu->addAction(tr("About AlignThree"));
+    auto* actAbout = helpMenu->addAction(tr("&About AlignThree"));
 
     connect(actHelp,  &QAction::triggered, this, &MainWindow::showHelp);
     connect(actAbout, &QAction::triggered, this, &MainWindow::showAbout);
@@ -340,11 +340,11 @@ void MainWindow::setupMenuBar()
     // also stays available in shared-file-system solutions, where the Git menu
     // is reduced to a single item but a local repository may well exist.
     analyzeMenu->addSeparator();
-    auto* diffMenu = analyzeMenu->addMenu(tr("Diff Current File"));
+    auto* diffMenu = analyzeMenu->addMenu(tr("&Diff Current File"));
     diffMenu->addAction(m_actDiffCurrentFile);
-    auto* actDiffTwoBack = diffMenu->addAction(tr("Against Two Versions Back"));
+    auto* actDiffTwoBack = diffMenu->addAction(tr("Against &Two Versions Back"));
     diffMenu->addSeparator();
-    auto* actDiffChoose  = diffMenu->addAction(tr("Choose Version..."));
+    auto* actDiffChoose  = diffMenu->addAction(tr("&Choose Version..."));
 
     connect(actDiffTwoBack, &QAction::triggered, m_controller, &AppController::onDiffTwoVersionsBack);
     connect(actDiffChoose,  &QAction::triggered, m_controller, &AppController::onDiffChooseVersion);
@@ -452,7 +452,7 @@ void MainWindow::populateGitMenu()
     Solution* sol = m_controller->currentSolution();
 
     if (sol && sol->sharingMode() == Solution::SharingMode::SharedFiles) {
-        auto* actShare = m_gitMenu->addAction(tr("Share with Git..."));
+        auto* actShare = m_gitMenu->addAction(tr("&Share with Git..."));
         connect(actShare, &QAction::triggered, m_controller, &AppController::onShareWithGit);
         return;
     }
@@ -461,10 +461,10 @@ void MainWindow::populateGitMenu()
     // No separate Fetch. "Get Others' Changes" pulls, and Share Changes fetches
     // before it commits, so a bare fetch only ever updated remote-tracking refs
     // and left the user to work out what to do next.
-    auto* actCommitPush = m_gitMenu->addAction(tr("Commit and Push..."));
-    auto* actGetLatest  = m_gitMenu->addAction(tr("Get Others' Changes"));
+    auto* actCommitPush = m_gitMenu->addAction(tr("&Commit and Push..."));
+    auto* actGetLatest  = m_gitMenu->addAction(tr("&Get Others' Changes"));
     m_gitMenu->addSeparator();
-    auto* actRepoSettings = m_gitMenu->addAction(tr("Repository Settings..."));
+    auto* actRepoSettings = m_gitMenu->addAction(tr("&Repository Settings..."));
 
     connect(actCommitPush,   &QAction::triggered, m_controller, &AppController::onCommitAndPush);
     connect(actGetLatest,    &QAction::triggered, m_controller, &AppController::onPull);
