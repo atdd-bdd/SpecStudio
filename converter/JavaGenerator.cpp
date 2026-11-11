@@ -1742,6 +1742,53 @@ static HelperClassParts parseHelperClass(const QString& text)
     return parts;
 }
 
+// Does a carried-over helper method still have the class it converts?
+//
+// A helper is merged with what is on disk, so a method written for one
+// specification outlives it: delete the specification and common/ loses
+// AddressString and AddressTyped, while ProductionHelper goes on declaring
+// AddressProductionToTyped(Address) and TableHelper goes on declaring
+// toListAddressString. Neither compiles, and the error lands in a file nobody
+// wrote.
+//
+// Only the generated String/Typed classes are checked. A method over a
+// production class (toIDForm) is left alone -- production code is never
+// deleted on a specification's account -- and one over a built-in (toInteger)
+// names no class at all.
+//
+// Safe while conversions run concurrently: a sibling's class is written by the
+// sibling's own run, before that run merges its methods in. So either the
+// sibling went first and its class is on disk, or it goes after this one and
+// re-adds its methods itself.
+static bool helperMethodHasItsClass(const QString& methodName, const QString& commonDir)
+{
+    // TableHelper: toAddressString, toListAddressString, toListListAddressTyped
+    static const QRegularExpression reTo(R"(^to(?:ListList|List)?(\w+)$)");
+    // ProductionHelper: the four conversions an Entity contributes.
+    static const QRegularExpression reProd(
+        R"(^(\w+?)(?:ProductionToTypedList|ProductionToTyped|TypedListToProduction|TypedToProduction)$)");
+
+    QString type;
+    QRegularExpressionMatch m = reTo.match(methodName);
+    if (m.hasMatch()) {
+        type = m.captured(1);
+    } else {
+        m = reProd.match(methodName);
+        if (!m.hasMatch()) return true;          // not a shape this owns
+        type = m.captured(1) + "Typed";
+    }
+
+    // Only a *generated* String or Typed class, which means something stands
+    // before the suffix. toListString is a grid of plain java.lang.String and
+    // there is no String.java to find -- dropping it took six call sites in
+    // API_Test.java down with it.
+    const bool generated = (type.endsWith("String") && type.size() > 6)
+                        || (type.endsWith("Typed")  && type.size() > 5);
+    if (!generated) return true;
+
+    return QFile::exists(QDir(commonDir).filePath(type + ".java"));
+}
+
 // name -> method text, for the grid steps of this specification alone.
 static QMap<QString, QString> genGridConverters(const QVector<JavaGenerator::GlueSig>& sigs,
                                                 const SpectableFile& file)
@@ -2957,6 +3004,14 @@ bool JavaGenerator::mergeHelperClass(const QString& path,
     // changed under one of them. Everything else on disk belongs to another
     // specification and is kept.
     QMap<QString, QString> merged = existing.methods;
+
+    // A method whose class is gone goes with it. Checked on what was read from
+    // disk, never on what this run is about to add.
+    const QString commonDir = QFileInfo(path).absolutePath();
+    for (const QString& name : existing.methods.keys())
+        if (!fresh.contains(name) && !helperMethodHasItsClass(name, commonDir))
+            merged.remove(name);
+
     for (auto it = fresh.constBegin(); it != fresh.constEnd(); ++it)
         merged.insert(it.key(), it.value());
 

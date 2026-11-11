@@ -2510,6 +2510,16 @@ QStringList RustGenerator::generate(const SpectableFile& file, const Options& op
                         all << t;
                 }
             }
+            // A carried-over entry is kept only while its module is still
+            // there. Deleting a specification deletes its test and its glue,
+            // and a crate root that goes on declaring `pub mod test_bowling;`
+            // is a hard error in the one place nobody edited -- every other
+            // test in the crate stops building. Pruned before this run's own
+            // entries are added, because those name files just written.
+            all = sourcescan::dropEntriesForMissingFiles(
+                      all, QFileInfo(path).absolutePath(),
+                      QRegularExpression("^pub (?:mod|use) ([A-Za-z0-9_]+)"), ".rs");
+
             for (const QString& l : wanted) if (!all.contains(l)) all << l;
             all.sort();
             // A directory named TestFolder is not snake_case, and the generated

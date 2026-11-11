@@ -28,6 +28,7 @@
 #include "../analyzer/ProjectIndex.h"
 #include "../analyzer/FeatureXAnalyzer.h"
 #include "../analyzer/SpecTableIndex.h"
+#include "../model/GeneratedFileNames.h"
 #include "../analyzer/SpecTableAnalyzer.h"
 #include "../model/ProjectFile.h"
 #include "../model/FileType.h"
@@ -1210,6 +1211,109 @@ static int clearGeneratedCommonClasses(const QString& commonDir)
     return removed;
 }
 
+namespace {
+// Defined further down, with the rest of the generated-file helpers: a
+// project's root and the output folder of every configuration it has.
+QStringList glueSearchRoots(Project* proj);
+}
+
+// ---------------------------------------------------------------------------
+// Stale generated files -- a deleted specification takes its test and its glue
+// with it.
+//
+// Deleting a .spectable used to leave both behind. They still compile and still
+// run, so a suite kept reporting scenarios that no longer exist anywhere, and
+// in the languages with a crate root or an index, an entry went on naming a
+// module whose source was gone.
+//
+// A generated file says which specification it belongs to, in whichever of the
+// nine spellings its language uses:
+//
+//   Record_Filter_Example_Test.java   Record_Filter_Example_glue.java
+//   Record_Filter_Example_Tests.cs    Test_RecordFilterExample.py
+//   record_filter_example_glue.py     record_filter_example_test.go
+//   test_record_filter_example.rs     test_record_filter_example.test.ts
+//   RecordFilterExampleTests.swift    RecordFilterExampleGlue.swift
+//
+// Reducing a name to its letters and digits in lower case makes all of them one
+// key, so nothing here has to mirror four naming functions per language. The
+// names are still listed one language at a time rather than as "*_glue.*", so
+// that a copied specification or an editor backup is never deleted.
+//
+// Production code is deliberately left alone. It is written once and then owned
+// by whoever maintains it, so a specification going away is no reason to delete
+// the class it drove -- and the author would have no way of getting it back.
+// The same goes for common/: those classes belong to no one specification, and
+// the build clears and rewrites them anyway (clearGeneratedCommonClasses).
+
+// Every specification a solution still has, by key. Both the file's name and
+// the Specification name inside it are taken: a generator names its output
+// after the Specification, and the two need not agree -- API.spectable may
+// declare "Specification API Example". Taking both can only keep a file that
+// would otherwise be deleted, which is the right way round for a mistake.
+static QSet<QString> liveSpecKeys(Solution* sol, SpecTableIndex* index)
+{
+    QSet<QString> keys;
+    if (!sol) return keys;
+
+    auto addFile = [&](const QString& absPath) {
+        keys.insert(generatedKey(QFileInfo(absPath).completeBaseName()));
+        if (!index) return;
+        const SpecTableSymbols sym = index->buildFor(absPath);
+        for (auto it = sym.specifications.cbegin(); it != sym.specifications.cend(); ++it)
+            keys.insert(generatedKey(it.key()));
+    };
+
+    for (auto* proj : sol->projects()) {
+        for (auto* pf : proj->files())
+            if (pf->type() == FileType::SpecTable) addFile(pf->absolutePath());
+
+        // A configuration may name specifications outside the project. They are
+        // converted into the same output folder, so their tests are live too.
+        QDir rootDir(proj->rootPath());
+        for (const QString& name : rootDir.entryList({ "*.specconfig" }, QDir::Files)) {
+            const QString cfgPath = rootDir.absoluteFilePath(name);
+            const SpecConfig cfg  = SpecConfig::load(cfgPath);
+            for (const ExternalSpectable& ext : cfg.externalSpectables) {
+                QString f = ext.file.trimmed();
+                if (f.isEmpty()) continue;
+                if (!QFileInfo(f).isAbsolute())
+                    f = QDir(QFileInfo(cfgPath).dir()).absoluteFilePath(f);
+                if (QFileInfo::exists(f)) addFile(f);
+            }
+        }
+    }
+    return keys;
+}
+
+// Delete every generated test and glue file under `roots` whose specification
+// is gone. Returns what went, so the caller can say so: a file disappearing
+// without a word is worse than the stale file was.
+static QStringList removeStaleGenerated(const QStringList& roots,
+                                        const QSet<QString>& liveKeys)
+{
+    // Nothing read, nothing deleted. An empty key set means the specifications
+    // could not be listed, not that there are none.
+    if (liveKeys.isEmpty()) return {};
+
+    QStringList removed;
+    QSet<QString> visited;
+    for (const QString& root : roots) {
+        if (root.isEmpty() || !QDir(root).exists()) continue;
+        QDirIterator it(root, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString path = QDir::cleanPath(it.next());
+            if (visited.contains(path)) continue;
+            visited.insert(path);
+
+            const QString key = specKeyOfGeneratedFile(QFileInfo(path).fileName());
+            if (key.isEmpty() || liveKeys.contains(key)) continue;
+            if (QFile::remove(path)) removed << path;
+        }
+    }
+    return removed;
+}
+
 // Rewrite a single .spectable file's Insert "..." / Insert '...' / Insert <...> /
 // Import "..." statements that resolve to oldAbsPath, pointing them at newAbsPath
 // instead (as a path relative to this file). Returns true if the file was changed.
@@ -1656,6 +1760,19 @@ void AppController::doBuildProjects(const QList<Project*>& targets)
             m_mainWindow->outputPanel()->appendBuildOutput(
                 tr("Cleared %1 generated String/Typed file(s) — all are rebuilt below")
                     .arg(removed));
+
+        // And the tests and glue of specifications that are no longer there.
+        // A build is the moment to notice: the folder should hold what the
+        // specifications say it holds, and a deletion made outside AlignThree
+        // -- in the file system, or by checking out a branch -- never came
+        // through onDeleteFile at all.
+        const QSet<QString> live = liveSpecKeys(m_solution, m_specTableIndex);
+        QStringList gone;
+        for (const BuildTarget& t : plan)
+            gone += removeStaleGenerated(glueSearchRoots(t.proj), live);
+        for (const QString& p : gone)
+            m_mainWindow->outputPanel()->appendBuildOutput(
+                tr("Removed stale generated file: %1").arg(QFileInfo(p).fileName()));
     }
 
     for (const BuildTarget& t : plan) {
@@ -2182,6 +2299,7 @@ void AppController::onMoveProject(const QString& projectRootPath)
 void AppController::onDeleteFile(const QString& absolutePath)
 {
     const QString name = QFileInfo(absolutePath).fileName();
+    Project* owner = m_solution ? m_solution->projectForFile(absolutePath) : nullptr;
     auto btn = QMessageBox::question(m_mainWindow, tr("Delete File"),
         tr("Permanently delete '%1'?").arg(name),
         QMessageBox::Yes | QMessageBox::No);
@@ -2196,10 +2314,28 @@ void AppController::onDeleteFile(const QString& absolutePath)
     }
 
     if (m_solution) {
-        for (auto* proj : m_solution->projects()) {
+        for (auto* proj : m_solution->projects())
             proj->scanFiles();
-            autoCommit(proj, tr("Delete %1").arg(name));
+
+        // The test and the glue generated from it go too, now that the project
+        // has been re-scanned and no longer lists the file. Only a .spectable
+        // generates anything, so nothing else triggers this.
+        if (owner && QFileInfo(absolutePath).suffix().compare("spectable", Qt::CaseInsensitive) == 0) {
+            const QStringList gone = removeStaleGenerated(
+                glueSearchRoots(owner), liveSpecKeys(m_solution, m_specTableIndex));
+            for (const QString& p : gone)
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    tr("Deleted generated file: %1").arg(QFileInfo(p).fileName()));
+            if (!gone.isEmpty())
+                m_mainWindow->outputPanel()->appendBuildOutput(
+                    tr("%1 generated file(s) removed with %2. Build the project to "
+                       "refresh the crate root or index that listed them.")
+                        .arg(gone.size()).arg(name));
         }
+
+        for (auto* proj : m_solution->projects())
+            autoCommit(proj, tr("Delete %1").arg(name));
+
         m_treeModel->refresh();
         m_mainWindow->solutionExplorer()->treeView()->expandAll();
     }
