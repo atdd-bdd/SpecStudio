@@ -545,6 +545,31 @@ void LineNumberEdit::keyPressEvent(QKeyEvent* event)
     if (!m_completer) return;
     if (event->modifiers() & (Qt::ControlModifier | Qt::AltModifier)) return;
 
+    // ── A key that only moves the caret never offers a completion ────────────
+    // Completion belongs to typing. Arrowing through a file leaves the caret
+    // part way along whatever line it lands on, and `currentLinePrefix()` reads
+    // from the first non-space character up to it -- so on a line beginning
+    // "Given ", "Then ", "Scenario " the prefix matched a suggestion and the
+    // popup opened by itself. QCompleter then owns the next Up or Down, moving
+    // the selection inside its list rather than the document, so the caret
+    // stopped on every keyword line and the file could not be walked with the
+    // arrow keys. Hiding it here also closes a popup left over from typing when
+    // the caret is moved away from the word it was offered for.
+    switch (event->key()) {
+    case Qt::Key_Up:
+    case Qt::Key_Down:
+    case Qt::Key_Left:
+    case Qt::Key_Right:
+    case Qt::Key_PageUp:
+    case Qt::Key_PageDown:
+    case Qt::Key_Home:
+    case Qt::Key_End:
+        m_completer->popup()->hide();
+        return;
+    default:
+        break;
+    }
+
     const QString prefix = currentLinePrefix();
 
     // In colon or type-column context, show the popup immediately (0 chars needed).
