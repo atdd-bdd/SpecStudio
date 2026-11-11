@@ -1,7 +1,7 @@
 Still to Do — AlignThree / SpecTable
 ====================================
 
-A survey of everything open as of 2026-10-25, gathered from every source there
+A survey of everything open as of 2026-11-11, gathered from every source there
 is: "Remaining Work.txt", "More to do.txt", "bug to fix.txt", "more bugs to
 work on.txt", "Manual and Auto Things To Do.txt", the external findings report
 ("alignthree-findings.md" and its response), and what came out of the last few
@@ -11,6 +11,24 @@ section; this file is the one-page answer to "what is left?".
 Each item says where it came from and what state it is in. Nothing here is a
 new idea of mine.
 
+
+## The order of work -- Ken's ruling, 2026-11-11
+
+All the installers and the Store submission are redone in one pass, *after* the
+open defects are fixed. As of 2026-11-11 the defect queue is empty -- the five
+items it held are in "Finished" below -- so the signing pass is the next thing
+to do, and these three are what it has to pick up:
+
+  - The portable zip for 0.9.2 in dist/ is not the signed 18 October release.
+    It was overwritten by an unsigned rebuild on 2026-11-09 and the original
+    is gone; it comes back from tag v0.9.2 in the signing pass.
+  - 0.9.3 exists as a *local* tag only, and what is installed on this machine
+    is the unsigned 0.9.3 setup (built 2026-11-11, moved to
+    "Dropbox\Family Room\SpecStudio"). A pushed v* tag starts the release
+    workflow, so the tag goes up with the signed build and not before.
+  - Anything that ships has to go -StageOnly -> sign_windows.ps1 ->
+    -PackageOnly, or the copies inside the zip and the installer stay
+    unsigned. See the header of scripts/package_windows.ps1.
 
 ## Waiting on someone else — no work to do
 
@@ -34,32 +52,73 @@ new idea of mine.
 
 ## Open defects
 
-[ ] Stale output survives the removal of a specification. Deleting a .spectable
-    leaves its generated test behind, and the shared files keep its entries:
-    SourceScan::dropEntriesForMissingFiles is not applied to Java's
-    TableHelper/ProductionHelper, Rust's lib.rs, the TypeScript/JavaScript
-    production/index, or a stale dist/. A removed specification should take
-    its generated code with it.
+[ ] Nothing. The four defects this section listed on 2026-10-25 are all closed
+    (see "Finished"), and so is the mnemonics work that was added to the queue
+    on 2026-11-11.
 
-[ ] A docstring marker is highlighted for only its first two characters. The
-    three quote marks that open or close a docstring get colour on two of
-    them. Cosmetic, in the editor's highlighter.
-
-[ ] The AddressCorrection half of "bug to fix.txt" is the piece of that file
-    still open. Two things checked on 2026-10-25 so they are not assumed
-    again: every one of the nine languages does have committed
-    AddressCorrection output, and Go's production constructor takes lowercase
-    parameters while its fields are correctly cased, which is ordinary Go.
-
-[ ] AddressCorrection reaches the live Census geocoder, so a suite can go red
-    on the network rather than on the code -- a TLS handshake refused, in
-    Java and Swift on 2026-10-25, passing minutes later on the same files.
-    Worth deciding whether that example should record a response and replay
-    it, so a full run is repeatable offline. Until then, a failure naming
-    geocoding.geo.census.gov is the service.
+    One small wart is known and deliberately left: Swift's Package.swift
+    excludes the copied .spectable files by name, so deleting a specification
+    leaves a stale entry there. SwiftPM reports it as
+    "Invalid Exclude ...: File not found." and builds anyway -- measured, not
+    assumed. Nothing else enumerates files by hand; C++'s CMakeLists globs
+    test_*.cpp with CONFIGURE_DEPENDS, and the other seven languages have no
+    such list.
 
 
 ## Finished since the last survey — recorded here so the list is not re-read
+
+[x] A removed specification takes its generated code with it, 2026-11-11.
+    Deleting a .spectable in the Solution Explorer now deletes the test and the
+    glue for it in whatever language the project generates, and a project or
+    solution build sweeps anything else left over. Production code is never
+    touched -- Ken's ruling. The rule that decides what a deleted
+    specification owns is src/model/GeneratedFileNames.h: it normalises a file
+    name to lowercase alphanumerics and matches the nine test and glue
+    spellings, so one rule covers all of them instead of four naming functions
+    per language, and copies or backups are never in range. The two shared
+    files that carried a deleted specification's entries are pruned too:
+    Rust's crate root and subdirectory mod.rs now go through
+    SourceScan::dropEntriesForMissingFiles like production/mod.rs already did,
+    and Java's TableHelper/ProductionHelper drop a merged method whose
+    generated String or Typed class is no longer written.
+
+    Verified by compiling and running both ends, not by reading the output.
+    Java with AddressCorrection deleted: mvn clean test, 35 tests, 0 failures
+    (39 less its four). Rust with Bowling deleted: cargo test, 30 passed
+    (39 less its nine), and lib.rs no longer declares the two modules whose
+    files are gone while the other sixteen stay. One honest footnote: the Java
+    pruning rule first read "String" in toListString as a generated class,
+    looked for a common/String.java that cannot exist, and dropped three
+    methods API_Test.java calls six times. The compiler caught it; the rule now
+    requires a name in front of the suffix.
+
+[x] The live geocoder reports a timeout and says to run it again. Ken's
+    ruling, 2026-11-11: no record-and-replay. A call that cannot be made at
+    all now raises a timeout naming the URL and ending "the service did not
+    answer, so run the test again", in all nine transports. The point is that
+    a broken test and a failed assertion must not look alike in the output:
+    the service is live, so an unanswered call says nothing about the
+    specification.
+
+[x] Every menu has mnemonics, 2026-11-11. The File menu went first (15a578c,
+    so Alt-F-S saves); Edit, View, Build, Analyze, Git and Help followed --
+    40 labels, each letter unique within its menu, the menubar titles F E V G
+    B A H already distinct. The About label also titles the About box, so only
+    the menu item carries the ampersand.
+
+[x] The docstring marker already coloured all three quotes. The entry was
+    stale: commit 34e8b85 (2026-09-09) fixed it, and a per-character dump of
+    the highlighter's output confirms all three quote marks are coloured in
+    every valid shape, in .spectable and .featurex alike. A probe that read
+    "NOT ALL THREE" turned out to be my own invalid syntax -- the parser wants
+    the three quotes alone on their line -- and not a defect.
+
+[x] The AddressCorrection half of "bug to fix.txt" is satisfied in all nine
+    languages, checked 2026-11-11: no placeholder "string"/"number" cells, no
+    hand-built JSON, and whole-object comparison throughout. One deviation is
+    deliberate and documented: matched addresses compare their String forms in
+    both scenarios, because the two share a step phrase and only the String
+    form honours ?DNC?.
 
 [x] ExampleTests regenerated in all nine languages and verified by running all
     nine, 2026-10-25 (SpecStudioExampleTests 05e9f07). The staleness this list
@@ -152,5 +211,5 @@ new idea of mine.
 
 ## Two notes that keep coming up
 
-  - "bug to fix.txt" is finished apart from the AddressCorrection half.
+  - "bug to fix.txt" is finished, the AddressCorrection half included.
   - "More to do.txt" asks for a Decimal type. Decimal is already a built-in.
