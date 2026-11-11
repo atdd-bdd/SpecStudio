@@ -149,28 +149,33 @@ void MainWindow::setupMenuBar()
     // ---- File ----
     auto* fileMenu = menuBar()->addMenu(tr("&File"));
 
-    auto* actNewSolution  = fileMenu->addAction(tr("New Solution..."));
-    auto* actNewProject   = fileMenu->addAction(tr("New Project..."));
-    auto* actNewFile      = fileMenu->addAction(tr("New File..."),     QKeySequence::New);
+    // Every item carries a mnemonic, and they are distinct within the menu, so
+    // the whole menu is reachable from the keyboard: Alt+F then the letter.
+    // Without them Alt+F opened File and the next letter did nothing -- Alt-F-S
+    // in particular, which is how most people save.
+    auto* actNewSolution  = fileMenu->addAction(tr("&New Solution..."));
+    auto* actNewProject   = fileMenu->addAction(tr("New &Project..."));
+    auto* actNewFile      = fileMenu->addAction(tr("New &File..."),     QKeySequence::New);
     // Two distinct things, so two items. Open Solution takes a .sspec; Open
     // Project Folder takes a folder and makes one if it has none -- which is
     // what someone handed an existing checkout actually needs.
-    auto* actOpenSolution = fileMenu->addAction(tr("Open Solution..."));
-    auto* actOpenProjectFolder = fileMenu->addAction(tr("Open Project Folder..."));
-    auto* actOpenFile     = fileMenu->addAction(tr("Open File..."), QKeySequence(Qt::CTRL | Qt::Key_O));
+    auto* actOpenSolution = fileMenu->addAction(tr("&Open Solution..."));
+    auto* actOpenProjectFolder = fileMenu->addAction(tr("Open Project Fol&der..."));
+    auto* actOpenFile     = fileMenu->addAction(tr("Open Fi&le..."), QKeySequence(Qt::CTRL | Qt::Key_O));
     fileMenu->addSeparator();
-    m_recentMenu = fileMenu->addMenu(tr("Recent Solutions"));
+    m_recentMenu = fileMenu->addMenu(tr("&Recent Solutions"));
     connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::populateRecentMenu);
     fileMenu->addSeparator();
-    auto* actSave         = fileMenu->addAction(tr("Save"),     QKeySequence::Save);
-    auto* actSaveAs       = fileMenu->addAction(tr("Save As..."));
-    auto* actSaveAll      = fileMenu->addAction(tr("Save All"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+    auto* actSave         = fileMenu->addAction(tr("&Save"),     QKeySequence::Save);
+    auto* actSaveAs       = fileMenu->addAction(tr("Save &As..."));
+    // Not "Save A&ll": L is already Open File's, so All takes the V it can spare.
+    auto* actSaveAll      = fileMenu->addAction(tr("Sa&ve All"), QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     fileMenu->addSeparator();
-    auto* actRefreshFile  = fileMenu->addAction(tr("Refresh"));
+    auto* actRefreshFile  = fileMenu->addAction(tr("Refres&h"));
     fileMenu->addSeparator();
-    auto* actPrint        = fileMenu->addAction(tr("Print..."), QKeySequence::Print);
+    auto* actPrint        = fileMenu->addAction(tr("Prin&t..."), QKeySequence::Print);
     fileMenu->addSeparator();
-    auto* actSettings     = fileMenu->addAction(tr("Settings..."));
+    auto* actSettings     = fileMenu->addAction(tr("Settin&gs..."));
 
     connect(actNewSolution,  &QAction::triggered, m_controller, &AppController::onNewSolution);
     connect(actNewProject,   &QAction::triggered, m_controller, &AppController::onNewProject);
