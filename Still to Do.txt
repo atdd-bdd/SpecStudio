@@ -15,20 +15,43 @@ new idea of mine.
 ## The order of work -- Ken's ruling, 2026-11-11
 
 All the installers and the Store submission are redone in one pass, *after* the
-open defects are fixed. As of 2026-11-11 the defect queue is empty -- the five
-items it held are in "Finished" below -- so the signing pass is the next thing
-to do, and these three are what it has to pick up:
+open defects are fixed. The defect queue emptied on 2026-11-11 and the Windows
+half of the pass was done on 2026-11-12, so what is left is below.
 
-  - The portable zip for 0.9.2 in dist/ is not the signed 18 October release.
-    It was overwritten by an unsigned rebuild on 2026-11-09 and the original
-    is gone; it comes back from tag v0.9.2 in the signing pass.
-  - 0.9.3 exists as a *local* tag only, and what is installed on this machine
-    is the unsigned 0.9.3 setup (built 2026-11-11, moved to
-    "Dropbox\Family Room\SpecStudio"). A pushed v* tag starts the release
-    workflow, so the tag goes up with the signed build and not before.
-  - Anything that ships has to go -StageOnly -> sign_windows.ps1 ->
-    -PackageOnly, or the copies inside the zip and the installer stay
-    unsigned. See the header of scripts/package_windows.ps1.
+Built and signed for 0.9.3 on 2026-11-12, all from one signed stage, each
+checked by unpacking or installing rather than from a log:
+
+  - dist\AlignThree-0.9.3-x64.msix          signed, installs and uninstalls
+  - dist\AlignThree-0.9.3-x64-store.msix    unsigned, for Partner Center
+  - dist\AlignThree-0.9.3-setup.exe         signed, uninstaller stub included
+  - dist\AlignThree-0.9.3-windows-x64.zip   signed binaries inside
+
+  scripts\verify_install.ps1 -PerUser passes every check, so the three facts a
+  store submission asks to be verified by hand -- silent install, the Add or
+  Remove Programs entry, no bundleware -- are evidenced for this build.
+
+**Sectigo's timestamp server refuses to timestamp.** Every Sectigo endpoint
+fails with 0x80096005 (TRUST_E_TIME_STAMP) while DigiCert's and SSL.com's
+work, and signing with no /tr at all succeeds -- so it is the TSA, not the
+token. 0.9.3 is timestamped by DigiCert, passed -TimestampUrl; nothing in the
+scripts changed. If Sectigo's comes back and that matters, the artefacts can be
+re-signed and repacked, since none of this is released.
+
+Still open in the pass:
+
+  - The portable zip for 0.9.2 in dist\ is not the signed 18 October release.
+    It was overwritten by an unsigned rebuild on 2026-11-09 and the original is
+    gone; it comes back from tag v0.9.2.
+  - The v0.9.3 tag is **local only** and still points at 1d56bbb, which is now
+    several commits back. A pushed v* tag starts the release workflow, so it
+    goes up deliberately or not at all.
+  - What is installed on this machine is still the *unsigned* 0.9.3 setup of
+    2026-11-11. The signed one is in dist\.
+  - The Store submission, and the alignthree.com rebuild and FTP deploy.
+
+Anything built from here has to go -StageOnly -> sign_windows.ps1 ->
+-PackageOnly, or the copies inside the zip and the installer stay unsigned. See
+the header of scripts\package_windows.ps1.
 
 ## Waiting on someone else — no work to do
 
