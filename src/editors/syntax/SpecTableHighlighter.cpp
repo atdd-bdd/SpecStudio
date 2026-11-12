@@ -45,10 +45,11 @@ void SpecTableHighlighter::buildRules()
     addRule(R"(\b(Vertical|CompareOnly)\b)", modFmt);
 
     // --- Built-in DataType names ---
-    QTextCharFormat builtinFmt;
-    builtinFmt.setForeground(QColor("#4FC1FF")); // light blue
-    addRule(R"(\b(Character|String|Text|Integer|Float|Scientific|Decimal|Boolean|Date|Time|DateTime|Duration|YesNo)\b)",
-            builtinFmt);
+    // Not a rule: a rule sees the whole line and would colour the word
+    // wherever it stands. A built-in type name is only a type where a type can
+    // be written, so highlightBuiltinTypes decides that from the shape of the
+    // line instead.
+    m_builtinFmt.setForeground(QColor("#4FC1FF")); // light blue
 
     // --- Built-in AttributeSet names ---
     QTextCharFormat builtinAttrFmt;
@@ -134,6 +135,8 @@ void SpecTableHighlighter::highlightBlock(const QString& text)
     }
     setCurrentBlockState(Normal);
 
+    highlightBuiltinTypes(text);
+
     // Apply rules in order (later rules can override earlier ones for same span)
     for (const auto& rule : m_rules) {
         QRegularExpressionMatchIterator it = rule.pattern.globalMatch(text);
@@ -148,6 +151,42 @@ void SpecTableHighlighter::highlightBlock(const QString& text)
     }
 
     checkSpelling(text);
+}
+
+// ---------------------------------------------------------------------------
+// Built-in type names
+// ---------------------------------------------------------------------------
+//
+// "String" is a type in a column of a table, and in the attribute set a step
+// names after its colon. Anywhere else it is an ordinary English word:
+// "Scenario Define with a String", "Calculation Empty String Returns Zero",
+// "Calculation Heading Text Is Parsed", "Define aString = a String". Colouring
+// it there told the reader it meant something it did not, so the line has to
+// be read for its shape before any word in it is coloured.
+//
+// Only these two shapes, then: a table row, and the type reference at the end
+// of a line, where the modifiers may follow it.
+
+void SpecTableHighlighter::highlightBuiltinTypes(const QString& text)
+{
+    const QString builtins =
+        R"((Character|String|Text|Integer|Float|Scientific|Decimal|Boolean|Date|Time|DateTime|Duration|YesNo))";
+    static const QRegularExpression inCell(R"(\b)" + builtins + R"(\b)");
+    static const QRegularExpression afterColon(
+        R"(:\s*)" + builtins + R"(\b(?:\s+(?:Vertical|CompareOnly|EveryCell))*\s*$)");
+
+    if (text.trimmed().startsWith('|')) {
+        QRegularExpressionMatchIterator it = inCell.globalMatch(text);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            setFormat(m.capturedStart(1), m.capturedLength(1), m_builtinFmt);
+        }
+        return;
+    }
+
+    const QRegularExpressionMatch m = afterColon.match(text);
+    if (m.hasMatch())
+        setFormat(m.capturedStart(1), m.capturedLength(1), m_builtinFmt);
 }
 
 // ---------------------------------------------------------------------------

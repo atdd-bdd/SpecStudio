@@ -15,6 +15,13 @@ protected:
 private:
     void buildRules();
 
+    // Colours a built-in type name only where a type can be written -- a table
+    // row, or the type reference at the end of a line. A rule cannot say that:
+    // it sees the whole line and would colour the word in a scenario name or
+    // in the middle of a step too.
+    void highlightBuiltinTypes(const QString& text);
+    QTextCharFormat m_builtinFmt;
+
     // Underlines each misspelled word in the line, after the colouring, so the
     // underline sits on top of whatever colour the word already has.
     void checkSpelling(const QString& text);
