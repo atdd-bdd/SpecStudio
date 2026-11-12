@@ -52,13 +52,21 @@ to do, and these three are what it has to pick up:
 
 ## Open defects
 
-[ ] Nothing. The four defects this section listed on 2026-10-25 are all closed
-    (see "Finished"), and so is the mnemonics work that was added to the queue
-    on 2026-11-11.
+The four defects this section listed on 2026-10-25 are all closed (see
+"Finished"), as is the mnemonics work added to the queue on 2026-11-11 and the
+built-in type colouring. What is left is one decision and one known wart.
 
-    One small wart is known and deliberately left: Swift's Package.swift
-    excludes the copied .spectable files by name, so deleting a specification
-    leaves a stale entry there. SwiftPM reports it as
+
+[ ] The two rules beside the built-in one have the problem it just had: they
+    match the whole line too, so "Then the answer is Yes" colours Yes, "Given
+    In the beginning" colours In, "Then the entry is Valid" colours Valid and
+    "Scenario A True Statement" colours True. Measured, 2026-11-11. Whether
+    those words should also be confined to a table cell is a decision, not a
+    defect -- Valid and Yes do read as cell values, and nobody has complained.
+
+[ ] Swift's Package.swift excludes the copied .spectable files by name, so
+    deleting a specification leaves a stale entry there. Known and deliberately
+    left. SwiftPM reports it as
     "Invalid Exclude ...: File not found." and builds anyway -- measured, not
     assumed. Nothing else enumerates files by hand; C++'s CMakeLists globs
     test_*.cpp with CONFIGURE_DEPENDS, and the other seven languages have no
@@ -66,6 +74,18 @@ to do, and these three are what it has to pick up:
 
 
 ## Finished since the last survey — recorded here so the list is not re-read
+
+[x] A built-in type name is coloured only where a type can be written,
+    2026-11-11. The rule matched the whole line, so "Scenario Define with a
+    String", "Calculation Empty String Returns Zero" and "Calculation Heading
+    Text Is Parsed" all had a word in them lit up as a type, and so did a
+    Define value and the prose of a named comment. Colour now goes to a table
+    row and to the type reference at the end of a line, where the modifiers may
+    follow it; a line is read for its shape before any word in it is coloured,
+    which a rule cannot do. Everything that overrode the colour before still
+    does, so ": String" stays grey as the attribute-set reference and a word
+    inside a # comment stays green. Measured per character off the layout, 19
+    cases.
 
 [x] A removed specification takes its generated code with it, 2026-11-11.
     Deleting a .spectable in the Solution Explorer now deletes the test and the
